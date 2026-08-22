@@ -1184,3 +1184,37 @@ Report findings.
 STOP.
 
 Wait for explicit approval before beginning Day 1.
+
+
+==================================================
+20. SENIOR ARCHITECTURE REVIEW GATE
+==================================================
+
+Immediately after completing any code or configuration change, start a separate read-only senior architecture review phase without waiting for another user request. Complete that review before recommending a commit or beginning unrelated work.
+
+The review must:
+
+- make no code, configuration, dependency, database, or infrastructure changes
+- review the complete uncommitted diff and its architectural context
+- verify security, correctness, deployment compatibility, data integrity, failure handling, and test coverage
+- compare the implementation with this document and the approved architecture report
+- list findings under HIGH, MEDIUM, and LOW risk headings
+- include file and line references for every actionable finding
+- run proportionate tests, type checking, lint, and build validation when available
+- explicitly state READY TO COMMIT or NOT READY TO COMMIT
+- treat every unresolved HIGH risk as a commit blocker
+- treat unresolved MEDIUM risks as blockers unless an authorized owner records a specific risk acceptance
+- allow LOW risks to become documented follow-up work when they do not undermine the requested change
+- suggest a concise commit message only when the result is READY TO COMMIT
+
+The change and review are consecutive but separate phases. Once the review begins, do not modify code until the review result has been reported.
+
+If the review identifies a blocker:
+
+1. Stop without changing code.
+2. Report the risks and recommended remediation.
+3. Wait for explicit approval to fix them unless the user already authorized remediation.
+4. Apply fixes in a new change phase when authorized.
+5. Immediately run a new read-only senior architecture review after the fixes.
+
+Never commit automatically. A READY TO COMMIT recommendation is not authorization to create the commit.

@@ -1,0 +1,10 @@
+{
+  "name": "@aims/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:storage": "node --experimental-strip-types --test test/local-storage.test.ts"
+  },
+  "type": "module"
+}
