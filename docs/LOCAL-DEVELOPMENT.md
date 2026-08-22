@@ -41,6 +41,17 @@ Use the administrative account only for reviewed migrations and maintenance. Put
 
 ## Local document storage
 
-Development documents are written below `storage/documents/quarantine`. A file remains quarantined until a later document workflow records successful malware scanning and validation. The hosted web application must not import the Node filesystem adapter; it belongs exclusively to the NestJS API runtime.
+### Development/demo risk acceptance
 
-Production will provide an Amazon S3 implementation of the same `DocumentStorage` interface.
+Risk owner decision recorded 2026-08-22: malware scanning may be omitted for the local development and competition-demo filesystem only. This acceptance is valid only while all of the following remain true:
+
+- files are trusted synthetic demo fixtures, not arbitrary public uploads
+- no real invoices, receipts, payment evidence, personal data, or confidential finance records are stored
+- the API is reachable only from the local development machine
+- local files are non-authoritative and may be discarded after the demo
+- `LOCAL_STORAGE_DEMO_MODE=true` is explicitly configured
+- the local adapter refuses to initialize when `NODE_ENV=production`
+
+Development documents are streamed into `storage/documents/quarantine`, checked for allowed file signatures and closing structure, and hashed with SHA-256. A scanner-aware promotion service remains available for testing, but a real malware engine is not required under this narrow local-demo acceptance. The hosted web application must not import the Node filesystem adapter; it belongs exclusively to the local NestJS API runtime.
+
+This acceptance does not apply to staging or production. Amazon S3 storage, real uploaded documents, and any externally reachable deployment require a newly reviewed production storage contract with malware scanning, independent immutable objects, durable scan evidence, and no direct promotion bypass.

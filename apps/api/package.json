@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:storage": "node --experimental-strip-types --test test/local-storage.test.ts"
+    "test:storage": "tsc -p tsconfig.test.json && node --test .test-dist/test/local-storage.test.js"
   },
   "type": "module"
 }

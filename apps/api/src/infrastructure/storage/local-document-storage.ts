@@ -1,17 +1,20 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { link, lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { link, lstat, mkdir, open, readFile, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import type {
   DocumentStorage,
+  PromoteDocumentInput,
   StoredDocument,
   StoreDocumentInput,
-} from './document-storage.ts';
+} from './document-storage.js';
 
 export interface LocalStorageConfig {
   rootPath: string;
   maxUploadBytes: number;
   allowedContentTypes: ReadonlySet<string>;
+  demoMode: true;
 }
 
 const SIGNATURES: ReadonlyArray<{
@@ -23,12 +26,21 @@ const SIGNATURES: ReadonlyArray<{
   { contentType: 'image/png', bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] },
 ];
 
+const INSPECTION_PREFIX_BYTES = 16;
+const INSPECTION_TAIL_BYTES = 2048;
+
 export function loadLocalStorageConfig(
   environment: Readonly<Record<string, string | undefined>> = process.env,
   applicationRoot = process.cwd(),
 ): LocalStorageConfig {
   if (environment.STORAGE_DRIVER !== 'local') {
     throw new Error('Local storage requires STORAGE_DRIVER=local');
+  }
+  if (environment.NODE_ENV === 'production') {
+    throw new Error('Local document storage is forbidden in production');
+  }
+  if (environment.LOCAL_STORAGE_DEMO_MODE !== 'true') {
+    throw new Error('Local storage requires explicit LOCAL_STORAGE_DEMO_MODE=true risk acceptance');
   }
 
   const configuredPath = environment.LOCAL_STORAGE_PATH;
@@ -61,6 +73,7 @@ export function loadLocalStorageConfig(
     rootPath: path.resolve(applicationRoot, configuredPath),
     maxUploadBytes,
     allowedContentTypes,
+    demoMode: true,
   };
 }
 
@@ -70,6 +83,12 @@ export class LocalDocumentStorage implements DocumentStorage {
   readonly #allowedContentTypes: ReadonlySet<string>;
 
   constructor(config: LocalStorageConfig) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Local document storage is forbidden in production');
+    }
+    if (config.demoMode !== true) {
+      throw new Error('Local document storage requires explicit development demo mode');
+    }
     this.#rootPath = path.resolve(config.rootPath);
     this.#maxUploadBytes = config.maxUploadBytes;
     this.#allowedContentTypes = new Set(config.allowedContentTypes);
@@ -80,39 +99,63 @@ export class LocalDocumentStorage implements DocumentStorage {
     if (!this.#allowedContentTypes.has(declaredContentType)) {
       throw new Error(`Unsupported document content type: ${declaredContentType}`);
     }
-    if (input.data.byteLength === 0 || input.data.byteLength > this.#maxUploadBytes) {
-      throw new Error('Document size is outside the configured upload limit');
-    }
-
     const quarantinedKey = `quarantine/${input.key}`;
     const targetPath = this.#resolveKey(quarantinedKey);
-    const detectedContentType = detectContentType(input.data);
-    if (detectedContentType !== declaredContentType) {
-      throw new Error('Declared document type does not match its file signature');
-    }
-
-    await mkdir(this.#rootPath, { recursive: true, mode: 0o700 });
-    await this.#assertNoSymlink(this.#rootPath);
-
-    await this.#assertNoSymlinkComponents(path.dirname(targetPath));
-    await mkdir(path.dirname(targetPath), { recursive: true, mode: 0o700 });
-    await this.#assertNoSymlinkComponents(path.dirname(targetPath));
+    await this.#prepareTargetDirectory(targetPath);
 
     const temporaryPath = `${targetPath}.${randomUUID()}.tmp`;
+    const handle = await open(
+      temporaryPath,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+      0o600,
+    );
+    const digest = createHash('sha256');
+    let prefix: Uint8Array<ArrayBufferLike> = new Uint8Array();
+    let tail: Uint8Array<ArrayBufferLike> = new Uint8Array();
+    let sizeBytes = 0;
     try {
-      await writeFile(temporaryPath, input.data, { flag: 'wx', mode: 0o600 });
+      for await (const chunk of input.data) {
+        if (!(chunk instanceof Uint8Array)) {
+          throw new Error('Document stream must yield Uint8Array chunks');
+        }
+        if (chunk.byteLength === 0) continue;
+        sizeBytes += chunk.byteLength;
+        if (sizeBytes > this.#maxUploadBytes) {
+          throw new Error('Document size exceeds the configured upload limit');
+        }
+        prefix = appendPrefix(prefix, chunk, INSPECTION_PREFIX_BYTES);
+        tail = appendTail(tail, chunk, INSPECTION_TAIL_BYTES);
+        digest.update(chunk);
+        await writeAll(handle, chunk);
+      }
+      if (sizeBytes === 0) {
+        throw new Error('Empty documents are not permitted');
+      }
+
+      const detectedContentType = detectContentType(prefix);
+      if (detectedContentType !== declaredContentType) {
+        throw new Error('Declared document type does not match its file signature');
+      }
+      if (!hasValidContainerEnding(detectedContentType, tail)) {
+        throw new Error('Document structure does not contain the required closing marker');
+      }
+
+      await handle.sync();
+      await handle.close();
       await link(temporaryPath, targetPath);
+      await this.#assertCanonicalInsideRoot(targetPath);
+
+      return {
+        key: quarantinedKey,
+        sizeBytes,
+        sha256: digest.digest('hex'),
+        contentType: detectedContentType,
+        status: 'QUARANTINED',
+      };
     } finally {
+      await handle.close().catch(() => undefined);
       await rm(temporaryPath, { force: true });
     }
-
-    return {
-      key: quarantinedKey,
-      sizeBytes: input.data.byteLength,
-      sha256: createHash('sha256').update(input.data).digest('hex'),
-      contentType: detectedContentType,
-      status: 'QUARANTINED',
-    };
   }
 
   async readQuarantined(key: string, expectedSha256: string): Promise<Uint8Array> {
@@ -130,6 +173,28 @@ export class LocalDocumentStorage implements DocumentStorage {
       throw new Error('Document integrity verification failed');
     }
     return data;
+  }
+
+  async promoteQuarantined(input: PromoteDocumentInput): Promise<StoredDocument> {
+    const data = await this.readQuarantined(input.quarantinedKey, input.expectedSha256);
+    const sourcePath = this.#resolveKey(input.quarantinedKey);
+    const activeKey = `active/${input.destinationKey}`;
+    const targetPath = this.#resolveKey(activeKey);
+    await this.#prepareTargetDirectory(targetPath);
+    await link(sourcePath, targetPath);
+    await this.#assertCanonicalInsideRoot(targetPath);
+
+    const contentType = detectContentType(data);
+    if (!contentType || !hasValidContainerEnding(contentType, appendTail(new Uint8Array(), data, INSPECTION_TAIL_BYTES))) {
+      throw new Error('Quarantined document failed structural verification during promotion');
+    }
+    return {
+      key: activeKey,
+      sizeBytes: data.byteLength,
+      sha256: input.expectedSha256.toLowerCase(),
+      contentType,
+      status: 'ACTIVE',
+    };
   }
 
   #resolveKey(key: string): string {
@@ -176,12 +241,79 @@ export class LocalDocumentStorage implements DocumentStorage {
       throw new Error('Symbolic links are not permitted in document storage paths');
     }
   }
+
+  async #prepareTargetDirectory(targetPath: string): Promise<void> {
+    await mkdir(this.#rootPath, { recursive: true, mode: 0o700 });
+    await this.#assertNoSymlink(this.#rootPath);
+    await this.#assertCanonicalInsideRoot(this.#rootPath, true);
+    await this.#assertNoSymlinkComponents(path.dirname(targetPath));
+    await mkdir(path.dirname(targetPath), { recursive: true, mode: 0o700 });
+    await this.#assertNoSymlinkComponents(path.dirname(targetPath));
+    await this.#assertCanonicalInsideRoot(path.dirname(targetPath), true);
+  }
+
+  async #assertCanonicalInsideRoot(candidatePath: string, allowRoot = false): Promise<void> {
+    const [canonicalRoot, canonicalCandidate] = await Promise.all([
+      realpath(this.#rootPath),
+      realpath(candidatePath),
+    ]);
+    const isRoot = canonicalCandidate === canonicalRoot;
+    if ((!allowRoot || !isRoot) && !canonicalCandidate.startsWith(`${canonicalRoot}${path.sep}`)) {
+      throw new Error('Canonical document path is outside the storage root');
+    }
+  }
 }
 
 function detectContentType(data: Uint8Array): string | undefined {
   return SIGNATURES.find(({ bytes }) =>
     bytes.every((byte, index) => data[index] === byte),
   )?.contentType;
+}
+
+function hasValidContainerEnding(contentType: string, tail: Uint8Array): boolean {
+  if (contentType === 'application/pdf') {
+    return new TextDecoder('latin1').decode(tail).trimEnd().endsWith('%%EOF');
+  }
+  if (contentType === 'image/jpeg') {
+    return tail.length >= 2 && tail.at(-2) === 0xff && tail.at(-1) === 0xd9;
+  }
+  if (contentType === 'image/png') {
+    const ending = [0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82];
+    return tail.length >= ending.length && ending.every(
+      (byte, index) => tail[tail.length - ending.length + index] === byte,
+    );
+  }
+  return false;
+}
+
+function appendPrefix(current: Uint8Array, chunk: Uint8Array, limit: number): Uint8Array {
+  if (current.length >= limit) return current;
+  const remaining = limit - current.length;
+  return concatBytes(current, chunk.subarray(0, remaining));
+}
+
+function appendTail(current: Uint8Array, chunk: Uint8Array, limit: number): Uint8Array {
+  const combined = concatBytes(current, chunk);
+  return combined.length <= limit ? combined : combined.subarray(combined.length - limit);
+}
+
+function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
+  const result = new Uint8Array(left.length + right.length);
+  result.set(left);
+  result.set(right, left.length);
+  return result;
+}
+
+async function writeAll(
+  handle: Awaited<ReturnType<typeof open>>,
+  chunk: Uint8Array,
+): Promise<void> {
+  let offset = 0;
+  while (offset < chunk.byteLength) {
+    const { bytesWritten } = await handle.write(chunk, offset, chunk.byteLength - offset);
+    if (bytesWritten === 0) throw new Error('Document write made no progress');
+    offset += bytesWritten;
+  }
 }
 
 function isMissingPathError(error: unknown): boolean {
