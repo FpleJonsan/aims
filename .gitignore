@@ -28,6 +28,7 @@ yarn-error.log*
 
 # local environment
 .env*
+!.env.example
 
 # deployment and generated files
 .vercel
@@ -36,3 +37,9 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# local document storage (keep the directory, never commit uploaded files)
+/storage/*
+!/storage/documents/
+/storage/documents/*
+!/storage/documents/.gitkeep
