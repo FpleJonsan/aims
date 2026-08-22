@@ -150,24 +150,24 @@ Roles below are logical authorities evaluated server-side: Requester, Validator,
 | DRAFT | CANCELLED | Requester | Owner and not submitted; row version check | `REQUEST_CANCELLED`; repeat returns same result |
 | SUBMITTED | VALIDATING | Validator or deterministic system dispatcher | Request revision fixed; validation work item created transactionally | `VALIDATION_STARTED`; unique work item per revision |
 | SUBMITTED | CANCELLED | Requester/authorized Finance | No approval/payment; cancellation policy permits | `REQUEST_CANCELLED` |
-| VALIDATING | NEEDS_CLARIFICATION | Validator | Persist validation findings and requested fields | `CLARIFICATION_REQUESTED`; finding-set key |
-| VALIDATING | ANALYZED | Validator | Validation completed; either AI output schema-valid and reviewed as required, or manual validation recorded; deterministic finance context captured/referenced | `VALIDATION_COMPLETED`; one completion per revision |
+| VALIDATING | NEEDS_CLARIFICATION | Validator | Persist validation findings and requested fields with clarification type `VALIDATION` | `CLARIFICATION_REQUESTED`; finding-set key |
+| VALIDATING | ANALYZED | Validator | Validation completed; either AI output schema-valid and reviewed as required, or manual validation recorded; begin the ordered finance-context, risk-analysis, and policy work for the current revision | `VALIDATION_COMPLETED`; one completion per revision |
 | VALIDATING | CANCELLED | Authorized Requester/Finance | No payment/approval; cancel in same transaction as work cancellation marker | `REQUEST_CANCELLED` |
 | NEEDS_CLARIFICATION | VALIDATING | Requester submits clarification | New request/document revision, required response present; invalidate stale derived results | `CLARIFICATION_RESPONDED`; revision unique |
 | NEEDS_CLARIFICATION | CANCELLED | Requester/authorized Finance | Cancellation policy permits | `REQUEST_CANCELLED` |
-| ANALYZED | PENDING_APPROVAL | Finance Analyst or System Policy | Human/manual or reviewed AI assessment exists; versioned policy evaluated; approval plan and required commitment created atomically | `APPROVAL_REQUESTED`; unique plan per request revision/policy version |
-| ANALYZED | NEEDS_CLARIFICATION | Finance Analyst | Analysis exposes missing/contradictory evidence | `CLARIFICATION_REQUESTED` |
+| ANALYZED | PENDING_APPROVAL | Finance Analyst or System Policy | For the same current request revision: validation is complete; an immutable deterministic Finance Context snapshot is complete; a manual or reviewed-AI Financial Risk Assessment is complete; the versioned deterministic policy evaluation is complete; and the approval route is resolved. Verify all five gates server-side, then create the approval plan and required commitment atomically | `APPROVAL_REQUESTED`; unique plan per request revision/policy version |
+| ANALYZED | NEEDS_CLARIFICATION | Finance Analyst or System Policy | Missing/contradictory evidence uses the appropriate `VALIDATION` or `APPROVAL` type. A policy exception uses type `POLICY`, requires justification, and records the reason and supplying actor before invalidating affected derived results | `CLARIFICATION_REQUESTED`; clarification and invalidation recorded atomically |
 | ANALYZED | CANCELLED | Requester/authorized Finance | Release any reservation if present | `REQUEST_CANCELLED` |
 | PENDING_APPROVAL | PENDING_APPROVAL | Authorized Approver | Valid next step action/partial route; lock approval case; persist action and advance step atomically | `APPROVAL_STEP_APPROVED`; unique `(step, approver, action-key)` |
 | PENDING_APPROVAL | APPROVED | Authorized Approver or deterministic auto-approval rule | All required steps satisfied; authority/amount/current revision checked; lock case/request | `REQUEST_APPROVED`; duplicate callback returns original result |
 | PENDING_APPROVAL | REJECTED | Authorized Approver | Valid active step; reason required; lock case/request; release commitment atomically or through invariant-preserving ledger entry | `REQUEST_REJECTED`; unique action key |
-| PENDING_APPROVAL | NEEDS_CLARIFICATION | Authorized Approver | Active step; reason/questions required; close/invalidate current approval plan; retain or release commitment per explicit policy | `CLARIFICATION_REQUESTED` |
+| PENDING_APPROVAL | NEEDS_CLARIFICATION | Authorized Approver | Active step; clarification type `APPROVAL` and reason/questions required; close/invalidate current approval plan; retain or release commitment per explicit policy | `CLARIFICATION_REQUESTED` |
 | PENDING_APPROVAL | CANCELLED | Requester plus policy-authorized Finance | Cancellation allowed; invalidate approval tokens; release commitment | `REQUEST_CANCELLED` |
 | APPROVED | FINANCE_CHECK | Finance Controller or deterministic dispatcher | Approval snapshot complete and current; create control case | `FINANCE_CHECK_STARTED`; unique case per approved revision |
 | FINANCE_CHECK | READY_FOR_PAYMENT | Finance Controller | Every deterministic gate passes against locked request/document/approval/policy/commitment snapshots | `FINANCE_CONTROL_PASSED`; one active pass per revision |
 | FINANCE_CHECK | FINANCE_HOLD | Finance Controller | One or more gate failures recorded with safe reasons | `FINANCE_CONTROL_FAILED` |
 | FINANCE_HOLD | FINANCE_CHECK | Finance Controller | Hold causes resolved; evidence/revision rules satisfied; stale approvals re-run where material | `FINANCE_CHECK_RESUMED` |
-| FINANCE_HOLD | NEEDS_CLARIFICATION | Finance Controller | Requester input required; invalidate approval if material fields/documents may change | `CLARIFICATION_REQUESTED` |
+| FINANCE_HOLD | NEEDS_CLARIFICATION | Finance Controller | Requester input required; clarification type `FINANCE_CONTROL` and reason required; invalidate approval if material fields/documents may change | `CLARIFICATION_REQUESTED` |
 | FINANCE_HOLD | CANCELLED | Authorized Finance | Reason required; release commitment | `REQUEST_CANCELLED` |
 | READY_FOR_PAYMENT | PAID | Payment Recorder | Re-run readiness invariants; external payment data complete; duplicate checks pass; lock request/commitment; insert payment and convert commitment to actual atomically | `PAYMENT_RECORDED`; unique request payment and bank-reference constraints plus command key |
 | READY_FOR_PAYMENT | FINANCE_HOLD | Finance Controller | New deterministic blocker before payment; reason required | `PAYMENT_READINESS_REVOKED` |
@@ -178,6 +178,8 @@ Terminal states are `PAID`, `REJECTED`, and `CANCELLED`; no ordinary outbound tr
 Invalid examples include DRAFT→APPROVED, SUBMITTED→PAID, ANALYZED→READY_FOR_PAYMENT, PENDING_APPROVAL→PAID, APPROVED→PAID, FINANCE_HOLD→PAID, PAID→DRAFT/CANCELLED, and any transition initiated by AI or a notification adapter. A no-op self-transition is not generally valid; the PENDING_APPROVAL row above represents a step action while the aggregate state remains unchanged.
 
 Material changes to amount, currency, payee, payment details, category, department, purpose, or supporting-document version never mutate an approved snapshot in place. They create a new revision, invalidate downstream artifacts, and route to VALIDATING (normally through NEEDS_CLARIFICATION). The exact user-facing transition should be codified before implementation.
+
+`NEEDS_CLARIFICATION` is shared, but every clarification carries one required type: `VALIDATION`, `POLICY`, `APPROVAL`, or `FINANCE_CONTROL`. It records a reason, requesting actor, responding actor, timestamps, affected revision, and the stage to resume. A `POLICY` clarification additionally requires justification and the identity of the person who supplied it. Its response returns to the earliest affected point—Validation, Finance Context, or Financial Risk Analysis—invalidates all dependent snapshots/results, and always re-runs deterministic policy evaluation and approval-route resolution before `PENDING_APPROVAL`. No clarification response may skip an invalidated stage.
 
 # 7. AI-Assisted / Manual / Fallback Architecture
 
@@ -363,19 +365,21 @@ The test database must be PostgreSQL, not SQLite, for correctness-sensitive suit
 
 Ten days can produce a competition-ready, integrity-focused vertical slice with production-oriented foundations, but not the full eventual capability set at mature production depth. Scope must prioritize one currency/organization deployment assumptions, manual-first workflow, and one bounded AI capability. Each “day” below is a milestone and may require multiple engineers or extension when exit criteria fail.
 
+The implementation order is locked as: Validation → Finance Context → Financial Risk Analysis → Policy → Approval → Finance Control → Payment → Payment Record → Dashboard → Finance Intelligence.
+
 | Day | Revised objective and exit criteria |
 |---|---|
 | 0 | This architecture/discovery report; resolve blocking choices; no feature code |
-| 1 | Monorepo/toolchain, Compose dependencies, env validation, CI, Nest/Nuxt shells, OIDC-compatible identity contract/local adapter, RBAC/ABAC skeleton, logging/correlation, Prisma locking spike; architecture tests green |
-| 2 | Payment request aggregate/revisions/state-transition service, ticket sequence, document metadata/version/hash/upload quarantine, transactional audit/outbox; manual submit/validate foundation |
-| 3 | Manual validation and assessment end-to-end; document scan/extraction pipeline interfaces; one Document AI provider adapter with schema/evidence validation and outage fallback—not broad agents |
-| 4 | Budgets, revisions, ledger, commitment lifecycle, deterministic finance context, currency rules; forced-race integration tests |
-| 5 | Versioned policy evaluator, authority grants, approval plan/snapshots; keep explainability deterministic; do not spend this day on multiple AI agents |
-| 6 | Channel-independent approval commands, concurrency/idempotency/replay controls, web approval UI; full approval tests |
-| 7 | Telegram adapter and secure identity binding/callback handling; notification outbox; Telegram remains optional |
-| 8 | Final finance-control gate, payment recording, commitment→actual transaction, duplicate-payment race tests, payment history/search/filter/pagination/export minimum |
-| 9 | Deterministic dashboard plus one bounded Financial Risk analysis; AI flags/observability/manual override. Defer Finance Watch and Ask AIMS unless all core gates pass |
-| 10 | Threat-model verification, recovery/failure drills, accessibility/performance, migration/backup restore test, UAT, runbook, demo rehearsal; fix defects rather than add features |
+| 1 | Foundation plus Request Initiation/Capture: monorepo/toolchain, dependencies, configuration, identity and access skeleton, request aggregate/revisions, server-generated ticket sequence, audit/outbox foundations |
+| 2 | Validation plus Documents: document metadata/version/hash/quarantine, manual validation, optional Document AI with schema/evidence validation, clarification and outage fallback |
+| 3 | Finance Context: budgets, revisions, ledger, commitments, deterministic snapshots, currency rules, and concurrency tests |
+| 4 | Financial Risk Analysis: manual assessment first, then one bounded evidence-backed Financial Risk AI capability using the completed Finance Context snapshot; AI flags and fallback |
+| 5 | Policy & Decision: versioned deterministic policy evaluation, policy exceptions, authority requirements, approval-route resolution, and explainability |
+| 6 | Approval plus Telegram: channel-independent commands, approval plans/snapshots, concurrency/idempotency/replay controls, web approval, secure Telegram identity/callback adapter, notification outbox |
+| 7 | Final Finance Control: mandatory deterministic control gate, holds/clarifications, snapshot and commitment verification, and control tests |
+| 8 | Payment Processing plus Payment Record/History: external-payment capture, transactional and idempotent recording, commitment→actual conversion, duplicate-payment races, history/search/filter/pagination/export minimum |
+| 9 | Finance Dashboard plus AI Finance Intelligence: deterministic dashboard, optional evidence-backed insights, observability and manual mode; defer broader agents unless all core gates pass |
+| 10 | Hardening, security, concurrency, and UAT: threat-model verification, recovery/failure drills, accessibility/performance, migration/backup restore, runbook, demo rehearsal; fix defects rather than add features |
 
 Deferred beyond Day 10 unless capacity is proven: Spending Pattern Agent, Compliance Agent, full Finance Watch, Ask AIMS, advanced exports, complex multi-currency consolidation, broad telemetry backend, and non-Telegram channels. “Multi-agent” is not itself a Day 10 success criterion; safe evidence-backed outcomes are.
 

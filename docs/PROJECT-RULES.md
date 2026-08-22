@@ -801,6 +801,25 @@ Day 0 must define the allowed transition matrix.
 
 AI must not own state transitions.
 
+The existing `ANALYZED` state may represent the ordered preparation work after validation, but transition to `PENDING_APPROVAL` is forbidden until all five gates are complete for the same current request revision:
+
+- Validation completed
+- Finance Context snapshot completed
+- Financial Risk Assessment completed
+- Policy evaluation completed
+- Approval route resolved
+
+These gates must be verified server-side. AI cannot complete an authoritative gate, control the transition, calculate authoritative balances, or determine approval authority.
+
+If `NEEDS_CLARIFICATION` is shared, every clarification must have one reason/type:
+
+- `VALIDATION`
+- `POLICY`
+- `APPROVAL`
+- `FINANCE_CONTROL`
+
+A Policy Exception requires justification and must record the reason and the identity of the person supplying the justification. It returns to the earliest affected Validation, Finance Context, or Financial Risk Analysis point. Dependent results are invalidated, and deterministic policy evaluation plus approval-route resolution must run again before approval.
+
 
 ==================================================
 15. AUDIT REQUIREMENTS
@@ -1052,34 +1071,34 @@ Day 0
 Architecture & discovery
 
 Day 1
-Foundation / infrastructure / auth
+Foundation + Request Initiation/Capture
 
 Day 2
-Payment Request / documents / audit
+Validation + Documents
 
 Day 3
-AI document intelligence
+Finance Context
 
 Day 4
-Finance Context / budgets / commitments
+Financial Risk Analysis
 
 Day 5
-Multi-agent financial intelligence
+Policy & Decision
 
 Day 6
-Policy Engine / explainable AI
+Approval + Telegram
 
 Day 7
-Approval / Telegram
+Final Finance Control
 
 Day 8
-Final Finance Control / payment
+Payment Processing + Payment Record/History
 
 Day 9
-Dashboard / AI Finance Watch / Ask AIMS
+Finance Dashboard + AI Finance Intelligence
 
 Day 10
-Security / concurrency / recovery / UAT
+Hardening / Security / Concurrency / UAT
 
 Recommend adjustments if necessary.
 

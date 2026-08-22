@@ -4,7 +4,20 @@ const principles = [
   { number: '03', title: 'Humans provide accountability', text: 'Every material decision has an authorized, auditable owner.' },
 ];
 
-const workflow = ['Request', 'Validate', 'Context', 'Analyze', 'Policy', 'Approve', 'Finance gate', 'Pay & record'];
+const workflow = [
+  'Request Initiation',
+  'Request Capture',
+  'Validation',
+  'Finance Context',
+  'Financial Risk Analysis',
+  'Policy & Decision',
+  'Approval',
+  'Final Finance Control',
+  'Payment Processing',
+  'Payment Record / History',
+  'Finance Dashboard',
+  'AI Finance Intelligence',
+];
 
 export default function Home() {
   return (
