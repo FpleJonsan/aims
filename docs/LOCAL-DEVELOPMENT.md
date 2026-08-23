@@ -39,6 +39,27 @@ The application must not connect as the PostgreSQL administrative user. The curr
 
 Use the administrative account only for reviewed migrations and maintenance. Put the `aims_app` password in the ignored `.env`; never commit it.
 
+### Day 1 database setup
+
+Apply the reviewed migrations in order with the container administrator. The runtime API still connects only as `aims_app` through `DATABASE_URL`:
+
+```bash
+docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/001_day1_foundation.sql
+docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/002_local_demo_seed.sql
+docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/003_runtime_grants.sql
+```
+
+The seed contains synthetic local identities only: `demo.requester` and `demo.finance`. The API accepts `x-aims-user` only as the explicit local identity adapter. When `NODE_ENV=production`, requests are rejected unless `AUTH_TRUSTED_PROXY=true` and the deployment supplies this header through a trusted, stripping identity proxy.
+
+Run the local API and web application in separate terminals:
+
+```bash
+npm run dev --workspace @aims/api
+npm run dev
+```
+
+The Day 1 API listens on `127.0.0.1:3001`, exposes OpenAPI at `/openapi`, and stops at `SUBMITTED`. It does not dispatch requests into Validation.
+
 ## Local document storage
 
 ### Development/demo risk acceptance

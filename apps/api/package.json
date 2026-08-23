@@ -3,8 +3,30 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "dev": "npm run build && node --env-file=../../.env --watch dist/src/main.js",
+    "start": "node --env-file=../../.env dist/src/main.js",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/test/local-storage.test.js .test-dist/test/payment-request-domain.test.js",
+    "test:integration": "tsc -p tsconfig.test.json && node --env-file=../../.env --test .test-dist/test/postgres-integration.test.js",
     "test:storage": "tsc -p tsconfig.test.json && node --test .test-dist/test/local-storage.test.js"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@nestjs/common": "^11.2.1",
+    "@nestjs/core": "^11.2.1",
+    "@nestjs/platform-express": "^11.2.1",
+    "@nestjs/swagger": "^11.4.7",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "multer": "^2.2.0",
+    "pg": "^8.23.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.2.0",
+    "@types/pg": "^8.23.1"
+  }
 }

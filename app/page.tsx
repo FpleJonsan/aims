@@ -1,77 +1,37 @@
-const principles = [
-  { number: '01', title: 'AI provides intelligence', text: 'Structured, evidence-backed analysis that remains optional.' },
-  { number: '02', title: 'Policy provides control', text: 'Deterministic rules own authority, routing, and financial gates.' },
-  { number: '03', title: 'Humans provide accountability', text: 'Every material decision has an authorized, auditable owner.' },
-];
+'use client';
 
-const workflow = [
-  'Request Initiation',
-  'Request Capture',
-  'Validation',
-  'Finance Context',
-  'Financial Risk Analysis',
-  'Policy & Decision',
-  'Approval',
-  'Final Finance Control',
-  'Payment Processing',
-  'Payment Record / History',
-  'Finance Dashboard',
-  'AI Finance Intelligence',
-];
+import { FormEvent, useCallback, useEffect, useState } from 'react';
+import './day1.css';
+
+const API = process.env.NEXT_PUBLIC_AIMS_API_URL ?? 'http://localhost:3001';
+const stages = ['Request Initiation','Request Capture','Validation','Finance Context','Financial Risk Analysis','Policy & Decision','Approval','Final Finance Control','Payment Processing','Payment Record / History','Finance Dashboard','AI Finance Intelligence'];
+type Item = { id:string; ticketNumber:string|null; status:'DRAFT'|'SUBMITTED'; payee:string|null; purpose:string|null; category:string|null; amount:string|null; currency:string|null; departmentId:string; dueDate:string|null; paymentMethod:string|null; paymentDetails:string|null; remark:string|null; documents?:Array<{id:string;original_filename:string;size_bytes:string;version:number}>; audit?:Array<{id:string;action:string;occurred_at:string}> };
+type Api = (path:string, init?:RequestInit) => Promise<unknown>;
 
 export default function Home() {
-  return (
-    <main>
-      <nav className="nav" aria-label="Primary navigation">
-        <a className="brand" href="#top" aria-label="AIMS home"><span className="brandMark">A</span><span><b>AIMS</b><small>Finance control</small></span></a>
-        <div className="navLinks"><a href="#principles">Principles</a><a href="#workflow">Workflow</a><a href="#architecture">Architecture</a></div>
-        <a className="statusPill" href="#readiness"><i /> Day 0 complete</a>
-      </nav>
-
-      <section className="hero" id="top">
-        <div className="eyebrow"><span>AImazing Intelligent Management System</span></div>
-        <h1>Payment control,<br /><em>made intelligent.</em></h1>
-        <p className="heroCopy">A production-oriented internal finance system for safer requests, stronger approvals, and evidence-backed intelligence.</p>
-        <div className="heroActions"><a className="primaryButton" href="#architecture">Explore the architecture <span>↘</span></a><a className="textLink" href="#readiness">View Day 1 readiness <span>→</span></a></div>
-
-        <div className="controlPanel" aria-label="AIMS control model">
-          <div className="panelHeader"><span className="windowDots"><i /><i /><i /></span><span>CONTROL MODEL / LIVE BLUEPRINT</span><span className="secure">● SECURE BY DESIGN</span></div>
-          <div className="panelBody">
-            <div className="panelIntro"><span className="tinyLabel">CORE EQUATION</span><strong>Intelligence<br />without surrendering<br /><em>control.</em></strong></div>
-            <div className="equation">
-              <div><b>AI</b><small>understands<br />and explains</small></div><span>+</span>
-              <div><b>POLICY</b><small>routes and<br />constrains</small></div><span>+</span>
-              <div><b>HUMANS</b><small>decide and<br />account</small></div><span>=</span>
-              <div className="outcome"><b>TRUST</b><small>auditable<br />finance</small></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="principles section" id="principles">
-        <div className="sectionHeading"><span className="sectionNumber">01</span><div><p>OPERATING PRINCIPLES</p><h2>Clear boundaries.<br /><em>Safer outcomes.</em></h2></div><p className="sectionLead">AIMS separates intelligence, control, and accountability so each can do its job—and no component can quietly overreach.</p></div>
-        <div className="principleGrid">
-          {principles.map((item) => <article key={item.number}><span>{item.number}</span><div className="principleIcon" aria-hidden="true">{item.number === '01' ? '✦' : item.number === '02' ? '⌁' : '◎'}</div><h3>{item.title}</h3><p>{item.text}</p></article>)}
-        </div>
-      </section>
-
-      <section className="workflow section" id="workflow">
-        <div className="sectionHeading light"><span className="sectionNumber">02</span><div><p>LOCKED BUSINESS WORKFLOW</p><h2>One controlled path,<br /><em>end to end.</em></h2></div><p className="sectionLead">AI can assist eligible stages. It can never invent a state, select an approver, alter a balance, or mark a payment as paid.</p></div>
-        <div className="workflowRail">{workflow.map((step, index) => <div className="workflowStep" key={step}><span>{String(index + 1).padStart(2, '0')}</span><b>{step}</b>{index < workflow.length - 1 && <i>→</i>}</div>)}</div>
-        <div className="modeStrip"><div><span>✦</span><p><b>AI-assisted</b><small>Candidate analysis + human review</small></p></div><div><span>◇</span><p><b>Manual</b><small>First-class human processing</small></p></div><div><span>↻</span><p><b>Fallback</b><small>Provider failure never blocks work</small></p></div></div>
-      </section>
-
-      <section className="architecture section" id="architecture">
-        <div className="sectionHeading"><span className="sectionNumber">03</span><div><p>PROPOSED ARCHITECTURE</p><h2>Built for integrity,<br /><em>not complexity.</em></h2></div><p className="sectionLead">A modular monolith keeps critical transactions together while independent web, API, and worker processes provide clean operational boundaries.</p></div>
-        <div className="archLayout">
-          <div className="archStack"><div className="archNode accent"><span>EXPERIENCE</span><b>Nuxt web + Telegram</b><small>Channels request actions. They never own authority.</small></div><div className="connector">↓ REST / VERIFIED COMMANDS</div><div className="archNode dark"><span>CONTROL PLANE</span><b>NestJS application</b><small>Identity · workflow · policy · approval · finance control</small></div><div className="archFork"><span>↙</span><span>↓</span><span>↘</span></div><div className="archData"><div><b>PostgreSQL</b><small>source of truth</small></div><div><b>Redis / BullMQ</b><small>durable work delivery</small></div><div><b>S3 / MinIO</b><small>immutable documents</small></div></div></div>
-          <aside className="safeguards"><p className="tinyLabel">NON-NEGOTIABLE SAFEGUARDS</p><div><span>Financial truth</span><b>PostgreSQL + deterministic calculations</b></div><div><span>AI posture</span><b>Optional, bounded, evidence-required</b></div><div><span>Architecture</span><b>Modular monolith with isolated workers</b></div><div><span>Integrity</span><b>Transactions, locks, idempotency, audit</b></div></aside>
-        </div>
-      </section>
-
-      <section className="readiness" id="readiness"><div><p>DAY 0 / FINAL READINESS</p><h2>Architecture complete.<br /><em>Ready for foundation work.</em></h2></div><div className="readinessCard"><span className="readyDot" /><div><small>DAY 0 STATUS</small><b>READY FOR DAY 1</b><p>Discovery, risk analysis, state model, security strategy, and execution plan are documented.</p></div></div></section>
-
-      <footer><a className="brand footerBrand" href="#top"><span className="brandMark">A</span><span><b>AIMS</b><small>AI-Powered Payment & Finance Control</small></span></a><p>AI provides intelligence. Policy provides control.<br />Humans provide accountability.</p><span>Architecture blueprint · 2026</span></footer>
-    </main>
-  );
+  const [user,setUser]=useState<string|null>(null), [items,setItems]=useState<Item[]>([]), [selected,setSelected]=useState<Item|null>(null), [notice,setNotice]=useState('');
+  const api=useCallback(async(path:string,init?:RequestInit):Promise<unknown>=>{if(!user)throw Error('Sign in required');const response=await fetch(`${API}${path}`,{...init,headers:{'x-aims-user':user,...(init?.body instanceof FormData?{}:{'content-type':'application/json'}),...init?.headers}});const data=await response.json().catch(()=>({})) as {message?:string|string[]};if(!response.ok)throw Error(Array.isArray(data.message)?data.message.join(', '):data.message??'Request failed');return data},[user]);
+  const refresh=useCallback(async()=>{if(user)setItems(((await api('/payment-requests?pageSize=50')) as {items:Item[]}).items)},[api,user]);
+  useEffect(()=>{let active=true;void api('/payment-requests?pageSize=50').then(data=>{if(active)setItems((data as {items:Item[]}).items)}).catch(e=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api,user]);
+  async function initiate(){try{const item=await api('/payment-requests',{method:'POST',body:'{}'}) as Item;setSelected(item);await refresh()}catch(e){setNotice(msg(e))}}
+  async function open(id:string){try{setSelected(await api(`/payment-requests/${id}`) as Item)}catch(e){setNotice(msg(e))}}
+  if(!user)return <Login onLogin={setUser}/>;
+  return <main className="appShell"><aside className="sideNav"><Brand/><nav><b>▦ Requests</b><span>◫ Validation <i>Day 2</i></span><span>◌ Finance <i>Future</i></span></nav><button onClick={()=>setUser(null)}>Sign out</button></aside><section className="workspace"><header><div><small>DAY 1 · REQUEST CONTROL</small><h1>Payment requests</h1></div>{user==='demo.requester'&&<button className="primary" onClick={initiate}>＋ New request</button>}</header><div className="stageRail">{stages.map((s,i)=><div className={i<2?'available':'future'} key={s}><span>{String(i+1).padStart(2,'0')}</span><b>{s}</b><small>{i<2?'Available':'Not started'}</small></div>)}</div>{notice&&<p className="notice">{notice}</p>}{selected?<Editor item={selected} api={api} changed={async()=>{setSelected(await api(`/payment-requests/${selected.id}`) as Item);await refresh()}} back={()=>{setSelected(null);void refresh()}}/>:<List items={items} open={open} empty={initiate} canCreate={user==='demo.requester'}/>}</section></main>;
 }
+
+function Login({onLogin}:{onLogin:(id:string)=>void}){return <main className="login"><section><div className="loginBrand">A</div><p>AIMAZING INTELLIGENT MANAGEMENT SYSTEM</p><h1>Payment control,<br/><em>with accountability.</em></h1><p className="copy">A secure local identity adapter provides the Day 1 request workflow. Production requires a trusted identity proxy.</p><div><button onClick={()=>onLogin('demo.requester')}>Continue as requester →</button><button className="secondary" onClick={()=>onLogin('demo.finance')}>View as finance</button></div><small>LOCAL DEVELOPMENT IDENTITIES · NO PASSWORDS OR TOKENS STORED</small></section><aside><p>DAY 1 SCOPE</p>{['Authenticated shell','Request initiation','Request capture','Document foundation','Submit to SUBMITTED','Audit history'].map((x,i)=><div key={x}><span>{String(i+1).padStart(2,'0')}</span><b>{x}</b></div>)}<footer>Validation and all later stages remain inactive.</footer></aside></main>}
+function Brand(){return <div className="brand"><span>A</span><div><b>AIMS</b><small>Finance Control</small></div></div>}
+function List({items,open,empty,canCreate}:{items:Item[];open:(id:string)=>void;empty:()=>void;canCreate:boolean}){return <section className="card"><header><div><small>REQUEST REGISTER</small><h2>Current requests</h2></div><span>{items.length} records</span></header>{items.length?<div className="table">{items.map(x=><button key={x.id} onClick={()=>open(x.id)}><span className="ticket">{x.ticketNumber??'Draft · no ticket'}</span><span><b>{x.payee??'Untitled request'}</b><small>{x.purpose??'Capture not completed'}</small></span><span>{x.amount?`${x.currency} ${x.amount}`:'—'}</span><i className={x.status.toLowerCase()}>{x.status}</i><strong>Open →</strong></button>)}</div>:<div className="empty"><h3>No payment requests yet</h3><p>Initiate a request to create a controlled draft context.</p>{canCreate&&<button className="primary" onClick={empty}>Start first request</button>}</div>}</section>}
+
+function Editor({item,api,changed,back}:{item:Item;api:Api;changed:()=>Promise<void>;back:()=>void}){
+ const [form,setForm]=useState(item),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);const draft=item.status==='DRAFT';
+ const field=(name:keyof Item,value:string)=>setForm(x=>({...x,[name]:value}));
+ async function act(work:()=>Promise<void>){setBusy(true);setNotice('');try{await work()}catch(e){setNotice(msg(e))}finally{setBusy(false)}}
+ async function save(e:FormEvent){e.preventDefault();await act(async()=>{const {payee,purpose,category,amount,currency,dueDate,paymentMethod,paymentDetails,remark}=form;await api(`/payment-requests/${item.id}`,{method:'PATCH',body:JSON.stringify({payee,purpose,category,amount,currency,dueDate,paymentMethod,paymentDetails,remark})});await changed();setNotice('Draft saved.')})}
+ async function submit(){if(confirm('Submit this request as a controlled snapshot?'))await act(async()=>{const x=await api(`/payment-requests/${item.id}/submit`,{method:'POST',body:'{}'}) as Item;await changed();setNotice(`Submitted as ${x.ticketNumber}.`)})}
+ async function upload(e:FormEvent<HTMLFormElement>){e.preventDefault();const target=e.currentTarget;await act(async()=>{await api(`/payment-requests/${item.id}/documents`,{method:'POST',body:new FormData(target)});await changed();target.reset();setNotice('Document attached.')})}
+ async function remove(id:string){await act(async()=>{await api(`/payment-requests/${item.id}/documents/${id}`,{method:'DELETE'});await changed()})}
+ return <section className="editor"><button className="back" onClick={back}>← Request register</button><header><div><small>{item.ticketNumber??'REQUEST INITIATION'}</small><h2>{item.payee||'New payment request'}</h2></div><i className={item.status.toLowerCase()}>{item.status}</i></header>{notice&&<p className="notice">{notice}</p>}<div className="editorGrid"><form className="capture" onSubmit={save}><div className="formTitle"><span>02</span><p><b>Request Capture</b><small>Capture facts only. Business Validation starts on Day 2.</small></p></div><div className="fields"><Field label="Payee" value={form.payee} set={v=>field('payee',v)} disabled={!draft}/><Field label="Category" value={form.category} set={v=>field('category',v)} disabled={!draft}/><Field label="Purpose" value={form.purpose} set={v=>field('purpose',v)} disabled={!draft} wide/><Field label="Amount" value={form.amount} set={v=>field('amount',v)} disabled={!draft}/><label>Currency<select value={form.currency??''} onChange={e=>field('currency',e.target.value)} disabled={!draft}><option value="">Select</option>{['MYR','USD','SGD','EUR','GBP'].map(x=><option key={x}>{x}</option>)}</select></label><label>Due date<input type="date" value={form.dueDate??''} onChange={e=>field('dueDate',e.target.value)} disabled={!draft}/></label><label>Payment method<select value={form.paymentMethod??''} onChange={e=>field('paymentMethod',e.target.value)} disabled={!draft}><option value="">Select</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CARD">Corporate card</option><option value="CASH">Cash</option></select></label><Field label="Payment details" value={form.paymentDetails} set={v=>field('paymentDetails',v)} disabled={!draft} wide/><Field label="Remark" value={form.remark} set={v=>field('remark',v)} disabled={!draft} wide/></div>{draft&&<footer><button disabled={busy}>Save draft</button><button type="button" className="primary" onClick={submit} disabled={busy}>Submit request →</button></footer>}</form><aside className="right"><section><small>SUPPORTING DOCUMENTS</small>{draft&&<form className="upload" onSubmit={upload}><input name="file" type="file" accept="application/pdf,image/jpeg,image/png" required/><input name="documentType" placeholder="Document type (optional)"/><button disabled={busy}>Upload document</button><small>PDF, JPG or PNG · maximum 10 MB</small></form>}{item.documents?.map(d=><div className="document" key={d.id}><span>DOC</span><p><b>{d.original_filename}</b><small>v{d.version} · {Math.ceil(Number(d.size_bytes)/1024)} KB</small></p>{draft&&<button onClick={()=>remove(d.id)}>×</button>}</div>)}{!item.documents?.length&&<p className="muted">No documents attached.</p>}</section><section><small>ACTIVITY</small>{item.audit?.map(a=><div className="activity" key={a.id}><i/><p><b>{a.action.replaceAll('_',' ')}</b><small>{new Date(a.occurred_at).toLocaleString()}</small></p></div>)}</section></aside></div></section>;
+}
+function Field({label,value,set,disabled,wide}:{label:string;value:string|null;set:(v:string)=>void;disabled:boolean;wide?:boolean}){return <label className={wide?'wide':''}>{label}{wide?<textarea value={value??''} onChange={e=>set(e.target.value)} disabled={disabled}/>:<input value={value??''} onChange={e=>set(e.target.value)} disabled={disabled}/>}</label>}
+function msg(error:unknown){return error instanceof Error?error.message:'Something went wrong'}

@@ -14,6 +14,7 @@
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit && npm run typecheck --workspace @aims/api",
+    "test": "npm test --workspace @aims/api",
     "test:storage": "npm run test:storage --workspace @aims/api"
   },
   "dependencies": {
