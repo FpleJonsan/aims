@@ -120,10 +120,10 @@ export default function Home() {
         <nav>
           <b>▦ Requests</b>
           <span>
-            ◫ Validation <i>Active</i>
+            ◫ Validation <i>Ready</i>
           </span>
           <span>
-            ◌ Finance <i>Future</i>
+            ◫ Finance Context <i>Active</i>
           </span>
         </nav>
         <button onClick={() => setUser(null)}>Sign out</button>
@@ -131,7 +131,7 @@ export default function Home() {
       <section className="workspace">
         <header>
           <div>
-            <small>DAY 2 · VALIDATION</small>
+            <small>DAY 3 · FINANCE CONTEXT</small>
             <h1>Payment requests</h1>
           </div>
           {user === "demo.requester" && (
@@ -142,10 +142,10 @@ export default function Home() {
         </header>
         <div className="stageRail">
           {stages.map((s, i) => (
-            <div className={i < 3 ? "available" : "future"} key={s}>
+            <div className={i < 4 ? "available" : "future"} key={s}>
               <span>{String(i + 1).padStart(2, "0")}</span>
               <b>{s}</b>
-              <small>{i < 3 ? "Available" : "Not started"}</small>
+              <small>{i < 4 ? "Available" : "Not started"}</small>
             </div>
           ))}
         </div>
@@ -399,6 +399,7 @@ function Editor({
       {item.status !== "DRAFT" && (
         <ValidationPanel item={item} user={user} api={api} changed={changed} />
       )}
+      {item.status === "VALIDATING" && <FinanceContextPanel item={item} user={user} api={api} />}
       <div className="editorGrid">
         <form className="capture" onSubmit={save}>
           <div className="formTitle">
@@ -573,6 +574,19 @@ function ValidationPanel({ item, user, api, changed }: { item: Item; user: strin
     {user === "demo.requester" && item.status === "NEEDS_CLARIFICATION" && open && <div className="manualReview"><p><b>Clarification required</b><br />{open.reason}<br /><small>{open.required_response}</small></p><textarea placeholder="Your response" value={response} onChange={event => setResponse(event.target.value)} /><button onClick={() => run(async () => { await api(`/payment-requests/${item.id}/clarifications/${open.id}/respond`, { method: "POST", body: JSON.stringify({ response }) }); })}>Respond and resubmit</button></div>}
     {data.current?.overall_result === "PASS" && <p className="readyMarker">Validation complete · Ready for Day 3 Finance Context. No automatic transition was performed.</p>}
   </section>;
+}
+function FinanceContextPanel({item,user,api}:{item:Item;user:string;api:Api}){
+ type Money={minor:string;decimal:string};type View={status:string;exceptionCode?:string;fiscalYear?:number;category:string;requestCurrency:string;budgetCurrency?:string;originalBudget?:Money;revisedBudget?:Money;actual?:Money;committed?:Money;available?:Money;requestAmount:Money;projectedAvailable?:Money;historicalSummary?:Record<string,string|boolean>;readyForFinancialRiskAnalysis:boolean};
+ const [data,setData]=useState<View|null>(null),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
+ useEffect(()=>{let active=true;void api(`/payment-requests/${item.id}/finance-context`).then(value=>{if(active)setData(value as View)}).catch(()=>undefined);return()=>{active=false}},[api,item.id]);
+ async function calculate(){setBusy(true);setNotice('');try{setData(await api(`/payment-requests/${item.id}/finance-context`,{method:'POST',body:'{}'}) as View)}catch(error){setNotice(msg(error))}finally{setBusy(false)}}
+ const amount=(money?:Money)=>money?`${data?.requestCurrency??'MYR'} ${money.decimal}`:'—';
+ return <section className="financeContextPanel"><header><div><small>04 · FINANCE CONTEXT</small><h3>Authoritative financial context</h3></div><span>SYSTEM CALCULATED</span></header>
+  {notice&&<p className="notice">{notice}</p>}
+  {!data&&user==='demo.finance'&&<button className="primary" disabled={busy} onClick={calculate}>{busy?'Calculating…':'Calculate Finance Context'}</button>}
+  {!data&&user!=='demo.finance'&&<p className="muted">Finance Context has not been calculated.</p>}
+  {data&&<><div className="financeStatus"><b>{data.status}</b><span>Fiscal year {data.fiscalYear??'—'}</span><span>{data.category}</span></div>{data.exceptionCode?<><p className="financeException"><b>Finance Context exception</b><br/>{data.exceptionCode.replaceAll('_',' ')} · Finance attention is required before Stage 5.</p>{user==='demo.finance'&&<button disabled={busy} onClick={async()=>{setBusy(true);try{setData(await api(`/payment-requests/${item.id}/finance-context/recalculate`,{method:'POST',body:'{}'}) as View)}catch(error){setNotice(msg(error))}finally{setBusy(false)}}}>Recalculate after correction</button>}</>:<><div className="financeGrid">{[['Original budget',amount(data.originalBudget)],['Revised budget',amount(data.revisedBudget)],['Actual spending',amount(data.actual)],['Active commitments',amount(data.committed)],['Available budget',amount(data.available)],['Current request',amount(data.requestAmount)],['Projected available',amount(data.projectedAvailable)]].map(([label,value])=><article key={label}><small>{label}</small><b>{value}</b></article>)}</div><p className="financeFormula">AVAILABLE = REVISED − ACTUAL − ACTIVE COMMITMENTS</p></>}{data.readyForFinancialRiskAnalysis&&<p className="readyMarker">Finance Context complete · Ready for Day 4 Financial Risk Analysis. No automatic transition was performed.</p>}</>}
+ </section>
 }
 function Field({
   label,
