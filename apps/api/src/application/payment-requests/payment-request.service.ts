@@ -121,7 +121,7 @@ export class PaymentRequestService {
     return mapRequest(result.rows[0]);
   }
 
-  async audit(client: PoolClient, actorId: string, action: string, entityId: string, previousState: string | null, newState: string | null, correlationId: string, metadata: object): Promise<void> {
+  async audit(client: PoolClient, actorId: string | null, action: string, entityId: string, previousState: string | null, newState: string | null, correlationId: string, metadata: object): Promise<void> {
     await client.query(`INSERT INTO audit_events
       (id, actor_id, action, entity_type, entity_id, previous_state, new_state, correlation_id, safe_metadata)
       VALUES ($1,$2,$3,'PAYMENT_REQUEST',$4,$5,$6,$7,$8)`,

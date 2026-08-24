@@ -7,8 +7,10 @@
     "start": "node --env-file=../../.env dist/src/main.js",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "tsc -p tsconfig.test.json && node --test .test-dist/test/local-storage.test.js .test-dist/test/payment-request-domain.test.js",
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/test/local-storage.test.js .test-dist/test/payment-request-domain.test.js .test-dist/test/validation-contract.test.js",
+    "test:ai:live": "tsc -p tsconfig.test.json && node --env-file=../../.env .test-dist/test/live-ai-smoke.js",
     "test:integration": "tsc -p tsconfig.test.json && node --env-file=../../.env --test .test-dist/test/postgres-integration.test.js",
+    "test:validation:integration": "tsc -p tsconfig.test.json && node --env-file=../../.env --test .test-dist/test/validation-integration.test.js",
     "test:storage": "tsc -p tsconfig.test.json && node --test .test-dist/test/local-storage.test.js"
   },
   "type": "module",
@@ -22,7 +24,8 @@
     "multer": "^2.2.0",
     "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "zod": "^4.1.5"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

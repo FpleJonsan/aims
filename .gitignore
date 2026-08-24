@@ -36,6 +36,7 @@ next-env.d.ts
 *.tsbuildinfo
 /apps/api/.test-dist/
 /apps/api/dist/
+/apps/api/node_modules/
 /dist/
 /.wrangler/
 /outputs/

@@ -1,4 +1,4 @@
-export const REQUEST_STATUSES = ['DRAFT', 'SUBMITTED', 'CANCELLED'] as const;
+export const REQUEST_STATUSES = ['DRAFT', 'SUBMITTED', 'VALIDATING', 'NEEDS_CLARIFICATION', 'CANCELLED'] as const;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 export type Role = 'REQUESTER' | 'FINANCE' | 'ADMIN';
 

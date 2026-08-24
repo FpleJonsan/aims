@@ -47,6 +47,7 @@ Apply the reviewed migrations in order with the container administrator. The run
 docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/001_day1_foundation.sql
 docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/002_local_demo_seed.sql
 docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/003_runtime_grants.sql
+docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/004_day2_validation.sql
 ```
 
 The seed contains synthetic local identities only: `demo.requester` and `demo.finance`. The API accepts `x-aims-user` only as the explicit local identity adapter. When `NODE_ENV=production`, requests are rejected unless `AUTH_TRUSTED_PROXY=true` and the deployment supplies this header through a trusted, stripping identity proxy.
@@ -59,6 +60,8 @@ npm run dev
 ```
 
 The Day 1 API listens on `127.0.0.1:3001`, exposes OpenAPI at `/openapi`, and stops at `SUBMITTED`. It does not dispatch requests into Validation.
+
+Day 2 adds Validation without starting Finance Context. AI defaults OFF in `ai_feature_configuration`; `AI_MASTER` and `DOCUMENT_VALIDATION` must both be enabled before the Document Agent can call the configured server-side provider. `DOCUMENT_EXTRACTION` is independently recorded for operational control. With either required flag OFF, no provider call occurs and manual validation remains available. Run `npm run test:ai:live --workspace @aims/api` only when `OPENAI_API_KEY` is intentionally configured; the normal test suite never calls paid AI.
 
 ## Local document storage
 
