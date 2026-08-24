@@ -15,7 +15,8 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern apps/api/dist --ignore-pattern apps/api/.test-dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit && npm run typecheck --workspace @aims/api",
     "test": "npm test --workspace @aims/api",
-    "test:storage": "npm run test:storage --workspace @aims/api"
+    "test:storage": "npm run test:storage --workspace @aims/api",
+    "test:ai:live": "npm run test:ai:live --workspace @aims/api"
   },
   "dependencies": {
     "next": "16.2.6",
