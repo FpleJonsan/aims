@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit && npm run typecheck --workspace @aims/api",
     "test": "npm test --workspace @aims/api",
     "test:storage": "npm run test:storage --workspace @aims/api",
-    "test:ai:live": "npm run test:ai:live --workspace @aims/api"
+    "test:ai:live": "npm run test:ai:live --workspace @aims/api",
+    "test:ai:financial-live": "npm run test:ai:financial-live --workspace @aims/api"
   },
   "dependencies": {
     "next": "16.2.6",

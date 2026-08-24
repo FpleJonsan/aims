@@ -51,6 +51,7 @@ docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psq
 docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/005_day3_finance_context.sql
 docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/006_day3_demo_finance_seed.sql
 docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/007_day3_snapshot_constraint_hardening.sql
+docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/008_day4_financial_analysis.sql
 ```
 
 The seed contains synthetic local identities only: `demo.requester` and `demo.finance`. The API accepts `x-aims-user` only as the explicit local identity adapter. When `NODE_ENV=production`, requests are rejected unless `AUTH_TRUSTED_PROXY=true` and the deployment supplies this header through a trusted, stripping identity proxy.
@@ -69,6 +70,8 @@ Day 2 adds Validation without starting Finance Context. AI defaults OFF in `ai_f
 Day 3 adds deterministic Finance Context without starting Financial Risk Analysis. Currency values are stored and calculated as integer minor units. Available budget is revised budget minus actual spending minus active commitments; projected available further subtracts the current request. Cross-currency contexts fail with `CURRENCY_CONTEXT_UNSUPPORTED`; no FX value is inferred. Migration 006 contains synthetic local/demo budget data only and must not be treated as production configuration.
 
 Run the Day 3 PostgreSQL suite with `npm run test:finance-context:integration --workspace @aims/api`.
+
+Day 4 adds manual-first, evidence-backed Financial Risk Analysis. Its three specialist AI flags default OFF, and `AI_MASTER` OFF guarantees zero financial-agent calls. AI-assisted results remain recommendations until Finance finalizes them. Run the PostgreSQL suite with `npm run test:financial-analysis:integration --workspace @aims/api`; the paid four-call provider smoke test is explicit opt-in through `npm run test:ai:financial-live`.
 
 ## Local document storage
 

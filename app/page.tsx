@@ -123,7 +123,7 @@ export default function Home() {
             ◫ Validation <i>Ready</i>
           </span>
           <span>
-            ◫ Finance Context <i>Active</i>
+            ◫ Finance Context <i>Ready</i>
           </span>
         </nav>
         <button onClick={() => setUser(null)}>Sign out</button>
@@ -131,7 +131,7 @@ export default function Home() {
       <section className="workspace">
         <header>
           <div>
-            <small>DAY 3 · FINANCE CONTEXT</small>
+            <small>DAY 4 · FINANCIAL RISK ANALYSIS</small>
             <h1>Payment requests</h1>
           </div>
           {user === "demo.requester" && (
@@ -142,10 +142,10 @@ export default function Home() {
         </header>
         <div className="stageRail">
           {stages.map((s, i) => (
-            <div className={i < 4 ? "available" : "future"} key={s}>
+            <div className={i < 5 ? "available" : "future"} key={s}>
               <span>{String(i + 1).padStart(2, "0")}</span>
               <b>{s}</b>
-              <small>{i < 4 ? "Available" : "Not started"}</small>
+              <small>{i < 5 ? "Available" : "Not started"}</small>
             </div>
           ))}
         </div>
@@ -400,6 +400,8 @@ function Editor({
         <ValidationPanel item={item} user={user} api={api} changed={changed} />
       )}
       {item.status === "VALIDATING" && <FinanceContextPanel item={item} user={user} api={api} />}
+      {item.status === "VALIDATING" && <FinancialAnalysisPanel item={item} user={user} api={api} />}
+      {item.status === "VALIDATING" && user === "demo.finance" && <FinancialHumanReview item={item} api={api} />}
       <div className="editorGrid">
         <form className="capture" onSubmit={save}>
           <div className="formTitle">
@@ -587,6 +589,15 @@ function FinanceContextPanel({item,user,api}:{item:Item;user:string;api:Api}){
   {!data&&user!=='demo.finance'&&<p className="muted">Finance Context has not been calculated.</p>}
   {data&&<><div className="financeStatus"><b>{data.status}</b><span>Fiscal year {data.fiscalYear??'—'}</span><span>{data.category}</span></div>{data.exceptionCode?<><p className="financeException"><b>Finance Context exception</b><br/>{data.exceptionCode.replaceAll('_',' ')} · Finance attention is required before Stage 5.</p>{user==='demo.finance'&&<button disabled={busy} onClick={async()=>{setBusy(true);try{setData(await api(`/payment-requests/${item.id}/finance-context/recalculate`,{method:'POST',body:'{}'}) as View)}catch(error){setNotice(msg(error))}finally{setBusy(false)}}}>Recalculate after correction</button>}</>:<><div className="financeGrid">{[['Original budget',amount(data.originalBudget)],['Revised budget',amount(data.revisedBudget)],['Actual spending',amount(data.actual)],['Active commitments',amount(data.committed)],['Available budget',amount(data.available)],['Current request',amount(data.requestAmount)],['Projected available',amount(data.projectedAvailable)]].map(([label,value])=><article key={label}><small>{label}</small><b>{value}</b></article>)}</div><p className="financeFormula">AVAILABLE = REVISED − ACTUAL − ACTIVE COMMITMENTS</p></>}{data.readyForFinancialRiskAnalysis&&<p className="readyMarker">Finance Context complete · Ready for Day 4 Financial Risk Analysis. No automatic transition was performed.</p>}</>}
  </section>
+}
+function FinancialAnalysisPanel({item,user,api}:{item:Item;user:string;api:Api}){type Agent={agent:string;status:string;result?:{summary?:string;confidence?:number;findings?:Array<{code:string;explanation:string;evidenceReferences:unknown[]}>};failure_code?:string};type View={id:string;source:string;status:string;ai_assessment?:{riskLevel?:string;priority?:string;urgency?:string;summary?:string;disagreements?:string[]};final_risk?:string;final_priority?:string;agents:Agent[];readyForPolicyEvaluation:boolean};const[data,setData]=useState<View|null>(null),[notice,setNotice]=useState(''),[risk,setRisk]=useState('MEDIUM'),[priority,setPriority]=useState('NORMAL');useEffect(()=>{let active=true;void api(`/payment-requests/${item.id}/financial-analysis`).then(v=>{if(active)setData(v as View)}).catch(()=>undefined);return()=>{active=false}},[api,item.id]);async function start(){try{const value=await api(`/payment-requests/${item.id}/financial-analysis`,{method:'POST',body:'{}'}) as View|{mode:string};if('id'in value)setData(value);else setNotice(value.mode==='MANUAL'?'AI Assistance: Disabled · Complete the manual assessment.':'AI assistance unavailable · Continue manually.')}catch(e){setNotice(msg(e))}}async function manual(){try{setData(await api(`/payment-requests/${item.id}/financial-analysis/manual`,{method:'POST',body:JSON.stringify({riskLevel:risk,priority,urgency:priority,riskFlags:[],financialAssessment:'Finance Context reviewed by Finance.',spendingAssessment:'Authoritative historical metrics reviewed.',complianceRemarks:'Current Validation and evidence reviewed.',evidenceReferences:[{source:'FINANCE_CONTEXT',reference:'current Finance Context snapshot',field:'projected_available_amount_minor'}],remarks:'Manual financial assessment'})}) as View)}catch(e){setNotice(msg(e))}}return <section className="financialAnalysisPanel"><header><div><small>05 · FINANCIAL RISK ANALYSIS</small><h3>Evidence-backed financial intelligence</h3></div><span>{data?.status??'NOT STARTED'}</span></header>{notice&&<p className="notice">{notice}</p>}{!data&&user==='demo.finance'&&<div className="analysisActions"><button onClick={start}>Start AI-assisted analysis</button><select value={risk} onChange={e=>setRisk(e.target.value)}><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select><select value={priority} onChange={e=>setPriority(e.target.value)}><option>LOW</option><option>NORMAL</option><option>HIGH</option><option>URGENT</option></select><button onClick={manual}>Complete manually</button></div>}{data&&<><div className="agentGrid">{data.agents.map(a=><article key={a.agent}><small>{a.agent.replaceAll('_',' ')}</small><b>{a.status}</b><p>{a.result?.summary??(a.failure_code?'AI assistance unavailable.':'No result')}</p><em>{a.result?.findings?.length??0} evidence-backed finding(s)</em></article>)}</div>{data.ai_assessment&&<div className="consolidated"><small>AI RECOMMENDATION</small><h4>{data.ai_assessment.riskLevel} RISK · {data.ai_assessment.priority} PRIORITY</h4><p>{data.ai_assessment.summary}</p>{data.ai_assessment.disagreements?.map(x=><p key={x}>Disagreement: {x}</p>)}</div>}{data.status==='FINALIZED'&&<div className="humanFinal"><small>HUMAN FINAL ASSESSMENT</small><h4>{data.final_risk} RISK · {data.final_priority} PRIORITY</h4></div>}{data.readyForPolicyEvaluation&&<p className="readyMarker">Financial Risk Analysis finalized · Ready for Day 5 Policy Evaluation. No automatic transition was performed.</p>}</>}</section>}
+function FinancialHumanReview({item,api}:{item:Item;api:Api}){
+ type View={id:string;status:string;ai_assessment?:{riskLevel?:string;priority?:string}};
+ const[data,setData]=useState<View|null>(null),[risk,setRisk]=useState('MEDIUM'),[priority,setPriority]=useState('NORMAL'),[notice,setNotice]=useState('');
+ useEffect(()=>{let active=true;void api(`/payment-requests/${item.id}/financial-analysis`).then(value=>{if(active)setData(value as View)}).catch(()=>undefined);return()=>{active=false}},[api,item.id]);
+ if(data?.status!=='AWAITING_HUMAN_REVIEW')return null;
+ async function finalize(){if(!data)return;try{await api(`/payment-requests/${item.id}/financial-analysis/${data.id}/finalize`,{method:'POST',body:JSON.stringify({riskLevel:risk,priority,urgency:priority,riskFlags:[],financialAssessment:'Finance Context reviewed by Finance.',spendingAssessment:'Authoritative historical metrics reviewed.',complianceRemarks:'Current Validation and evidence reviewed.',evidenceReferences:[{source:'FINANCE_CONTEXT',reference:'current Finance Context snapshot',field:'projected_available_amount_minor'}],remarks:'Human final assessment',overrideReason:data.ai_assessment&&(data.ai_assessment.riskLevel!==risk||data.ai_assessment.priority!==priority)?'Finance reviewer adjusted the AI recommendation.':undefined})});setData(await api(`/payment-requests/${item.id}/financial-analysis`) as View)}catch(error){setNotice(msg(error))}}
+ return <section className="humanFinal"><small>HUMAN REVIEW · ACCOUNTABLE FINAL ASSESSMENT</small>{notice&&<p className="notice">{notice}</p>}<select value={risk} onChange={event=>setRisk(event.target.value)}><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>CRITICAL</option></select><select value={priority} onChange={event=>setPriority(event.target.value)}><option>LOW</option><option>NORMAL</option><option>HIGH</option><option>URGENT</option></select><button onClick={finalize}>Finalize assessment</button></section>
 }
 function Field({
   label,
