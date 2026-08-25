@@ -5,6 +5,7 @@ import { Pool, type PoolClient } from "pg";
 export class Postgres implements OnModuleDestroy {
   readonly pool: Pool;
   readonly financePool: Pool | null;
+  readonly paymentPool: Pool | null;
 
   constructor() {
     const connectionString = process.env.DATABASE_URL;
@@ -21,6 +22,26 @@ export class Postgres implements OnModuleDestroy {
           statement_timeout: 10_000,
         })
       : null;
+    this.paymentPool = process.env.PAYMENT_DATABASE_URL
+      ? new Pool({ connectionString: process.env.PAYMENT_DATABASE_URL, max: 5, statement_timeout: 10_000 })
+      : null;
+  }
+
+  async paymentTransaction<T>(actorId: string, correlationId: string, operation: (client: PoolClient) => Promise<T>, commandKey?: string): Promise<T> {
+    if (!this.paymentPool) throw new Error("PAYMENT_DATABASE_URL is required for trusted Payment commands");
+    return this.retrySerialization(async () => {
+      const client = await this.paymentPool!.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("SELECT set_config('aims.user_id',$1,true),set_config('aims.correlation_id',$2,true),set_config('aims.command_key',$3,true)", [actorId, correlationId, commandKey ?? ""]);
+        const result = await operation(client);
+        await client.query("COMMIT");
+        return result;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally { client.release(); }
+    });
   }
 
   async financeTransaction<T>(
@@ -102,5 +123,6 @@ export class Postgres implements OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     await this.pool.end();
     await this.financePool?.end();
+    await this.paymentPool?.end();
   }
 }

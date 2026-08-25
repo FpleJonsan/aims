@@ -31,6 +31,7 @@ type Item = {
     | "FINANCE_CHECK"
     | "FINANCE_HOLD"
     | "READY_FOR_PAYMENT"
+    | "PAID"
     | "REJECTED";
   payee: string | null;
   purpose: string | null;
@@ -57,7 +58,8 @@ export default function Home() {
   const [user, setUser] = useState<string | null>(null),
     [items, setItems] = useState<Item[]>([]),
     [selected, setSelected] = useState<Item | null>(null),
-    [notice, setNotice] = useState("");
+    [notice, setNotice] = useState(""),
+    [showPaymentHistory, setShowPaymentHistory] = useState(false);
   const api = useCallback(
     async (path: string, init?: RequestInit): Promise<unknown> => {
       if (!user) throw Error("Sign in required");
@@ -108,12 +110,22 @@ export default function Home() {
         })),
       );
     } else if (user === "demo.finance") {
-      const rows = (
+      const control = (
         (await api("/finance-control")) as {
           items: Array<Record<string, unknown>>;
         }
       ).items;
-      setItems(rows.map(financeQueueItem));
+      const payment = (
+        (await api("/payment-queue")) as {
+          items: Array<Record<string, unknown>>;
+        }
+      ).items;
+      setItems(
+        [
+          ...control.map(financeQueueItem),
+          ...payment.map(paymentQueueItem),
+        ].filter((x, i, a) => a.findIndex((y) => y.id === x.id) === i),
+      );
     } else if (user)
       setItems(
         ((await api("/payment-requests?pageSize=50")) as { items: Item[] })
@@ -225,18 +237,26 @@ export default function Home() {
               ＋ New request
             </button>
           )}
+          {user === "demo.finance" && (
+            <div className="headerActions">
+              <button className="secondary" onClick={() => setShowPaymentHistory(false)}>Work queue</button>
+              <button className="primary" onClick={() => { setSelected(null); setShowPaymentHistory(true); }}>Payment History</button>
+            </div>
+          )}
         </header>
         <div className="stageRail">
           {stages.map((s, i) => (
-            <div className={i < 8 ? "available" : "future"} key={s}>
+            <div className={i < 10 ? "available" : "future"} key={s}>
               <span>{String(i + 1).padStart(2, "0")}</span>
               <b>{s}</b>
-              <small>{i < 8 ? "Available" : "Not started"}</small>
+              <small>{i < 10 ? "Available" : "Not started"}</small>
             </div>
           ))}
         </div>
         {notice && <p className="notice">{notice}</p>}
-        {selected ? (
+        {showPaymentHistory && user === "demo.finance" ? (
+          <PaymentHistory api={api} user={user} />
+        ) : selected ? (
           <Editor
             item={selected}
             user={user}
@@ -263,6 +283,40 @@ export default function Home() {
       </section>
     </main>
   );
+}
+
+type PaymentRow = {
+  id: string; ticketNumber: string; paymentDate: string; payee: string;
+  departmentName: string; category: string; purpose: string; amount: string;
+  currency: string; paymentMethod: string; bankReference: string; status: string;
+  recordedByName: string; recordedAt: string; approvalSource?: string;
+  financeControlStatus?: string; commitmentStatus?: string; ledgerEntryId?: string;
+};
+
+function PaymentHistory({ api, user }: { api: Api; user: string }) {
+  const [filters, setFilters] = useState({ search: "", departmentId: "", category: "", dateFrom: "", dateTo: "", status: "PAID", page: "1" });
+  const [rows, setRows] = useState<PaymentRow[]>([]), [total, setTotal] = useState(0);
+  const [detail, setDetail] = useState<PaymentRow | null>(null), [notice, setNotice] = useState("");
+  const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value)).toString();
+  useEffect(() => {
+    let active = true;
+    void api(`/payments?${query}`).then((value) => {
+      if (!active) return;
+      const result = value as { items: PaymentRow[]; total: number };
+      setRows(result.items); setTotal(result.total);
+    }).catch((error) => { if (active) setNotice(msg(error)); });
+    return () => { active = false; };
+  }, [api, query]);
+  async function open(id: string) { try { setDetail(await api(`/payments/${id}`) as PaymentRow); } catch (error) { setNotice(msg(error)); } }
+  async function exportCsv() {
+    const response = await fetch(`${API}/payments/export?${query}`, { headers: { "x-aims-user": user } });
+    if (!response.ok) { setNotice("Payment export was denied."); return; }
+    const url = URL.createObjectURL(await response.blob()), anchor = document.createElement("a");
+    anchor.href = url; anchor.download = `aims-payments-${new Date().toISOString().slice(0, 10)}.csv`; anchor.click(); URL.revokeObjectURL(url);
+  }
+  const field = (name: keyof typeof filters, value: string) => setFilters((x) => ({ ...x, [name]: value, page: name === "page" ? value : "1" }));
+  if (detail) return <section className="card paymentHistory"><button className="back" onClick={() => setDetail(null)}>← Payment History</button><header><div><small>10 · PAYMENT RECORD / HISTORY</small><h2>{detail.ticketNumber}</h2></div><i className="paid">PAID</i></header><div className="paymentDetail"><h3>Payment</h3><p>{detail.paymentDate?.slice(0,10)} · {detail.currency} {detail.amount} · {detail.paymentMethod}</p><p>Bank reference · {detail.bankReference}</p><a href={`${API}/payments/${detail.id}/slip`} onClick={(e) => { e.preventDefault(); void fetch(`${API}/payments/${detail.id}/slip`, { headers: { "x-aims-user": user } }).then(async r => { if (!r.ok) throw Error("Slip access denied"); const u=URL.createObjectURL(await r.blob()); window.open(u,"_blank"); }); }}>Open secured payment slip</a><h3>Request</h3><p>{detail.payee} · {detail.departmentName} · {detail.category}</p><p>{detail.purpose}</p><h3>Authorization & control</h3><p>Approval · {detail.approvalSource ?? "Approved"}</p><p>Final Finance Control · {detail.financeControlStatus}</p><h3>Financial posting</h3><p>Commitment · {detail.commitmentStatus}</p><p>Actual ledger · {detail.ledgerEntryId}</p><h3>Audit</h3><p>Recorded by {detail.recordedByName} at {detail.recordedAt}</p></div></section>;
+  return <section className="card paymentHistory"><header><div><small>10 · PAYMENT RECORD / HISTORY</small><h2>Payment History</h2></div><button className="primary" onClick={() => void exportCsv()}>Export CSV</button></header>{notice && <p className="notice">{notice}</p>}<div className="historyFilters"><input aria-label="Search ticket, payee or bank reference" placeholder="Ticket, payee or bank reference" value={filters.search} onChange={e=>field("search",e.target.value)}/><input aria-label="Department ID" placeholder="Department ID" value={filters.departmentId} onChange={e=>field("departmentId",e.target.value)}/><input aria-label="Category" placeholder="Category" value={filters.category} onChange={e=>field("category",e.target.value)}/><input aria-label="From date" type="date" value={filters.dateFrom} onChange={e=>field("dateFrom",e.target.value)}/><input aria-label="To date" type="date" value={filters.dateTo} onChange={e=>field("dateTo",e.target.value)}/><select aria-label="Payment status" value={filters.status} onChange={e=>field("status",e.target.value)}><option value="PAID">PAID</option></select></div><div className="table">{rows.map(row=><button key={row.id} onClick={()=>void open(row.id)}><span className="ticket">{row.ticketNumber}</span><span><b>{row.payee}</b><small>{row.departmentName} · {row.category} · {row.purpose}</small></span><span>{row.currency} {row.amount}<small>{row.paymentDate?.slice(0,10)} · {row.paymentMethod}</small></span><span>{row.recordedByName}<small>{row.recordedAt}</small></span><i className="paid">{row.status}</i><strong>Detail →</strong></button>)}</div><footer className="pagination"><span>{total} records</span><button disabled={filters.page === "1"} onClick={()=>field("page",String(Math.max(1,Number(filters.page)-1)))}>Previous</button><button disabled={Number(filters.page)*25>=total} onClick={()=>field("page",String(Number(filters.page)+1))}>Next</button></footer></section>;
 }
 
 function Login({ onLogin }: { onLogin: (id: string) => void }) {
@@ -498,6 +552,7 @@ function Editor({
         "FINANCE_CHECK",
         "FINANCE_HOLD",
         "READY_FOR_PAYMENT",
+        "PAID",
       ].includes(item.status) && (
         <FinanceContextPanel item={item} user={user} api={api} />
       )}
@@ -507,6 +562,7 @@ function Editor({
         "FINANCE_CHECK",
         "FINANCE_HOLD",
         "READY_FOR_PAYMENT",
+        "PAID",
       ].includes(item.status) && (
         <FinancialAnalysisPanel item={item} user={user} api={api} />
       )}
@@ -519,6 +575,7 @@ function Editor({
         "FINANCE_CHECK",
         "FINANCE_HOLD",
         "READY_FOR_PAYMENT",
+        "PAID",
       ].includes(item.status) && (
         <PolicyDecisionPanel item={item} user={user} api={api} />
       )}
@@ -529,6 +586,7 @@ function Editor({
         "FINANCE_CHECK",
         "FINANCE_HOLD",
         "READY_FOR_PAYMENT",
+        "PAID",
         "REJECTED",
         "NEEDS_CLARIFICATION",
       ].includes(item.status) && (
@@ -539,9 +597,14 @@ function Editor({
         "FINANCE_CHECK",
         "FINANCE_HOLD",
         "READY_FOR_PAYMENT",
+        "PAID",
       ].includes(item.status) &&
         user === "demo.finance" && (
           <FinanceControlPanel item={item} api={api} changed={changed} />
+        )}
+      {["READY_FOR_PAYMENT", "PAID"].includes(item.status) &&
+        user === "demo.finance" && (
+          <PaymentPanel item={item} api={api} changed={changed} />
         )}
       <div className="editorGrid">
         <form className="capture" onSubmit={save}>
@@ -1931,6 +1994,165 @@ function FinanceControlPanel({
   );
 }
 
+function PaymentPanel({
+  item,
+  api,
+  changed,
+}: {
+  item: Item;
+  api: Api;
+  changed: () => Promise<void>;
+}) {
+  const [slipId, setSlipId] = useState(""),
+    [bankReference, setBankReference] = useState(""),
+    [paymentDate, setPaymentDate] = useState(
+      new Date().toISOString().slice(0, 10),
+    ),
+    [notice, setNotice] = useState(""),
+    [busy, setBusy] = useState(false),
+    [record, setRecord] = useState<Record<string, unknown> | null>(null);
+  useEffect(() => {
+    if (item.status === "PAID")
+      void api(
+        `/payments?search=${encodeURIComponent(item.ticketNumber ?? "")}`,
+      )
+        .then((x) =>
+          setRecord(
+            (x as { items: Record<string, unknown>[] }).items[0] ?? null,
+          ),
+        )
+        .catch(() => undefined);
+  }, [api, item.status, item.ticketNumber]);
+  async function upload(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const result = (await api(`/payment-requests/${item.id}/payment-slip`, {
+        method: "POST",
+        body: new FormData(e.currentTarget),
+      })) as { id: string };
+      setSlipId(result.id);
+      setNotice("Payment slip secured and ready for recording.");
+    } catch (error) {
+      setNotice(msg(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function pay() {
+    if (
+      !confirm(
+        "Confirm that Finance executed this payment externally and record it as PAID?",
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      await api(`/payment-requests/${item.id}/payment`, {
+        method: "POST",
+        body: JSON.stringify({
+          commandKey: crypto.randomUUID(),
+          paymentDate,
+          amount: item.amount,
+          currency: item.currency,
+          bankReference,
+          slipDocumentId: slipId,
+          confirmPossibleDuplicate: false,
+        }),
+      });
+      setNotice("External payment recorded atomically as PAID.");
+      await changed();
+    } catch (error) {
+      setNotice(msg(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="paymentPanel">
+      <header>
+        <div>
+          <small>09 · PAYMENT PROCESSING</small>
+          <h3>
+            {item.status === "PAID"
+              ? "Authoritative payment record"
+              : "Record external payment"}
+          </h3>
+        </div>
+        <span>{item.status}</span>
+      </header>
+      {notice && <p className="notice">{notice}</p>}
+      {item.status === "PAID" ? (
+        <div className="paymentSummary">
+          <b>
+            {String(record?.currency ?? item.currency)}{" "}
+            {String(record?.amount ?? item.amount)}
+          </b>
+          <span>
+            Bank reference · {String(record?.bankReference ?? "Protected")}
+          </span>
+          <span>
+            Recorded by · {String(record?.recordedByName ?? "Finance")}
+          </span>
+          <span>
+            Payment date · {String(record?.paymentDate ?? "—").slice(0, 10)}
+          </span>
+        </div>
+      ) : (
+        <>
+          <div className="paymentSummary">
+            <b>
+              {item.currency} {item.amount}
+            </b>
+            <span>{item.payee}</span>
+            <span>Finance Control · PASSED</span>
+            <span>
+              AIMS records an external payment; it does not transfer funds.
+            </span>
+          </div>
+          <form className="paymentForm" onSubmit={upload}>
+            <label>
+              Payment slip
+              <input
+                name="file"
+                type="file"
+                accept="application/pdf,image/jpeg,image/png"
+                required
+              />
+            </label>
+            <button disabled={busy}>Secure slip</button>
+          </form>
+          <div className="paymentForm">
+            <label>
+              Payment date
+              <input
+                type="date"
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+              />
+            </label>
+            <label>
+              Bank reference
+              <input
+                value={bankReference}
+                onChange={(e) => setBankReference(e.target.value)}
+                maxLength={200}
+              />
+            </label>
+            <button
+              className="primary"
+              disabled={busy || !slipId || !bankReference.trim()}
+              onClick={pay}
+            >
+              Record payment
+            </button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function financeQueueItem(x: Record<string, unknown>): Item {
   return {
     id: String(x.id),
@@ -1947,6 +2169,24 @@ function financeQueueItem(x: Record<string, unknown>): Item {
     paymentDetails: null,
     remark: null,
     humanFinalRisk: String(x.final_risk),
+  };
+}
+
+function paymentQueueItem(x: Record<string, unknown>): Item {
+  return {
+    id: String(x.id),
+    ticketNumber: String(x.ticket_number),
+    status: "READY_FOR_PAYMENT",
+    payee: String(x.payee),
+    purpose: "Payment Processing · Ready to record external payment",
+    category: String(x.category),
+    amount: String(x.amount),
+    currency: String(x.currency),
+    departmentId: String(x.department_id),
+    dueDate: String(x.due_date),
+    paymentMethod: String(x.payment_method),
+    paymentDetails: null,
+    remark: null,
   };
 }
 

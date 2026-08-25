@@ -8,6 +8,7 @@ export const REQUEST_STATUSES = [
   "FINANCE_CHECK",
   "FINANCE_HOLD",
   "READY_FOR_PAYMENT",
+  "PAID",
   "REJECTED",
   "CANCELLED",
 ] as const;

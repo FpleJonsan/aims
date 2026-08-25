@@ -21,6 +21,7 @@
     "test:policy:integration": "npm run test:policy:integration --workspace @aims/api",
     "test:approval:integration": "npm run test:approval:integration --workspace @aims/api",
     "test:finance-control:integration": "npm run test:finance-control:integration --workspace @aims/api",
+    "test:payment:integration": "npm run test:payment:integration --workspace @aims/api",
     "test:telegram:live": "npm run test:telegram:live --workspace @aims/api"
   },
   "dependencies": {

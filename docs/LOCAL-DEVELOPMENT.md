@@ -6,6 +6,8 @@ The application must not connect as the PostgreSQL administrative user. The norm
 
 The trust chain is: HTTP authentication → server-supplied AIMS user → transaction-local database execution identity → database Finance authority check → constrained transition. `aims_app` is not a member of `aims_finance_executor`, cannot `SET ROLE` to it, has no Finance Control table writes, and cannot execute finalization functions.
 
+Day 8 uses an independent `aims_payment_executor` NOLOGIN capability through the server-only `PAYMENT_DATABASE_URL`. Payment Operator authority is separate from Approval and Finance Control authority. The normal `aims_app` role cannot create payments, post actual ledger entries, consume commitments, attach payment slips, or synthesize `PAID`.
+
 1. Open an administrative PostgreSQL session inside the existing Docker container. This uses the container's injected password without printing it or placing it in shell history:
 
    ```bash
