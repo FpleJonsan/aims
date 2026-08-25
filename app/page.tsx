@@ -21,7 +21,14 @@ const stages = [
 type Item = {
   id: string;
   ticketNumber: string | null;
-  status: "DRAFT" | "SUBMITTED" | "VALIDATING" | "NEEDS_CLARIFICATION";
+  status:
+    | "DRAFT"
+    | "SUBMITTED"
+    | "VALIDATING"
+    | "NEEDS_CLARIFICATION"
+    | "PENDING_APPROVAL"
+    | "APPROVED"
+    | "REJECTED";
   payee: string | null;
   purpose: string | null;
   category: string | null;
@@ -32,6 +39,7 @@ type Item = {
   paymentMethod: string | null;
   paymentDetails: string | null;
   remark: string | null;
+  humanFinalRisk?: string;
   documents?: Array<{
     id: string;
     original_filename: string;
@@ -74,7 +82,29 @@ export default function Home() {
     [user],
   );
   const refresh = useCallback(async () => {
-    if (user)
+    if (user === "demo.approver") {
+      const rows = (
+        (await api("/approvals")) as { items: Array<Record<string, unknown>> }
+      ).items;
+      setItems(
+        rows.map((x) => ({
+          id: String(x.payment_request_id),
+          ticketNumber: String(x.ticket_number),
+          status: "PENDING_APPROVAL",
+          payee: String(x.payee),
+          purpose: `Current step ${x.sequence} · ${x.required_role}`,
+          amount: String(x.amount),
+          currency: String(x.currency),
+          departmentId: String(x.department_id),
+          dueDate: String(x.due_date),
+          category: null,
+          paymentMethod: null,
+          paymentDetails: null,
+          remark: null,
+          humanFinalRisk: String(x.final_risk),
+        })),
+      );
+    } else if (user)
       setItems(
         ((await api("/payment-requests?pageSize=50")) as { items: Item[] })
           .items,
@@ -82,9 +112,34 @@ export default function Home() {
   }, [api, user]);
   useEffect(() => {
     let active = true;
-    void api("/payment-requests?pageSize=50")
+    void api(
+      user === "demo.approver" ? "/approvals" : "/payment-requests?pageSize=50",
+    )
       .then((data) => {
-        if (active) setItems((data as { items: Item[] }).items);
+        if (active) {
+          const rows = (data as { items: Array<Record<string, unknown>> })
+            .items;
+          setItems(
+            user === "demo.approver"
+              ? rows.map((x) => ({
+                  id: String(x.payment_request_id),
+                  ticketNumber: String(x.ticket_number),
+                  status: "PENDING_APPROVAL",
+                  payee: String(x.payee),
+                  purpose: `Current step ${x.sequence} · ${x.required_role}`,
+                  amount: String(x.amount),
+                  currency: String(x.currency),
+                  departmentId: String(x.department_id),
+                  dueDate: String(x.due_date),
+                  category: null,
+                  paymentMethod: null,
+                  paymentDetails: null,
+                  remark: null,
+                  humanFinalRisk: String(x.final_risk),
+                }))
+              : (rows as unknown as Item[]),
+          );
+        }
       })
       .catch((e) => {
         if (active) setNotice(msg(e));
@@ -128,14 +183,19 @@ export default function Home() {
           <span>
             ◫ System Policy <i>Ready</i>
           </span>
+          <span>
+            ◫ Approval <i>Ready</i>
+          </span>
         </nav>
         <button onClick={() => setUser(null)}>Sign out</button>
       </aside>
       <section className="workspace">
         <header>
           <div>
-            <small>DAY 5 · POLICY &amp; DECISION</small>
-            <h1>Payment requests</h1>
+            <small>DAY 6 · HUMAN APPROVAL</small>
+            <h1>
+              {user === "demo.approver" ? "Approval inbox" : "Payment requests"}
+            </h1>
           </div>
           {user === "demo.requester" && (
             <button className="primary" onClick={initiate}>
@@ -145,10 +205,10 @@ export default function Home() {
         </header>
         <div className="stageRail">
           {stages.map((s, i) => (
-            <div className={i < 6 ? "available" : "future"} key={s}>
+            <div className={i < 7 ? "available" : "future"} key={s}>
               <span>{String(i + 1).padStart(2, "0")}</span>
               <b>{s}</b>
-              <small>{i < 6 ? "Available" : "Not started"}</small>
+              <small>{i < 7 ? "Available" : "Not started"}</small>
             </div>
           ))}
         </div>
@@ -203,6 +263,12 @@ function Login({ onLogin }: { onLogin: (id: string) => void }) {
           </button>
           <button className="secondary" onClick={() => onLogin("demo.finance")}>
             View as finance
+          </button>
+          <button
+            className="secondary"
+            onClick={() => onLogin("demo.approver")}
+          >
+            View approval inbox
           </button>
         </div>
         <small>
@@ -272,6 +338,7 @@ function List({
                 <small>{x.purpose ?? "Capture not completed"}</small>
               </span>
               <span>{x.amount ? `${x.currency} ${x.amount}` : "—"}</span>
+              {x.humanFinalRisk && <span>Human risk: {x.humanFinalRisk}</span>}
               <i className={x.status.toLowerCase()}>{x.status}</i>
               <strong>Open →</strong>
             </button>
@@ -413,6 +480,15 @@ function Editor({
       )}
       {item.status === "VALIDATING" && (
         <PolicyDecisionPanel item={item} user={user} api={api} />
+      )}
+      {[
+        "VALIDATING",
+        "PENDING_APPROVAL",
+        "APPROVED",
+        "REJECTED",
+        "NEEDS_CLARIFICATION",
+      ].includes(item.status) && (
+        <ApprovalPanel item={item} user={user} api={api} changed={changed} />
       )}
       <div className="editorGrid">
         <form className="capture" onSubmit={save}>
@@ -1356,8 +1432,8 @@ function PolicyDecisionPanel({
           )}
           {data.ready_for_approval && (
             <p className="readyMarker">
-              System Policy complete · Ready for Day 6 Approval. No approval
-              record or approver assignment was created.
+              System Policy complete · ready to create the controlled Approval
+              case.
             </p>
           )}
         </>
@@ -1365,6 +1441,211 @@ function PolicyDecisionPanel({
     </section>
   );
 }
+function ApprovalPanel({
+  item,
+  user,
+  api,
+  changed,
+}: {
+  item: Item;
+  user: string;
+  api: Api;
+  changed: () => Promise<void>;
+}) {
+  type Step = {
+    id: string;
+    sequence: number;
+    required_role: string;
+    authority_scope: string;
+    reason: string;
+    status: string;
+    completed_at?: string;
+  };
+  type View = {
+    case: null | {
+      id: string;
+      status: string;
+      policy_decision_run_id: string;
+      source: string;
+    };
+    steps: Step[];
+    readyForFinanceControl: boolean;
+    commitmentStatus?: string;
+    detail?: Record<string, unknown>;
+    evidence?: Array<Record<string, unknown>>;
+    history?: Array<Record<string, unknown>>;
+  };
+  const [data, setData] = useState<View | null>(null),
+    [notice, setNotice] = useState(""),
+    [reason, setReason] = useState("");
+  const load = useCallback(
+    async () =>
+      setData((await api(`/payment-requests/${item.id}/approval`)) as View),
+    [api, item.id],
+  );
+  useEffect(() => {
+    let active = true;
+    void api(`/payment-requests/${item.id}/approval`)
+      .then((v) => {
+        if (active) setData(v as View);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [api, item.id]);
+  async function create() {
+    try {
+      await api(`/payment-requests/${item.id}/approval`, {
+        method: "POST",
+        body: "{}",
+      });
+      await load();
+      await changed();
+    } catch (e) {
+      setNotice(msg(e));
+    }
+  }
+  async function action(
+    step: Step,
+    kind: "APPROVE" | "REJECT" | "REQUEST_CLARIFICATION",
+  ) {
+    try {
+      await api(
+        `/payment-requests/${item.id}/approval/steps/${step.id}/actions`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            commandKey: crypto.randomUUID(),
+            action: kind,
+            reason: kind === "APPROVE" ? undefined : reason,
+            requiredResponse:
+              kind === "REQUEST_CLARIFICATION"
+                ? "Provide the requested information; the request will return to Validation."
+                : undefined,
+          }),
+        },
+      );
+      setReason("");
+      await load();
+      await changed();
+    } catch (e) {
+      setNotice(msg(e));
+    }
+  }
+  const active = data?.steps.find((s) => s.status === "ACTIVE");
+  return (
+    <section className="policyPanel">
+      <header>
+        <div>
+          <small>07 · HUMAN ACCOUNTABILITY</small>
+          <h3>Approval</h3>
+        </div>
+        <span>{data?.case?.status ?? "NOT STARTED"}</span>
+      </header>
+      {notice && <p className="notice">{notice}</p>}
+      {!data?.case && user === "demo.finance" && (
+        <button className="primary" onClick={create}>
+          Create Approval case
+        </button>
+      )}
+      {data?.case && (
+        <>
+          <p>
+            <b>System Policy reference:</b> {data.case.policy_decision_run_id}
+          </p>
+          <p>
+            <b>Source:</b> {data.case.source}
+          </p>
+          {data.detail && (
+            <div className="financeGrid">
+              <article>
+                <small>FINANCE CONTEXT · DETERMINISTIC</small>
+                <b>Available: {String(data.detail.available_amount_minor)}</b>
+                <span>
+                  Projected:{" "}
+                  {String(data.detail.projected_available_amount_minor)}
+                </span>
+              </article>
+              <article>
+                <small>AI ANALYSIS · ADVISORY</small>
+                <b>{data.detail.ai_assessment ? "Available" : "Not used"}</b>
+              </article>
+              <article>
+                <small>HUMAN FINAL ASSESSMENT · ACCOUNTABLE</small>
+                <b>{String(data.detail.final_risk)}</b>
+                <span>{String(data.detail.final_priority)}</span>
+              </article>
+              <article>
+                <small>SYSTEM POLICY · DETERMINISTIC</small>
+                <b>{String(data.detail.policy_result)}</b>
+              </article>
+            </div>
+          )}
+          <div className="consolidated">
+            <small>EVIDENCE</small>
+            {data.evidence?.map((e) => (
+              <p key={String(e.id)}>
+                {String(e.original_filename)} ·{" "}
+                {String(e.document_type ?? "UNCLASSIFIED")} · v
+                {String(e.version)}
+              </p>
+            ))}
+          </div>
+          <div className="consolidated">
+            <small>SEQUENTIAL APPROVAL ROUTE</small>
+            {data.steps.map((s) => (
+              <p key={s.id}>
+                <b>
+                  {s.sequence}. {s.required_role}
+                </b>{" "}
+                · {s.authority_scope} · {s.status}
+                <br />
+                {s.reason}
+              </p>
+            ))}
+          </div>
+          <div className="consolidated">
+            <small>APPROVAL HISTORY</small>
+            {data.history?.length ? (
+              data.history.map((h, i) => (
+                <p key={i}>
+                  {String(h.action)} · {String(h.channel)} ·{" "}
+                  {String(h.required_role ?? "Policy")}
+                </p>
+              ))
+            ) : (
+              <p>No completed actions.</p>
+            )}
+          </div>
+          {active && user === "demo.approver" && (
+            <div className="financeException">
+              <b>Current approval step</b>
+              <p>{active.required_role} · Human decision</p>
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Reason required for reject or clarification"
+              />
+              <button onClick={() => action(active, "APPROVE")}>Approve</button>
+              <button onClick={() => action(active, "REQUEST_CLARIFICATION")}>
+                Request clarification
+              </button>
+              <button onClick={() => action(active, "REJECT")}>Reject</button>
+            </div>
+          )}
+          {data.readyForFinanceControl && (
+            <p className="readyMarker">
+              Approval complete · ready for Final Finance Control. Day 7 has not
+              started.
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function Field({
   label,
   value,

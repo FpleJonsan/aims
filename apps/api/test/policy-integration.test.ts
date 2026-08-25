@@ -190,7 +190,8 @@ test("policy uses human-final risk, creates POLICY exception, stores justificati
       result.exception_id,
     );
     const approval = await db.pool.query(
-      "SELECT count(*)::int count FROM information_schema.tables WHERE table_name='approval_cases'",
+      "SELECT count(*)::int count FROM approval_cases WHERE payment_request_id=$1",
+      [r.id],
     );
     assert.equal(approval.rows[0].count, 0);
   } finally {
