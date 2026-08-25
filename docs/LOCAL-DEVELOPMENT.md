@@ -31,7 +31,6 @@ The application must not connect as the PostgreSQL administrative user. The curr
    The expected results are `true`, `true`, and `false` respectively.
 
 5. Migrations must grant privileges per table or per narrowly scoped schema. Never grant blanket update or delete authority over all current or future tables. In particular:
-
    - audit events, financial ledger entries, approval snapshots, policy versions, and payment history must not grant general `UPDATE` or `DELETE`
    - append-only tables may grant only the inserts and reads required by their owning service
    - mutable workflow tables receive only the specific operations required by their domain repository
@@ -89,3 +88,15 @@ Risk owner decision recorded 2026-08-22: malware scanning may be omitted for the
 Development documents are streamed into `storage/documents/quarantine`, checked for allowed file signatures and closing structure, and hashed with SHA-256. A scanner-aware promotion service remains available for testing, but a real malware engine is not required under this narrow local-demo acceptance. The hosted web application must not import the Node filesystem adapter; it belongs exclusively to the local NestJS API runtime.
 
 This acceptance does not apply to staging or production. Amazon S3 storage, real uploaded documents, and any externally reachable deployment require a newly reviewed production storage contract with malware scanning, independent immutable objects, durable scan evidence, and no direct promotion bypass.
+
+### Day 5 Policy & Decision
+
+Apply `apps/api/migrations/009_day5_policy_decision.sql` to create the versioned deterministic policy model. For local development only, apply `010_day5_local_demo_policy.sql`; it is explicitly synthetic and must not be treated as production policy. Normal thresholds and approval-role requirements are managed through the Admin policy APIs, not application code or future migrations.
+
+Policy selection uses the policy evaluation timestamp. A version is applicable when it is ACTIVE and its effective interval contains that timestamp. Equal-priority overlapping rules with conflicting effects are rejected during activation. Exception rules take precedence; otherwise approval requirements are additive and ordered by sequence, while exact duplicate role steps are collapsed deterministically.
+
+Day 5 currently supports one organization-wide (`GLOBAL`) active policy version. Activation is serialized, retires the previous global version without rewriting historical decisions, and policy rules become database-immutable after activation. Explicitly retiring the only active version is allowed; subsequent evaluations produce the controlled `NO_APPLICABLE_POLICY` result until an Admin activates a replacement. A newer activation alone does not rewrite or stale an already completed decision because selection is fixed at evaluation time; a defined business event must request re-evaluation.
+
+Policy decisions store a SHA-256 fingerprint of the exact sorted active evidence identity: document ID, logical document ID, version, document type, and content SHA-256. Active evidence additions, replacements, removals, and identity changes supersede the current decision; changes to already removed historical documents do not.
+
+The database lock order for request workflow operations is: payment-request row first, then document/evidence and downstream decision rows. The evidence trigger acquires the same payment-request row lock, so direct evidence writes serialize with Policy evaluation. Policy administration uses a separate global-policy advisory lock and never acquires payment-request locks. Physical document deletion is forbidden; documents use logical removal/versioning. Equivalent concurrent `NO_APPLICABLE_POLICY` evaluations reuse one current decision.
