@@ -35,7 +35,7 @@ export class ApprovalService {
 
   async create(id: string, actor: Principal, correlationId: string) {
     this.finance(actor);
-    return this.db.transaction(async (c) => {
+    return this.db.retryableTransaction(async (c) => {
       const request = await this.requests.lockRequest(c, id);
       const existing = await c.query<any>(
         "SELECT * FROM approval_cases WHERE payment_request_id=$1 AND is_current FOR UPDATE",
@@ -193,7 +193,7 @@ export class ApprovalService {
     correlationId: string,
     channel: "WEB" | "TELEGRAM" = "WEB",
   ) {
-    return this.db.transaction(async (c) => {
+    return this.db.retryableTransaction(async (c) => {
       const duplicate = await c.query<any>(
         "SELECT * FROM approval_actions WHERE command_key=$1",
         [input.commandKey],
@@ -349,7 +349,7 @@ export class ApprovalService {
     actor: Principal,
     correlationId: string,
   ) {
-    return this.db.transaction(async (c) => {
+    return this.db.retryableTransaction(async (c) => {
       const request = await this.requests.lockRequest(c, id);
       if (
         request.status !== "NEEDS_CLARIFICATION" ||
@@ -441,7 +441,7 @@ export class ApprovalService {
     correlationId: string,
   ) {
     this.admin(actor);
-    return this.db.transaction(async (c) => {
+    return this.db.retryableTransaction(async (c) => {
       const user = await c.query("SELECT 1 FROM users WHERE id=$1 AND active", [
         input.userId,
       ]);
@@ -514,7 +514,7 @@ export class ApprovalService {
     const update = body as any,
       updateId = update?.update_id;
     if (typeof updateId !== "number") return { ok: true, ignored: true };
-    const claim = await this.db.transaction(async (c) => {
+    const claim = await this.db.retryableTransaction(async (c) => {
       const existing = await c.query<any>(
         "SELECT * FROM telegram_webhook_updates WHERE update_id=$1 FOR UPDATE",
         [updateId],
@@ -576,7 +576,7 @@ export class ApprovalService {
       typeof message?.text === "string" &&
       typeof message?.from?.id === "number"
     ) {
-      const pending = await this.db.transaction(async (c) => {
+      const pending = await this.db.retryableTransaction(async (c) => {
         const q = await c.query<any>(
           `SELECT i.*,b.telegram_chat_id,u.department_id,ARRAY(SELECT ur.role FROM user_roles ur WHERE ur.user_id=u.id)roles,ac.payment_request_id FROM telegram_pending_interactions i JOIN telegram_identity_bindings b ON b.id=i.telegram_binding_id AND b.status='ACTIVE' JOIN users u ON u.id=i.recipient_user_id AND u.active JOIN approval_cases ac ON ac.id=i.approval_case_id WHERE b.telegram_user_id=$1 AND b.telegram_chat_id=$2 AND i.status='PENDING' AND i.expires_at>now() FOR UPDATE OF i`,
           [message.from.id, message.chat?.id],
@@ -618,7 +618,7 @@ export class ApprovalService {
       typeof callback?.from?.id !== "number"
     )
       return { ok: true, ignored: true };
-    const prepared = await this.db.transaction(async (c) => {
+    const prepared = await this.db.retryableTransaction(async (c) => {
       const token = await c.query<any>(
         `SELECT t.*,ac.payment_request_id,b.id binding_id,b.user_id,u.department_id,ARRAY(SELECT ur.role FROM user_roles ur WHERE ur.user_id=u.id) roles
          FROM approval_action_tokens t JOIN approval_cases ac ON ac.id=t.approval_case_id

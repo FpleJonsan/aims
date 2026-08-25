@@ -18,9 +18,10 @@
     "test:storage": "npm run test:storage --workspace @aims/api",
     "test:ai:live": "npm run test:ai:live --workspace @aims/api",
     "test:ai:financial-live": "npm run test:ai:financial-live --workspace @aims/api",
-    "test:policy:integration": "npm run test:policy:integration --workspace @aims/api"
-    ,"test:approval:integration": "npm run test:approval:integration --workspace @aims/api"
-    ,"test:telegram:live": "npm run test:telegram:live --workspace @aims/api"
+    "test:policy:integration": "npm run test:policy:integration --workspace @aims/api",
+    "test:approval:integration": "npm run test:approval:integration --workspace @aims/api",
+    "test:finance-control:integration": "npm run test:finance-control:integration --workspace @aims/api",
+    "test:telegram:live": "npm run test:telegram:live --workspace @aims/api"
   },
   "dependencies": {
     "next": "16.2.6",

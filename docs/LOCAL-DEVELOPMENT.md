@@ -2,7 +2,9 @@
 
 ## PostgreSQL application role
 
-The application must not connect as the PostgreSQL administrative user. The current local container already provides the restricted `aims_app` role used by `.env.example`.
+The application must not connect as the PostgreSQL administrative user. The normal pool uses restricted `aims_app`. Final Finance Control uses a separate server-only login that is a member of the `aims_finance_executor` NOLOGIN capability role through `FINANCE_DATABASE_URL`.
+
+The trust chain is: HTTP authentication → server-supplied AIMS user → transaction-local database execution identity → database Finance authority check → constrained transition. `aims_app` is not a member of `aims_finance_executor`, cannot `SET ROLE` to it, has no Finance Control table writes, and cannot execute finalization functions.
 
 1. Open an administrative PostgreSQL session inside the existing Docker container. This uses the container's injected password without printing it or placing it in shell history:
 

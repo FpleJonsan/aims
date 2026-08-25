@@ -11,10 +11,19 @@ import { FinancialAnalysisController } from "./application/financial-analysis/fi
 import { FinancialAnalysisService } from "./application/financial-analysis/financial-analysis.service.js";
 import { PolicyController } from "./application/policy/policy.controller.js";
 import { PolicyService } from "./application/policy/policy.service.js";
-import { ApprovalController, TelegramWebhookController } from "./application/approval/approval.controller.js";
+import { FinanceControlController } from "./application/finance-control/finance-control.controller.js";
+import { FinanceControlService } from "./application/finance-control/finance-control.service.js";
+import {
+  ApprovalController,
+  TelegramWebhookController,
+} from "./application/approval/approval.controller.js";
 import { ApprovalService } from "./application/approval/approval.service.js";
 import { ApprovalOutboxService } from "./application/approval/approval-outbox.service.js";
-import { APPROVAL_CHANNEL, DisabledApprovalChannel, TelegramApprovalChannel } from "./application/approval/telegram-approval.channel.js";
+import {
+  APPROVAL_CHANNEL,
+  DisabledApprovalChannel,
+  TelegramApprovalChannel,
+} from "./application/approval/telegram-approval.channel.js";
 import { ValidationController } from "./application/validation/validation.controller.js";
 import {
   AI_PROVIDER,
@@ -35,6 +44,7 @@ import {
     FinanceContextController,
     FinancialAnalysisController,
     PolicyController,
+    FinanceControlController,
     ApprovalController,
     TelegramWebhookController,
   ],
@@ -47,9 +57,16 @@ import {
     FinanceContextService,
     FinancialAnalysisService,
     PolicyService,
+    FinanceControlService,
     ApprovalService,
     ApprovalOutboxService,
-    { provide: APPROVAL_CHANNEL, useFactory: () => process.env.TELEGRAM_BOT_TOKEN ? new TelegramApprovalChannel(process.env.TELEGRAM_BOT_TOKEN) : new DisabledApprovalChannel() },
+    {
+      provide: APPROVAL_CHANNEL,
+      useFactory: () =>
+        process.env.TELEGRAM_BOT_TOKEN
+          ? new TelegramApprovalChannel(process.env.TELEGRAM_BOT_TOKEN)
+          : new DisabledApprovalChannel(),
+    },
     {
       provide: AI_PROVIDER,
       useFactory: () =>

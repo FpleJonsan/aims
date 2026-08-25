@@ -297,6 +297,9 @@ export class PaymentRequestService {
   }
 
   async lockRequest(client: PoolClient, id: string): Promise<PaymentRequest> {
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+      id,
+    ]);
     const result = await client.query<RequestRow>(
       "SELECT * FROM payment_requests WHERE id=$1 FOR UPDATE",
       [id],
