@@ -7,7 +7,7 @@
     "start": "node --env-file=../../.env dist/src/main.js",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "tsc -p tsconfig.test.json && node --test .test-dist/test/local-storage.test.js .test-dist/test/payment-request-domain.test.js .test-dist/test/validation-contract.test.js .test-dist/test/finance-context.test.js .test-dist/test/financial-analysis.test.js .test-dist/test/finance-intelligence.test.js .test-dist/test/policy.test.js .test-dist/test/approval.test.js .test-dist/test/finance-control.test.js",
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/test/local-storage.test.js .test-dist/test/payment-request-domain.test.js .test-dist/test/validation-contract.test.js .test-dist/test/finance-context.test.js .test-dist/test/financial-analysis.test.js .test-dist/test/finance-intelligence.test.js .test-dist/test/policy.test.js .test-dist/test/approval.test.js .test-dist/test/finance-control.test.js .test-dist/test/production-config.test.js .test-dist/test/health.test.js .test-dist/test/payment-export.test.js .test-dist/test/approval-pagination.test.js",
     "test:approval:integration": "tsc -p tsconfig.test.json && node --env-file=../../.env --test .test-dist/test/approval-integration.test.js",
     "test:finance-control:integration": "tsc -p tsconfig.test.json && node --env-file=../../.env --test .test-dist/test/finance-control-integration.test.js",
     "test:payment:integration": "tsc -p tsconfig.test.json && node --env-file=../../.env --test .test-dist/test/finance-control-integration.test.js",
@@ -21,7 +21,8 @@
     "test:finance-context:integration": "tsc -p tsconfig.test.json && node --env-file=../../.env --test .test-dist/test/finance-context-integration.test.js",
     "test:financial-analysis:integration": "tsc -p tsconfig.test.json && node --env-file=../../.env --test .test-dist/test/financial-analysis-integration.test.js",
     "test:policy:integration": "tsc -p tsconfig.test.json && node --env-file=../../.env --test .test-dist/test/policy-integration.test.js",
-    "test:storage": "tsc -p tsconfig.test.json && node --test .test-dist/test/local-storage.test.js"
+    "test:storage": "tsc -p tsconfig.test.json && node --test .test-dist/test/local-storage.test.js",
+    "test:uat:integration": "tsc -p tsconfig.test.json && node --env-file=../../.env --test .test-dist/test/day10-uat-integration.test.js"
   },
   "type": "module",
   "dependencies": {

@@ -225,7 +225,22 @@ export class PaymentService {
       throw new ForbiddenException(
         "Payment export requires Payment Operator authority",
       );
-    const data = await this.list(actor, { ...input, page: 1, pageSize: 1000 });
+    const configuredLimit = Number(process.env.MAX_PAYMENT_EXPORT_ROWS ?? 10_000);
+    const exportLimit = Number.isSafeInteger(configuredLimit) && configuredLimit > 0
+      ? Math.min(configuredLimit, 50_000)
+      : 10_000;
+    const first = await this.list(actor, { ...input, page: 1, pageSize: 100 });
+    if (first.total > exportLimit) {
+      throw new BadRequestException(
+        `Payment export contains ${first.total} rows; narrow the filters below the ${exportLimit}-row operational limit`,
+      );
+    }
+    const items = [...first.items];
+    for (let page = 2; items.length < first.total; page += 1) {
+      const next = await this.list(actor, { ...input, page, pageSize: 100 });
+      items.push(...next.items);
+      if (next.items.length === 0) break;
+    }
     const headers = [
       "Ticket Number",
       "Payment Date",
@@ -243,7 +258,7 @@ export class PaymentService {
     ];
     return [
       headers,
-      ...data.items.map((x: any) => [
+      ...items.map((x: any) => [
         x.ticketNumber,
         x.paymentDate,
         x.payee,

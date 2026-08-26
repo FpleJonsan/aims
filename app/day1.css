@@ -869,6 +869,24 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 18px;
+  font-size: 12px;
+}
+.pagination button {
+  border: 1px solid #17231d;
+  background: #fff;
+  color: #17231d;
+  padding: 10px 14px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+.pagination button:disabled { opacity: .45; cursor: not-allowed; }
+.pagination button:focus-visible { outline: 3px solid #84b62c; outline-offset: 3px; }
 @media (max-width: 900px) {
   .appShell {
     grid-template-columns: 1fr;
@@ -934,4 +952,14 @@
   .login section > div:nth-of-type(2) {
     flex-direction: column;
   }
+  .pagination { align-items: stretch; flex-direction: column; text-align: center; }
+  .dashboard > *,
+  .dashboardGrid,
+  .dashboardGrid > *,
+  .dashboardFilters,
+  .dashboardFilters > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .dashboardFilters { grid-template-columns: 1fr; }
 }

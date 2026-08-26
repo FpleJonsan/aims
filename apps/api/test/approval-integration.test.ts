@@ -161,16 +161,18 @@ async function eligible(db: Postgres, amount = "20000.00", automatic = false) {
   return { r, requests };
 }
 async function addEvidence(db: Postgres, requestId: string) {
-  await db.pool.query(
-    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by) VALUES($1,$2,$3,'changed.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6)`,
-    [
-      randomUUID(),
-      requestId,
-      randomUUID(),
-      `quarantine/tests/${randomUUID()}`,
-      randomUUID().replaceAll("-", "").repeat(2),
-      requester.id,
-    ],
+  await db.retryableTransaction((client) =>
+    client.query(
+      `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by) VALUES($1,$2,$3,'changed.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6)`,
+      [
+        randomUUID(),
+        requestId,
+        randomUUID(),
+        `quarantine/tests/${randomUUID()}`,
+        randomUUID().replaceAll("-", "").repeat(2),
+        requester.id,
+      ],
+    ),
   );
 }
 
@@ -222,6 +224,12 @@ test("barrier E: duplicate Approval Case creation is serialized", async () => {
     await assert.rejects(() => requests.get(r.id, wrongDepartment));
     await assert.rejects(() => requests.get(r.id, inactive));
     assert.equal((await requests.get(r.id, finance)).id, r.id);
+    const authorizedPage = await service.list(approver, { page: 1, pageSize: 100 });
+    assert.ok(authorizedPage.items.some((item) => item.approval_case_id === a.case.id));
+    for (const denied of [insufficient, wrongDepartment, inactive]) {
+      const deniedPage = await service.list(denied, { page: 1, pageSize: 100 });
+      assert.equal(deniedPage.items.some((item) => item.approval_case_id === a.case.id), false);
+    }
     const [first, second] = a.steps;
     await assert.rejects(() =>
       service.act(

@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from "@nestjs/common";
@@ -15,6 +16,7 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import {
   ApprovalActionDto,
   ApprovalClarificationResponseDto,
+  ApprovalInboxDto,
   TelegramBindingDto,
 } from "./approval.dto.js";
 import { ApprovalOutboxService } from "./approval-outbox.service.js";
@@ -39,8 +41,8 @@ export class ApprovalController {
   ) {
     return this.approvals.get(id, r.principal);
   }
-  @Get("approvals") list(@Req() r: Request) {
-    return this.approvals.list(r.principal);
+  @Get("approvals") list(@Req() r: Request, @Query() q: ApprovalInboxDto) {
+    return this.approvals.list(r.principal, q);
   }
   @Post("payment-requests/:id/approval/steps/:stepId/actions") act(
     @Req() r: Request,

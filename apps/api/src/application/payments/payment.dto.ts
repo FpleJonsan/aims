@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsBoolean, IsDateString, IsIn, IsOptional, IsString, IsUUID, Length, MaxLength, Min } from "class-validator";
+import { IsBoolean, IsDateString, IsIn, IsOptional, IsString, IsUUID, Length, Max, MaxLength, Min } from "class-validator";
 
 export class RecordPaymentDto {
   @IsUUID() commandKey!: string;
@@ -20,5 +20,5 @@ export class PaymentListDto {
   @IsOptional() @IsIn(["PAID"]) status?: string;
   @IsOptional() @IsString() @MaxLength(200) payee?: string;
   @IsOptional() @Type(() => Number) @Min(1) page = 1;
-  @IsOptional() @Type(() => Number) @Min(1) pageSize = 25;
+  @IsOptional() @Type(() => Number) @Min(1) @Max(100) pageSize = 25;
 }

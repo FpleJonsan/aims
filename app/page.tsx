@@ -54,6 +54,7 @@ type Item = {
   audit?: Array<{ id: string; action: string; occurred_at: string }>;
 };
 type Api = (path: string, init?: RequestInit) => Promise<unknown>;
+type Pagination = { page:number;pageSize:number;total:number;totalPages:number;hasNextPage:boolean;hasPreviousPage:boolean };
 type DashboardFilterState = { dateFrom:string;dateTo:string;departmentId:string;category:string };
 type DashboardDrill =
   | { view:"REPORTING_REQUESTS"; reportView:"PENDING_APPROVAL"|"RISK_ATTENTION"; filters:DashboardFilterState }
@@ -68,6 +69,8 @@ export default function Home() {
     [notice, setNotice] = useState(""),
     [showPaymentHistory, setShowPaymentHistory] = useState(false),
     [showDashboard, setShowDashboard] = useState(false),
+    [approvalPage, setApprovalPage] = useState(1),
+    [approvalPagination, setApprovalPagination] = useState<Pagination|null>(null),
     [dashboardDrill, setDashboardDrill] = useState<DashboardDrill|null>(null);
   const api = useCallback(
     async (path: string, init?: RequestInit): Promise<unknown> => {
@@ -98,10 +101,12 @@ export default function Home() {
   const refresh = useCallback(async () => {
     if (user === "demo.approver") {
       const rows = (
-        (await api("/approvals")) as { items: Array<Record<string, unknown>> }
-      ).items;
+        (await api(`/approvals?page=${approvalPage}&pageSize=25`)) as { items: Array<Record<string, unknown>> } & Pagination
+      );
+      const items = rows.items;
+      setApprovalPagination(rows);
       setItems(
-        rows.map((x) => ({
+        items.map((x) => ({
           id: String(x.payment_request_id),
           ticketNumber: String(x.ticket_number),
           status: "PENDING_APPROVAL",
@@ -140,20 +145,28 @@ export default function Home() {
         ((await api("/payment-requests?pageSize=50")) as { items: Item[] })
           .items,
       );
-  }, [api, user]);
+  }, [api, user, approvalPage]);
   useEffect(() => {
+    if (!user) return;
     let active = true;
     void api(
       user === "demo.approver"
-        ? "/approvals"
+        ? `/approvals?page=${approvalPage}&pageSize=25`
         : user === "demo.finance"
           ? "/finance-control"
           : "/payment-requests?pageSize=50",
     )
       .then((data) => {
         if (active) {
-          const rows = (data as { items: Array<Record<string, unknown>> })
-            .items;
+          const result = data as { items: Array<Record<string, unknown>> } & Partial<Pagination>;
+          const rows = result.items;
+          if (user === "demo.approver") {
+            setApprovalPagination(result as Pagination);
+            if (!rows.length && approvalPage > 1 && Number(result.totalPages) < approvalPage) {
+              setApprovalPage(Math.max(1, Number(result.totalPages)));
+              return;
+            }
+          }
           setItems(
             user === "demo.approver"
               ? rows.map((x) => ({
@@ -184,7 +197,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [api, user]);
+  }, [api, user, approvalPage]);
   async function initiate() {
     try {
       const item = (await api("/payment-requests", {
@@ -204,35 +217,46 @@ export default function Home() {
       setNotice(msg(e));
     }
   }
-  if (!user) return <Login onLogin={setUser} />;
+  if (!user)
+    return (
+      <Login
+        onLogin={(identity) => {
+          setNotice("");
+          setUser(identity);
+        }}
+      />
+    );
   return (
     <main className="appShell">
       <aside className="sideNav">
         <Brand />
-        <nav>
+        <nav aria-label="AIMS workflow areas">
           <b>▦ Requests</b>
-          <span>
-            ◫ Validation <i>Ready</i>
-          </span>
-          <span>
-            ◫ Finance Context <i>Ready</i>
-          </span>
-          <span>
-            ◫ System Policy <i>Ready</i>
-          </span>
-          <span>
-            ◫ Approval <i>Ready</i>
-          </span>
-          <span>
-            ◫ Final Finance Control <i>Ready</i>
-          </span>
+          <span>◫ Validation</span>
+          <span>◫ Finance Context & Risk</span>
+          <span>◫ Policy & Approval</span>
+          <span>◫ Final Finance Control</span>
+          <span>◫ Payment & Reporting</span>
         </nav>
-        <button onClick={() => setUser(null)}>Sign out</button>
+        <button
+          onClick={() => {
+            setSelected(null);
+            setItems([]);
+            setApprovalPagination(null);
+            setShowPaymentHistory(false);
+            setShowDashboard(false);
+            setDashboardDrill(null);
+            setNotice("");
+            setUser(null);
+          }}
+        >
+          Sign out
+        </button>
       </aside>
       <section className="workspace">
         <header>
           <div>
-            <small>DAY 7 · FINAL FINANCE CONTROL</small>
+            <small>AIMS · PAYMENT & FINANCE CONTROL</small>
             <h1>
               {user === "demo.approver"
                 ? "Approval inbox"
@@ -283,7 +307,7 @@ export default function Home() {
             </div>
           )}
         </header>
-        <div className="stageRail">
+        <div className="stageRail" aria-label="12-stage AIMS workflow">
           {stages.map((s, i) => (
             <div className="available" key={s}>
               <span>{String(i + 1).padStart(2, "0")}</span>
@@ -292,7 +316,7 @@ export default function Home() {
             </div>
           ))}
         </div>
-        {notice && <p className="notice">{notice}</p>}
+        {notice && <p className="notice" role="status" aria-live="polite">{notice}</p>}
         {showDashboard && user === "demo.finance" ? (
           <FinanceDashboard api={api} onDrill={(drill) => {
             setDashboardDrill(drill);
@@ -322,12 +346,16 @@ export default function Home() {
             }}
           />
         ) : (
-          <List
-            items={items}
-            open={open}
-            empty={initiate}
-            canCreate={user === "demo.requester"}
-          />
+          <>
+            <List items={items} open={open} empty={initiate} canCreate={user === "demo.requester"} />
+            {user === "demo.approver" && approvalPagination && (
+              <nav className="pagination" aria-label="Approval inbox pages">
+                <button aria-label="Previous approval page" disabled={!approvalPagination.hasPreviousPage} onClick={() => setApprovalPage((page) => Math.max(1, page - 1))}>Previous</button>
+                <span>Page {approvalPagination.page} of {Math.max(1, approvalPagination.totalPages)} · {approvalPagination.total} eligible approvals</span>
+                <button aria-label="Next approval page" disabled={!approvalPagination.hasNextPage} onClick={() => setApprovalPage((page) => page + 1)}>Next</button>
+              </nav>
+            )}
+          </>
         )}
       </section>
     </main>
@@ -603,6 +631,7 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
         </header>
         <div className="askForm">
           <input
+            aria-label="Ask AIMS finance question"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             placeholder="Which department has the highest budget pressure?"
@@ -1160,7 +1189,7 @@ function Editor({
             <p>
               <b>Request Capture</b>
               <small>
-                Capture facts only. Business Validation starts on Day 2.
+                Capture facts only. Validation begins only after submission.
               </small>
             </p>
           </div>
@@ -1259,16 +1288,8 @@ function Editor({
             <small>SUPPORTING DOCUMENTS</small>
             {(draft || item.status === "NEEDS_CLARIFICATION") && (
               <form className="upload" onSubmit={upload}>
-                <input
-                  name="file"
-                  type="file"
-                  accept="application/pdf,image/jpeg,image/png"
-                  required
-                />
-                <input
-                  name="documentType"
-                  placeholder="Document type (optional)"
-                />
+                <label>Supporting document<input name="file" type="file" accept="application/pdf,image/jpeg,image/png" required /></label>
+                <label>Document type<input name="documentType" placeholder="Optional" /></label>
                 <button disabled={busy}>Upload document</button>
                 <small>PDF, JPG or PNG · maximum 10 MB</small>
               </form>
@@ -1282,7 +1303,7 @@ function Editor({
                     v{d.version} · {Math.ceil(Number(d.size_bytes) / 1024)} KB
                   </small>
                 </p>
-                {draft && <button onClick={() => remove(d.id)}>×</button>}
+                {draft && <button type="button" aria-label={`Remove ${d.original_filename}`} onClick={() => remove(d.id)}>×</button>}
               </div>
             ))}
             {!item.documents?.length && (
@@ -1771,13 +1792,14 @@ function FinancialAnalysisPanel({
       {!data && user === "demo.finance" && (
         <div className="analysisActions">
           <button onClick={start}>Start AI-assisted analysis</button>
-          <select value={risk} onChange={(e) => setRisk(e.target.value)}>
+          <select aria-label="Manual final risk" value={risk} onChange={(e) => setRisk(e.target.value)}>
             <option>LOW</option>
             <option>MEDIUM</option>
             <option>HIGH</option>
             <option>CRITICAL</option>
           </select>
           <select
+            aria-label="Manual final priority"
             value={priority}
             onChange={(e) => setPriority(e.target.value)}
           >
@@ -1905,13 +1927,14 @@ function FinancialHumanReview({ item, api }: { item: Item; api: Api }) {
     <section className="humanFinal">
       <small>HUMAN REVIEW · ACCOUNTABLE FINAL ASSESSMENT</small>
       {notice && <p className="notice">{notice}</p>}
-      <select value={risk} onChange={(event) => setRisk(event.target.value)}>
+      <select aria-label="Human final risk" value={risk} onChange={(event) => setRisk(event.target.value)}>
         <option>LOW</option>
         <option>MEDIUM</option>
         <option>HIGH</option>
         <option>CRITICAL</option>
       </select>
       <select
+        aria-label="Human final priority"
         value={priority}
         onChange={(event) => setPriority(event.target.value)}
       >
@@ -1963,17 +1986,36 @@ function PolicyDecisionPanel({
     [notice, setNotice] = useState(""),
     [justification, setJustification] = useState("");
   const load = useCallback(
-    async () =>
-      setData(
-        (await api(`/payment-requests/${item.id}/policy-evaluation`)) as View,
-      ),
+    async () => {
+      try {
+        setData(
+          (await api(`/payment-requests/${item.id}/policy-evaluation`)) as View,
+        );
+      } catch {
+        const history = (await api(
+          `/payment-requests/${item.id}/policy-evaluation/history`,
+        )) as View[];
+        setData(history[0] ?? null);
+      }
+    },
     [api, item.id],
   );
   useEffect(() => {
     let active = true;
-    void api(`/payment-requests/${item.id}/policy-evaluation`)
+    void (async () => {
+      try {
+        return (await api(
+          `/payment-requests/${item.id}/policy-evaluation`,
+        )) as View;
+      } catch {
+        const history = (await api(
+          `/payment-requests/${item.id}/policy-evaluation/history`,
+        )) as View[];
+        return history[0] ?? null;
+      }
+    })()
       .then((v) => {
-        if (active) setData(v as View);
+        if (active) setData(v);
       })
       .catch(() => undefined);
     return () => {

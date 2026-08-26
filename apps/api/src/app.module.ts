@@ -42,6 +42,8 @@ import {
   LocalDocumentStorage,
   loadLocalStorageConfig,
 } from "./infrastructure/storage/local-document-storage.js";
+import { HealthController } from "./application/health/health.controller.js";
+import { HealthService } from "./application/health/health.service.js";
 
 @Module({
   controllers: [
@@ -56,6 +58,7 @@ import {
     PaymentController,
     DashboardController,
     FinanceIntelligenceController,
+    HealthController,
   ],
   providers: [
     Postgres,
@@ -72,12 +75,15 @@ import {
     PaymentService,
     DashboardService,
     FinanceIntelligenceService,
+    HealthService,
     {
       provide: APPROVAL_CHANNEL,
-      useFactory: () =>
-        process.env.TELEGRAM_BOT_TOKEN
-          ? new TelegramApprovalChannel(process.env.TELEGRAM_BOT_TOKEN)
-          : new DisabledApprovalChannel(),
+      useFactory: () => {
+        const token = process.env.TELEGRAM_BOT_TOKEN;
+        return process.env.TELEGRAM_APPROVAL_ENABLED === "true" && token
+          ? new TelegramApprovalChannel(token)
+          : new DisabledApprovalChannel();
+      },
     },
     {
       provide: AI_PROVIDER,

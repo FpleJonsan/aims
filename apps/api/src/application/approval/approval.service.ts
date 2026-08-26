@@ -418,22 +418,43 @@ export class ApprovalService {
       throw new NotFoundException("Payment request not found");
     return this.getWithin(this.db.pool, id, actor);
   }
-  async list(actor: Principal) {
+  async list(actor: Principal, input: { page: number; pageSize: number } = { page: 1, pageSize: 25 }) {
     const broad = actor.roles.some((r) => r === "FINANCE" || r === "ADMIN");
     const q = await this.db.pool.query(
-      `SELECT DISTINCT ac.id approval_case_id,ac.status,s.id step_id,s.sequence,s.required_role,s.status step_status,
+      `WITH eligible AS (
+       SELECT DISTINCT ac.id approval_case_id,ac.status,s.id step_id,s.sequence,s.required_role,s.status step_status,
        pr.id payment_request_id,pr.ticket_number,pr.payee,pr.amount,pr.currency,pr.department_id,pr.due_date,ra.final_risk
        FROM approval_cases ac JOIN payment_requests pr ON pr.id=ac.payment_request_id JOIN finance_context_snapshots fc ON fc.id=ac.finance_context_snapshot_id
+       JOIN users actor_user ON actor_user.id=$1 AND actor_user.active
        JOIN financial_risk_assessments ra ON ra.analysis_run_id=ac.financial_analysis_run_id LEFT JOIN approval_steps s ON s.approval_case_id=ac.id
-       LEFT JOIN approval_authorities aa ON aa.user_id=$1 AND aa.active AND aa.authority_role=s.required_role AND aa.authority_scope=s.authority_scope
+       LEFT JOIN approval_authorities aa ON aa.user_id=actor_user.id AND aa.active AND aa.authority_role=s.required_role AND aa.authority_scope=s.authority_scope
         AND (aa.authority_scope='ORGANIZATION' OR aa.department_id=pr.department_id)
         AND (aa.minimum_amount_minor IS NULL OR aa.minimum_amount_minor<=fc.request_amount_minor) AND (aa.maximum_amount_minor IS NULL OR aa.maximum_amount_minor>=fc.request_amount_minor)
         AND (s.minimum_amount_minor IS NULL OR s.minimum_amount_minor<=fc.request_amount_minor) AND (s.maximum_amount_minor IS NULL OR s.maximum_amount_minor>=fc.request_amount_minor)
        WHERE ($2::boolean OR (aa.user_id IS NOT NULL AND pr.created_by<>$1 AND ac.is_current AND ac.status='PENDING' AND pr.status='PENDING_APPROVAL'))
-        AND (s.status='ACTIVE' OR $2::boolean) ORDER BY pr.due_date,pr.ticket_number`,
-      [actor.id, broad],
+        AND (s.status='ACTIVE' OR $2::boolean)
+       ), page_rows AS (
+         SELECT * FROM eligible ORDER BY due_date,ticket_number LIMIT $3 OFFSET $4
+       )
+       SELECT page_rows.*,totals.total::int total
+       FROM (SELECT count(*) total FROM eligible) totals
+       LEFT JOIN page_rows ON true ORDER BY page_rows.due_date,page_rows.ticket_number`,
+      [actor.id, broad, input.pageSize, (input.page - 1) * input.pageSize],
     );
-    return { items: q.rows };
+    const total = Number(q.rows[0]?.total ?? 0),
+      items = q.rows
+        .filter((row) => row.approval_case_id !== null)
+        .map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== "total"))),
+      totalPages = Math.ceil(total / input.pageSize);
+    return {
+      items,
+      page: input.page,
+      pageSize: input.pageSize,
+      total,
+      totalPages,
+      hasNextPage: input.page < totalPages,
+      hasPreviousPage: input.page > 1,
+    };
   }
   async bindTelegram(
     input: TelegramBindingDto,

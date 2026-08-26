@@ -44,7 +44,7 @@ Use the administrative account only for reviewed migrations and maintenance. Put
 
 ### Day 1 database setup
 
-Apply the reviewed migrations in order with the container administrator. The runtime API still connects only as `aims_app` through `DATABASE_URL`:
+Apply every reviewed migration in lexical order with the container administrator. The runtime API still connects only as `aims_app` through `DATABASE_URL`:
 
 ```bash
 docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/001_day1_foundation.sql
@@ -57,6 +57,8 @@ docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psq
 docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/008_day4_financial_analysis.sql
 ```
 
+Continue through the latest numbered file; [the migration inventory](MIGRATION-INVENTORY.md) is authoritative. A shell loop may be used only after reviewing its resolved file list and confirming the target database. Never run local/demo seed migrations against production.
+
 The seed contains synthetic local identities only: `demo.requester` and `demo.finance`. The API accepts `x-aims-user` only as the explicit local identity adapter. When `NODE_ENV=production`, requests are rejected unless `AUTH_TRUSTED_PROXY=true` and the deployment supplies this header through a trusted, stripping identity proxy.
 
 Run the local API and web application in separate terminals:
@@ -66,7 +68,7 @@ npm run dev --workspace @aims/api
 npm run dev
 ```
 
-The Day 1 API listens on `127.0.0.1:3001`, exposes OpenAPI at `/openapi`, and stops at `SUBMITTED`. It does not dispatch requests into Validation.
+The local API listens on `API_HOST`/`API_PORT` (defaults `127.0.0.1:3001`) and exposes OpenAPI at `/openapi` outside production. Use `/health/live` for process liveness and `/health/ready` for dependency/configuration readiness. Optional AI or Telegram being disabled is healthy; enabling either without its required configuration is not.
 
 Day 2 adds Validation without starting Finance Context. AI defaults OFF in `ai_feature_configuration`; `AI_MASTER` and `DOCUMENT_VALIDATION` must both be enabled before the Document Agent can call the configured server-side provider. `DOCUMENT_EXTRACTION` is independently recorded for operational control. With either required flag OFF, no provider call occurs and manual validation remains available. Run `npm run test:ai:live --workspace @aims/api` only when `OPENAI_API_KEY` is intentionally configured; the normal test suite never calls paid AI.
 

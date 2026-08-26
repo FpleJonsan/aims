@@ -5,7 +5,25 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  Max,
+  Min,
 } from "class-validator";
+import { Type } from "class-transformer";
+
+export class ApprovalInboxDto {
+  @IsOptional() @Type(() => Number) @Min(1) page = 1;
+  @IsOptional() @Type(() => Number) @Min(1) @Max(100) pageSize = 25;
+}
+
+export interface ApprovalInboxPage<T = Record<string, unknown>> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
 
 export class ApprovalActionDto {
   @IsUUID() commandKey!: string;
