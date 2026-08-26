@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import "./day1.css";
@@ -53,13 +54,21 @@ type Item = {
   audit?: Array<{ id: string; action: string; occurred_at: string }>;
 };
 type Api = (path: string, init?: RequestInit) => Promise<unknown>;
+type DashboardFilterState = { dateFrom:string;dateTo:string;departmentId:string;category:string };
+type DashboardDrill =
+  | { view:"REPORTING_REQUESTS"; reportView:"PENDING_APPROVAL"|"RISK_ATTENTION"; filters:DashboardFilterState }
+  | { view:"FINANCE_CONTROL"; status:"FINANCE_HOLD"; filters:DashboardFilterState }
+  | { view:"PAYMENT_QUEUE"; status:"READY_FOR_PAYMENT"; filters:DashboardFilterState }
+  | { view:"PAYMENT_HISTORY"; filters:Record<string,string> };
 
 export default function Home() {
   const [user, setUser] = useState<string | null>(null),
     [items, setItems] = useState<Item[]>([]),
     [selected, setSelected] = useState<Item | null>(null),
     [notice, setNotice] = useState(""),
-    [showPaymentHistory, setShowPaymentHistory] = useState(false);
+    [showPaymentHistory, setShowPaymentHistory] = useState(false),
+    [showDashboard, setShowDashboard] = useState(false),
+    [dashboardDrill, setDashboardDrill] = useState<DashboardDrill|null>(null);
   const api = useCallback(
     async (path: string, init?: RequestInit): Promise<unknown> => {
       if (!user) throw Error("Sign in required");
@@ -239,23 +248,63 @@ export default function Home() {
           )}
           {user === "demo.finance" && (
             <div className="headerActions">
-              <button className="secondary" onClick={() => setShowPaymentHistory(false)}>Work queue</button>
-              <button className="primary" onClick={() => { setSelected(null); setShowPaymentHistory(true); }}>Payment History</button>
+              <button
+                className="secondary"
+                onClick={() => {
+                  setShowPaymentHistory(false);
+                  setShowDashboard(false);
+                  setDashboardDrill(null);
+                }}
+              >
+                Work queue
+              </button>
+              <button
+                className="secondary"
+                onClick={() => {
+                  setSelected(null);
+                  setShowDashboard(false);
+                  setShowPaymentHistory(true);
+                  setDashboardDrill(null);
+                }}
+              >
+                Payment History
+              </button>
+              <button
+                className="primary"
+                onClick={() => {
+                  setSelected(null);
+                  setShowPaymentHistory(false);
+                  setShowDashboard(true);
+                  setDashboardDrill(null);
+                }}
+              >
+                Finance Dashboard
+              </button>
             </div>
           )}
         </header>
         <div className="stageRail">
           {stages.map((s, i) => (
-            <div className={i < 10 ? "available" : "future"} key={s}>
+            <div className="available" key={s}>
               <span>{String(i + 1).padStart(2, "0")}</span>
               <b>{s}</b>
-              <small>{i < 10 ? "Available" : "Not started"}</small>
+              <small>Available</small>
             </div>
           ))}
         </div>
         {notice && <p className="notice">{notice}</p>}
-        {showPaymentHistory && user === "demo.finance" ? (
-          <PaymentHistory api={api} user={user} />
+        {showDashboard && user === "demo.finance" ? (
+          <FinanceDashboard api={api} onDrill={(drill) => {
+            setDashboardDrill(drill);
+            setShowDashboard(false);
+            setShowPaymentHistory(drill.view === "PAYMENT_HISTORY");
+          }} />
+        ) : showPaymentHistory && user === "demo.finance" ? (
+          <PaymentHistory api={api} user={user} initialFilters={dashboardDrill?.view === "PAYMENT_HISTORY" ? dashboardDrill.filters : {}} />
+        ) : dashboardDrill?.view === "REPORTING_REQUESTS" ? (
+          <ReportingRequestDrill api={api} drill={dashboardDrill} back={()=>setDashboardDrill(null)} />
+        ) : dashboardDrill?.view === "FINANCE_CONTROL" || dashboardDrill?.view === "PAYMENT_QUEUE" ? (
+          <OperationalDrill api={api} drill={dashboardDrill} open={open} back={()=>setDashboardDrill(null)} />
         ) : selected ? (
           <Editor
             item={selected}
@@ -285,38 +334,536 @@ export default function Home() {
   );
 }
 
-type PaymentRow = {
-  id: string; ticketNumber: string; paymentDate: string; payee: string;
-  departmentName: string; category: string; purpose: string; amount: string;
-  currency: string; paymentMethod: string; bankReference: string; status: string;
-  recordedByName: string; recordedAt: string; approvalSource?: string;
-  financeControlStatus?: string; commitmentStatus?: string; ledgerEntryId?: string;
-};
+function ReportingRequestDrill({api,drill,back}:{api:Api;drill:Extract<DashboardDrill,{view:"REPORTING_REQUESTS"}>;back:()=>void}) {
+  const [data,setData]=useState<{items:Array<Record<string,unknown>>;total:number}|null>(null),[notice,setNotice]=useState("");
+  const query=new URLSearchParams({view:drill.reportView,...Object.fromEntries(Object.entries(drill.filters).filter(([,v])=>v))}).toString();
+  useEffect(()=>{let active=true;void api(`/dashboard/requests?${query}`).then((x)=>{if(active)setData(x as {items:Array<Record<string,unknown>>;total:number})}).catch((e)=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api,query]);
+  return <section className="card reportingDrill"><button className="back" onClick={back}>← Finance Dashboard</button><header><div><small>REPORTING VIEW · READ ONLY</small><h2>{drill.reportView==="PENDING_APPROVAL"?"Pending Approval":"High / Critical Risk"}</h2></div></header>{notice&&<p className="notice">{notice}</p>}<p>{data?.total??0} authoritative records · reporting access does not grant Approval or Payment authority.</p><div className="table">{data?.items.map((x)=><div className="reportingRow" key={String(x.id)}><span className="ticket">{String(x.ticket_number)}</span><span><b>{String(x.payee)}</b><small>{String(x.department)} · {String(x.category)}</small></span><span>{String(x.currency)} {String(x.amount)}<small>{String(x.status)}</small></span><span><b>{String(x.final_risk??"—")}</b><small>{String(x.final_priority??"—")}</small></span></div>)}</div>{data&&!data.items.length&&<p>NO DATA IN SELECTED RANGE</p>}</section>;
+}
 
-function PaymentHistory({ api, user }: { api: Api; user: string }) {
-  const [filters, setFilters] = useState({ search: "", departmentId: "", category: "", dateFrom: "", dateTo: "", status: "PAID", page: "1" });
-  const [rows, setRows] = useState<PaymentRow[]>([]), [total, setTotal] = useState(0);
-  const [detail, setDetail] = useState<PaymentRow | null>(null), [notice, setNotice] = useState("");
-  const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value)).toString();
+function OperationalDrill({api,drill,open,back}:{api:Api;drill:Extract<DashboardDrill,{view:"FINANCE_CONTROL"|"PAYMENT_QUEUE"}>;open:(id:string)=>Promise<void>;back:()=>void}) {
+  const [rows,setRows]=useState<Item[]>([]),[notice,setNotice]=useState("");
+  useEffect(()=>{let active=true;const query=new URLSearchParams(Object.entries({departmentId:drill.filters.departmentId,category:drill.filters.category}).filter(([,v])=>v)).toString(),path=`${drill.view==="FINANCE_CONTROL"?"/finance-control":"/payment-queue"}?${query}`;void api(path).then((x)=>{if(!active)return;const raw=(x as {items:Array<Record<string,unknown>>}).items;const mapped=raw.map(drill.view==="FINANCE_CONTROL"?financeQueueItem:paymentQueueItem);setRows(mapped.filter((item)=>item.status===drill.status));}).catch((e)=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api,drill]);
+  return <section><button className="back" onClick={back}>← Finance Dashboard</button>{notice&&<p className="notice">{notice}</p>}<List items={rows} open={open} empty={()=>Promise.resolve()} canCreate={false}/></section>;
+}
+
+function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:DashboardDrill)=>void }) {
+  const [summary, setSummary] = useState<any>(null),
+    [budget, setBudget] = useState<any[]>([]),
+    [trend, setTrend] = useState<any[]>([]),
+    [workflow, setWorkflow] = useState<any>(null),
+    [usage, setUsage] = useState<any>(null),
+    [notice, setNotice] = useState(""),
+    [question, setQuestion] = useState(""),
+    [answer, setAnswer] = useState<any>(null),
+    [watch, setWatch] = useState<any>(null),
+    [scope, setScope] = useState<{departments:Array<{id:string;name:string}>}|null>(null),
+    [filters, setFilters] = useState<DashboardFilterState>({ dateFrom:"", dateTo:"", departmentId:"", category:"" });
+  const query = new URLSearchParams(Object.entries(filters).filter(([,v])=>v)).toString();
   useEffect(() => {
     let active = true;
-    void api(`/payments?${query}`).then((value) => {
-      if (!active) return;
-      const result = value as { items: PaymentRow[]; total: number };
-      setRows(result.items); setTotal(result.total);
-    }).catch((error) => { if (active) setNotice(msg(error)); });
-    return () => { active = false; };
+    void Promise.all([
+      api(`/dashboard/finance-summary?${query}`),
+      api(`/dashboard/budget?${query}`),
+      api(`/dashboard/spending-trend?${query}`),
+      api(`/dashboard/workflow?${query}`),
+      api(`/dashboard/ai-usage?${query}`),
+      api("/dashboard/reporting-scope"),
+    ])
+      .then(([s, b, t, w, u, reportingScope]) => {
+        if (active) {
+          setSummary(s);
+          setBudget((b as any).items);
+          setTrend((t as any).items);
+          setWorkflow(w);
+          setUsage(u);
+          setScope(reportingScope as {departments:Array<{id:string;name:string}>});
+        }
+      })
+      .catch((e) => {
+        if (active) setNotice(msg(e));
+      });
+    return () => {
+      active = false;
+    };
   }, [api, query]);
-  async function open(id: string) { try { setDetail(await api(`/payments/${id}`) as PaymentRow); } catch (error) { setNotice(msg(error)); } }
-  async function exportCsv() {
-    const response = await fetch(`${API}/payments/export?${query}`, { headers: { "x-aims-user": user } });
-    if (!response.ok) { setNotice("Payment export was denied."); return; }
-    const url = URL.createObjectURL(await response.blob()), anchor = document.createElement("a");
-    anchor.href = url; anchor.download = `aims-payments-${new Date().toISOString().slice(0, 10)}.csv`; anchor.click(); URL.revokeObjectURL(url);
+  async function generateWatch() {
+    try {
+      setWatch(
+        await api("/finance-intelligence/watch", {
+          method: "POST",
+          body: JSON.stringify(Object.fromEntries(Object.entries(filters).filter(([,v])=>v))),
+        }),
+      );
+    } catch (e) {
+      setNotice(msg(e));
+    }
   }
-  const field = (name: keyof typeof filters, value: string) => setFilters((x) => ({ ...x, [name]: value, page: name === "page" ? value : "1" }));
-  if (detail) return <section className="card paymentHistory"><button className="back" onClick={() => setDetail(null)}>← Payment History</button><header><div><small>10 · PAYMENT RECORD / HISTORY</small><h2>{detail.ticketNumber}</h2></div><i className="paid">PAID</i></header><div className="paymentDetail"><h3>Payment</h3><p>{detail.paymentDate?.slice(0,10)} · {detail.currency} {detail.amount} · {detail.paymentMethod}</p><p>Bank reference · {detail.bankReference}</p><a href={`${API}/payments/${detail.id}/slip`} onClick={(e) => { e.preventDefault(); void fetch(`${API}/payments/${detail.id}/slip`, { headers: { "x-aims-user": user } }).then(async r => { if (!r.ok) throw Error("Slip access denied"); const u=URL.createObjectURL(await r.blob()); window.open(u,"_blank"); }); }}>Open secured payment slip</a><h3>Request</h3><p>{detail.payee} · {detail.departmentName} · {detail.category}</p><p>{detail.purpose}</p><h3>Authorization & control</h3><p>Approval · {detail.approvalSource ?? "Approved"}</p><p>Final Finance Control · {detail.financeControlStatus}</p><h3>Financial posting</h3><p>Commitment · {detail.commitmentStatus}</p><p>Actual ledger · {detail.ledgerEntryId}</p><h3>Audit</h3><p>Recorded by {detail.recordedByName} at {detail.recordedAt}</p></div></section>;
-  return <section className="card paymentHistory"><header><div><small>10 · PAYMENT RECORD / HISTORY</small><h2>Payment History</h2></div><button className="primary" onClick={() => void exportCsv()}>Export CSV</button></header>{notice && <p className="notice">{notice}</p>}<div className="historyFilters"><input aria-label="Search ticket, payee or bank reference" placeholder="Ticket, payee or bank reference" value={filters.search} onChange={e=>field("search",e.target.value)}/><input aria-label="Department ID" placeholder="Department ID" value={filters.departmentId} onChange={e=>field("departmentId",e.target.value)}/><input aria-label="Category" placeholder="Category" value={filters.category} onChange={e=>field("category",e.target.value)}/><input aria-label="From date" type="date" value={filters.dateFrom} onChange={e=>field("dateFrom",e.target.value)}/><input aria-label="To date" type="date" value={filters.dateTo} onChange={e=>field("dateTo",e.target.value)}/><select aria-label="Payment status" value={filters.status} onChange={e=>field("status",e.target.value)}><option value="PAID">PAID</option></select></div><div className="table">{rows.map(row=><button key={row.id} onClick={()=>void open(row.id)}><span className="ticket">{row.ticketNumber}</span><span><b>{row.payee}</b><small>{row.departmentName} · {row.category} · {row.purpose}</small></span><span>{row.currency} {row.amount}<small>{row.paymentDate?.slice(0,10)} · {row.paymentMethod}</small></span><span>{row.recordedByName}<small>{row.recordedAt}</small></span><i className="paid">{row.status}</i><strong>Detail →</strong></button>)}</div><footer className="pagination"><span>{total} records</span><button disabled={filters.page === "1"} onClick={()=>field("page",String(Math.max(1,Number(filters.page)-1)))}>Previous</button><button disabled={Number(filters.page)*25>=total} onClick={()=>field("page",String(Number(filters.page)+1))}>Next</button></footer></section>;
+  async function ask() {
+    try {
+      setAnswer(
+        await api("/finance-intelligence/ask", {
+          method: "POST",
+          body: JSON.stringify({ question, ...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)) }),
+        }),
+      );
+    } catch (e) {
+      setNotice(msg(e));
+    }
+  }
+  if (!summary)
+    return (
+      <section className="card">
+        <p>{notice || "Loading authoritative finance data…"}</p>
+      </section>
+    );
+  const cards: Array<{label:string;value:string;view?:DashboardDrill["view"];reportView?:"PENDING_APPROVAL"|"RISK_ATTENTION"}> = [
+    {label:"Active budget",value:summary.financial.budget},{label:"Actual spending",value:summary.financial.actual},
+    {label:"Active committed",value:summary.financial.committed},{label:"Available budget",value:summary.financial.available},
+    {label:"Paid",value:summary.payments.paid_amount,view:"PAYMENT_HISTORY"},{label:"Ready for payment",value:String(summary.financeControl.ready),view:"PAYMENT_QUEUE"},
+    {label:"Finance holds",value:String(summary.financeControl.holds),view:"FINANCE_CONTROL"},{label:"Pending approval",value:String(summary.requests.PENDING_APPROVAL?.count??0),view:"REPORTING_REQUESTS",reportView:"PENDING_APPROVAL"},
+    {label:"High / critical risk",value:String((summary.risk.HIGH??0)+(summary.risk.CRITICAL??0)),view:"REPORTING_REQUESTS",reportView:"RISK_ATTENTION"},
+  ];
+  return (
+    <section className="dashboard">
+      <header className="dashboardHero">
+        <div>
+          <small>11 · FINANCE DASHBOARD</small>
+          <h2>Financial position & control</h2>
+          <p>
+            Authoritative live reporting · snapshot{" "}
+            {new Date(summary.dataSnapshotAsOf).toLocaleString()}
+          </p>
+        </div>
+        <span>SYSTEM CALCULATED</span>
+      </header>
+      {notice && <p className="notice">{notice}</p>}
+      <div className="dashboardFilters" aria-label="Finance dashboard filters">
+        <input aria-label="From date" type="date" value={filters.dateFrom} onChange={(e)=>setFilters(x=>({...x,dateFrom:e.target.value}))}/>
+        <input aria-label="To date" type="date" value={filters.dateTo} onChange={(e)=>setFilters(x=>({...x,dateTo:e.target.value}))}/>
+        <select aria-label="Department" value={filters.departmentId} onChange={(e)=>setFilters(x=>({...x,departmentId:e.target.value}))}>
+          <option value="">All authorized departments</option>
+          {scope?.departments.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}
+        </select>
+        <input aria-label="Category" placeholder="Category" value={filters.category} onChange={(e)=>setFilters(x=>({...x,category:e.target.value}))}/>
+        <button className="secondary" onClick={()=>setFilters({dateFrom:"",dateTo:"",departmentId:"",category:""})}>Clear</button>
+      </div>
+      <small>One authorized filter context applies throughout. Budget position remains live; dated metrics use the displayed source semantics.</small>
+      <div className="kpiGrid">
+        {cards.map(({label, value, view, reportView}) => view ? (
+          <button className="kpiCard" key={label} onClick={()=>onDrill(view==="REPORTING_REQUESTS"?{view,reportView:reportView!,filters}:view==="PAYMENT_HISTORY"?{view,filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),status:"PAID"}}:view==="FINANCE_CONTROL"?{view,status:"FINANCE_HOLD",filters}:{view,status:"READY_FOR_PAYMENT",filters})}>
+            <small>{label}</small>
+            <b>{value}</b>
+          </button>
+        ):(<article key={label}><small>{label}</small><b>{value}</b></article>))}
+      </div>
+      <div className="dashboardGrid">
+        <section className="card">
+          <header>
+            <div>
+              <small>BUDGET PERFORMANCE</small>
+              <h3>Department & category position</h3>
+            </div>
+          </header>
+          <div className="budgetRows">
+            {budget.length ? (
+              budget.map((x: any) => (
+                <button className="budgetDrill" key={`${x.department_id}-${x.category}`} onClick={()=>onDrill({view:"PAYMENT_HISTORY",filters:{departmentId:String(x.department_id),category:String(x.category),status:"PAID"}})}>
+                  <span>
+                    <b>{x.department}</b>
+                    <small>{x.category}</small>
+                  </span>
+                  <span>
+                    {x.currency} {x.actual} actual
+                  </span>
+                  <span>{x.available} available</span>
+                  <strong
+                    className={
+                      x.utilisationBasisPoints >= 9000 ? "pressure" : ""
+                    }
+                  >
+                    {x.utilisationBasisPoints === null
+                      ? "NO DATA"
+                      : `${(x.utilisationBasisPoints / 100).toFixed(1)}%`}
+                  </strong>
+                </button>
+              ))
+            ) : (
+              <p>NO DATA IN SELECTED RANGE</p>
+            )}
+          </div>
+        </section>
+        <section className="card">
+          <header>
+            <div>
+              <small>MONTHLY ACTUAL</small>
+              <h3>Spending trend</h3>
+            </div>
+          </header>
+          {trend.length ? (
+            trend.map((x: any) => (
+              <div className="trendRow" key={x.month}>
+                <b>{x.month}</b>
+                <span>{x.amount}</span>
+              </div>
+            ))
+          ) : (
+            <p>NO PAYMENTS IN PERIOD</p>
+          )}
+          <small>Values come from Actual ledger posting dates.</small>
+        </section>
+        <section className="card">
+          <header>
+            <div>
+              <small>WORKFLOW PRODUCTIVITY</small>
+              <h3>Processing performance</h3>
+            </div>
+          </header>
+          <p>
+            Processed requests · <b>{workflow.processed}</b>
+          </p>
+          <p>
+            Average request-to-paid ·{" "}
+            <b>
+              {workflow.avg_request_to_paid_seconds
+                ? `${Math.round(Number(workflow.avg_request_to_paid_seconds) / 3600)} hours`
+                : "NO DATA"}
+            </b>
+          </p>
+          <p>
+            AI-assisted validation · <b>{workflow.ai_validation}</b>
+          </p>
+          <p>
+            Manual validation · <b>{workflow.manual_validation}</b>
+          </p>
+          <p>{workflow.timeSaved}</p>
+        </section>
+        <section className="card">
+          <header>
+            <div>
+              <small>AI OPERATIONS</small>
+              <h3>Usage & reliability</h3>
+            </div>
+          </header>
+          <p>
+            Calls · <b>{usage.calls}</b>
+          </p>
+          <p>
+            Tokens · <b>{usage.total_tokens}</b>
+          </p>
+          <p>
+            Average latency · <b>{usage.average_latency_ms} ms</b>
+          </p>
+          <p>
+            Failures · <b>{usage.failures}</b>
+          </p>
+          <p>{usage.estimatedCost}</p>
+        </section>
+      </div>
+      <section className="card"><header><div><small>TOP PAYEES</small><h3>Paid concentration</h3></div></header>
+        {summary.vendors.length ? summary.vendors.map((x:any)=><button className="payeeDrill" key={x.payee} onClick={()=>onDrill({view:"PAYMENT_HISTORY",filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),search:x.payee,status:"PAID"}})}><b>{x.payee}</b><span>{x.payment_count} payments · {x.amount}</span></button>):<p>NO DATA IN SELECTED RANGE</p>}
+      </section>
+      <section className="card aiWatch">
+        <header>
+          <div>
+            <small>12 · AI FINANCE INTELLIGENCE</small>
+            <h3>Finance Watch</h3>
+          </div>
+          <button className="primary" onClick={() => void generateWatch()}>
+            Refresh AI insights
+          </button>
+        </header>
+        <p>
+          <b>AI INTERPRETATION</b> · generated only from the deterministic
+          evidence catalog.
+        </p>
+        {watch?.insights?.length ? (
+          watch.insights.map((x: any) => (
+            <article key={x.title}>
+              <span>{x.severity}</span>
+              <b>{x.title}</b>
+              <p>{x.summary}</p>
+              <small>
+                {x.evidence
+                  .map((e: any) => `${e.metric}: ${e.value}`)
+                  .join(" · ")}
+              </small>
+            </article>
+          ))
+        ) : (
+          <p>NO AI INSIGHTS GENERATED</p>
+        )}
+      </section>
+      <section className="card askAims">
+        <header>
+          <div>
+            <small>ASK AIMS</small>
+            <h3>Finance copilot</h3>
+          </div>
+        </header>
+        <div className="askForm">
+          <input
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder="Which department has the highest budget pressure?"
+            maxLength={500}
+          />
+          <button
+            className="primary"
+            disabled={question.trim().length < 2}
+            onClick={() => void ask()}
+          >
+            Ask
+          </button>
+        </div>
+        {answer && (
+          <div>
+            <p>{answer.answer}</p>
+            <small>
+              {answer.evidenceReferences
+                ?.map((e: any) => `${e.metric}: ${e.value}`)
+                .join(" · ")}
+            </small>
+          </div>
+        )}
+        <small>
+          Controlled analytics tools only · no arbitrary SQL · no bank details.
+        </small>
+      </section>
+    </section>
+  );
+}
+
+type PaymentRow = {
+  id: string;
+  ticketNumber: string;
+  paymentDate: string;
+  payee: string;
+  departmentName: string;
+  category: string;
+  purpose: string;
+  amount: string;
+  currency: string;
+  paymentMethod: string;
+  bankReference: string;
+  status: string;
+  recordedByName: string;
+  recordedAt: string;
+  approvalSource?: string;
+  financeControlStatus?: string;
+  commitmentStatus?: string;
+  ledgerEntryId?: string;
+};
+
+function PaymentHistory({ api, user, initialFilters = {} }: { api: Api; user: string; initialFilters?: Record<string,string> }) {
+  const [filters, setFilters] = useState({
+    search: "",
+    departmentId: "",
+    category: "",
+    dateFrom: "",
+    dateTo: "",
+    status: "PAID",
+    page: "1", ...initialFilters,
+  });
+  const [rows, setRows] = useState<PaymentRow[]>([]),
+    [total, setTotal] = useState(0);
+  const [detail, setDetail] = useState<PaymentRow | null>(null),
+    [notice, setNotice] = useState("");
+  const query = new URLSearchParams(
+    Object.entries(filters).filter(([, value]) => value),
+  ).toString();
+  useEffect(() => {
+    let active = true;
+    void api(`/payments?${query}`)
+      .then((value) => {
+        if (!active) return;
+        const result = value as { items: PaymentRow[]; total: number };
+        setRows(result.items);
+        setTotal(result.total);
+      })
+      .catch((error) => {
+        if (active) setNotice(msg(error));
+      });
+    return () => {
+      active = false;
+    };
+  }, [api, query]);
+  async function open(id: string) {
+    try {
+      setDetail((await api(`/payments/${id}`)) as PaymentRow);
+    } catch (error) {
+      setNotice(msg(error));
+    }
+  }
+  async function exportCsv() {
+    const response = await fetch(`${API}/payments/export?${query}`, {
+      headers: { "x-aims-user": user },
+    });
+    if (!response.ok) {
+      setNotice("Payment export was denied.");
+      return;
+    }
+    const url = URL.createObjectURL(await response.blob()),
+      anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `aims-payments-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+  const field = (name: keyof typeof filters, value: string) =>
+    setFilters((x) => ({
+      ...x,
+      [name]: value,
+      page: name === "page" ? value : "1",
+    }));
+  if (detail)
+    return (
+      <section className="card paymentHistory">
+        <button className="back" onClick={() => setDetail(null)}>
+          ← Payment History
+        </button>
+        <header>
+          <div>
+            <small>10 · PAYMENT RECORD / HISTORY</small>
+            <h2>{detail.ticketNumber}</h2>
+          </div>
+          <i className="paid">PAID</i>
+        </header>
+        <div className="paymentDetail">
+          <h3>Payment</h3>
+          <p>
+            {detail.paymentDate?.slice(0, 10)} · {detail.currency}{" "}
+            {detail.amount} · {detail.paymentMethod}
+          </p>
+          <p>Bank reference · {detail.bankReference}</p>
+          <a
+            href={`${API}/payments/${detail.id}/slip`}
+            onClick={(e) => {
+              e.preventDefault();
+              void fetch(`${API}/payments/${detail.id}/slip`, {
+                headers: { "x-aims-user": user },
+              }).then(async (r) => {
+                if (!r.ok) throw Error("Slip access denied");
+                const u = URL.createObjectURL(await r.blob());
+                window.open(u, "_blank");
+              });
+            }}
+          >
+            Open secured payment slip
+          </a>
+          <h3>Request</h3>
+          <p>
+            {detail.payee} · {detail.departmentName} · {detail.category}
+          </p>
+          <p>{detail.purpose}</p>
+          <h3>Authorization & control</h3>
+          <p>Approval · {detail.approvalSource ?? "Approved"}</p>
+          <p>Final Finance Control · {detail.financeControlStatus}</p>
+          <h3>Financial posting</h3>
+          <p>Commitment · {detail.commitmentStatus}</p>
+          <p>Actual ledger · {detail.ledgerEntryId}</p>
+          <h3>Audit</h3>
+          <p>
+            Recorded by {detail.recordedByName} at {detail.recordedAt}
+          </p>
+        </div>
+      </section>
+    );
+  return (
+    <section className="card paymentHistory">
+      <header>
+        <div>
+          <small>10 · PAYMENT RECORD / HISTORY</small>
+          <h2>Payment History</h2>
+        </div>
+        <button className="primary" onClick={() => void exportCsv()}>
+          Export CSV
+        </button>
+      </header>
+      {notice && <p className="notice">{notice}</p>}
+      <div className="historyFilters">
+        <input
+          aria-label="Search ticket, payee or bank reference"
+          placeholder="Ticket, payee or bank reference"
+          value={filters.search}
+          onChange={(e) => field("search", e.target.value)}
+        />
+        <input
+          aria-label="Department ID"
+          placeholder="Department ID"
+          value={filters.departmentId}
+          onChange={(e) => field("departmentId", e.target.value)}
+        />
+        <input
+          aria-label="Category"
+          placeholder="Category"
+          value={filters.category}
+          onChange={(e) => field("category", e.target.value)}
+        />
+        <input
+          aria-label="From date"
+          type="date"
+          value={filters.dateFrom}
+          onChange={(e) => field("dateFrom", e.target.value)}
+        />
+        <input
+          aria-label="To date"
+          type="date"
+          value={filters.dateTo}
+          onChange={(e) => field("dateTo", e.target.value)}
+        />
+        <select
+          aria-label="Payment status"
+          value={filters.status}
+          onChange={(e) => field("status", e.target.value)}
+        >
+          <option value="PAID">PAID</option>
+        </select>
+      </div>
+      <div className="table">
+        {rows.map((row) => (
+          <button key={row.id} onClick={() => void open(row.id)}>
+            <span className="ticket">{row.ticketNumber}</span>
+            <span>
+              <b>{row.payee}</b>
+              <small>
+                {row.departmentName} · {row.category} · {row.purpose}
+              </small>
+            </span>
+            <span>
+              {row.currency} {row.amount}
+              <small>
+                {row.paymentDate?.slice(0, 10)} · {row.paymentMethod}
+              </small>
+            </span>
+            <span>
+              {row.recordedByName}
+              <small>{row.recordedAt}</small>
+            </span>
+            <i className="paid">{row.status}</i>
+            <strong>Detail →</strong>
+          </button>
+        ))}
+      </div>
+      <footer className="pagination">
+        <span>{total} records</span>
+        <button
+          disabled={filters.page === "1"}
+          onClick={() =>
+            field("page", String(Math.max(1, Number(filters.page) - 1)))
+          }
+        >
+          Previous
+        </button>
+        <button
+          disabled={Number(filters.page) * 25 >= total}
+          onClick={() => field("page", String(Number(filters.page) + 1))}
+        >
+          Next
+        </button>
+      </footer>
+    </section>
+  );
 }
 
 function Login({ onLogin }: { onLogin: (id: string) => void }) {

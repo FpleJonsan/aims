@@ -15,6 +15,10 @@ import { FinanceControlController } from "./application/finance-control/finance-
 import { FinanceControlService } from "./application/finance-control/finance-control.service.js";
 import { PaymentController } from "./application/payments/payment.controller.js";
 import { PaymentService } from "./application/payments/payment.service.js";
+import { DashboardController } from "./application/dashboard/dashboard.controller.js";
+import { DashboardService } from "./application/dashboard/dashboard.service.js";
+import { FinanceIntelligenceController } from "./application/finance-intelligence/finance-intelligence.controller.js";
+import { FinanceIntelligenceService } from "./application/finance-intelligence/finance-intelligence.service.js";
 import {
   ApprovalController,
   TelegramWebhookController,
@@ -50,6 +54,8 @@ import {
     ApprovalController,
     TelegramWebhookController,
     PaymentController,
+    DashboardController,
+    FinanceIntelligenceController,
   ],
   providers: [
     Postgres,
@@ -64,6 +70,8 @@ import {
     ApprovalService,
     ApprovalOutboxService,
     PaymentService,
+    DashboardService,
+    FinanceIntelligenceService,
     {
       provide: APPROVAL_CHANNEL,
       useFactory: () =>

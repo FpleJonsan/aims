@@ -42,13 +42,13 @@ export class PaymentService {
       throw new ForbiddenException("Payment Operator authority is required");
   }
 
-  async queue(actor: Principal) {
+  async queue(actor: Principal, filter?: {departmentId?:string;category?:string}) {
     const q = await this.db.pool.query(
       `SELECT pr.id,pr.ticket_number,pr.payee,pr.amount,pr.currency,pr.department_id,pr.category,pr.due_date,pr.payment_method,f.status finance_control_status
       FROM payment_requests pr JOIN payment_authorities a ON a.user_id=$1 AND a.active AND(a.scope='ORGANIZATION' OR a.department_id=pr.department_id)
       JOIN finance_control_runs f ON f.payment_request_id=pr.id AND f.is_current AND f.status='PASSED'
-      WHERE pr.status='READY_FOR_PAYMENT' AND(a.allow_self_payment OR pr.created_by<>$1) ORDER BY pr.due_date,pr.ticket_number`,
-      [actor.id],
+      WHERE pr.status='READY_FOR_PAYMENT' AND(a.allow_self_payment OR pr.created_by<>$1)AND($2::uuid IS NULL OR pr.department_id=$2)AND($3::text IS NULL OR pr.category=$3) ORDER BY pr.due_date,pr.ticket_number`,
+      [actor.id,filter?.departmentId??null,filter?.category??null],
     );
     return { items: q.rows };
   }

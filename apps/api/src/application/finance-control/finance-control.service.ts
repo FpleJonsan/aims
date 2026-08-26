@@ -521,15 +521,15 @@ export class FinanceControlService {
       ).rows,
     };
   }
-  async list(actor: Principal) {
+  async list(actor: Principal, filter?: {departmentId?:string;category?:string}) {
     const q = await this.db.pool.query(
       `SELECT pr.id,pr.ticket_number,pr.payee,pr.amount,pr.currency,pr.department_id,pr.due_date,pr.status,
     f.id finance_control_run_id,f.status finance_control_status,ra.final_risk FROM payment_requests pr
     JOIN users u ON u.id=$1 AND u.active JOIN finance_control_authorities a ON a.user_id=u.id AND a.active AND (a.scope='ORGANIZATION' OR a.department_id=pr.department_id)
     LEFT JOIN finance_control_runs f ON f.payment_request_id=pr.id AND f.is_current
     JOIN approval_cases ac ON ac.payment_request_id=pr.id AND ac.is_current JOIN financial_risk_assessments ra ON ra.analysis_run_id=ac.financial_analysis_run_id
-    WHERE pr.created_by<>$1 AND pr.status IN('APPROVED','FINANCE_CHECK','FINANCE_HOLD','READY_FOR_PAYMENT') ORDER BY pr.due_date,pr.ticket_number`,
-      [actor.id],
+    WHERE pr.created_by<>$1 AND pr.status IN('APPROVED','FINANCE_CHECK','FINANCE_HOLD','READY_FOR_PAYMENT') AND($2::uuid IS NULL OR pr.department_id=$2)AND($3::text IS NULL OR pr.category=$3) ORDER BY pr.due_date,pr.ticket_number`,
+      [actor.id,filter?.departmentId??null,filter?.category??null],
     );
     return { items: q.rows };
   }

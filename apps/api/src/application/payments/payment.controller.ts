@@ -17,14 +17,15 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { PaymentListDto, RecordPaymentDto } from "./payment.dto.js";
+import { DashboardFilterDto } from "../dashboard/dashboard.dto.js";
 import { PaymentService } from "./payment.service.js";
 
 @UseGuards(AuthGuard)
 @Controller()
 export class PaymentController {
   constructor(private readonly service: PaymentService) {}
-  @Get("payment-queue") queue(@Req() r: Request) {
-    return this.service.queue(r.principal);
+  @Get("payment-queue") queue(@Req() r: Request, @Query() q: DashboardFilterDto) {
+    return this.service.queue(r.principal, q);
   }
   @Post("payment-requests/:id/payment-slip")
   @UseInterceptors(

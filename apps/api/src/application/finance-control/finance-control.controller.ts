@@ -6,6 +6,7 @@ import {
   ParseUUIDPipe,
   Post,
   Req,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import type { Request } from "express";
@@ -16,13 +17,14 @@ import {
   FinanceHoldResolutionDto,
 } from "./finance-control.dto.js";
 import { FinanceControlService } from "./finance-control.service.js";
+import { DashboardFilterDto } from "../dashboard/dashboard.dto.js";
 
 @UseGuards(AuthGuard)
 @Controller()
 export class FinanceControlController {
   constructor(private readonly service: FinanceControlService) {}
-  @Get("finance-control") list(@Req() r: Request) {
-    return this.service.list(r.principal);
+  @Get("finance-control") list(@Req() r: Request, @Query() q: DashboardFilterDto) {
+    return this.service.list(r.principal, q);
   }
   @Post("payment-requests/:id/finance-control") start(
     @Req() r: Request,
