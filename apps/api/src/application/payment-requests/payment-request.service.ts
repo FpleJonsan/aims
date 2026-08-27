@@ -50,7 +50,7 @@ export class PaymentRequestService {
     actor: Principal,
     correlationId: string,
   ): Promise<PaymentRequest> {
-    if (!actor.roles.some((role) => role === "REQUESTER" || role === "ADMIN")) {
+    if (!actor.roles.includes("REQUESTER")) {
       throw new ForbiddenException("Requester permission required");
     }
     return this.database.transaction(async (client) => {
@@ -98,8 +98,7 @@ export class PaymentRequestService {
         throw new ForbiddenException("Draft editing is not permitted");
       if (
         input.departmentId &&
-        input.departmentId !== actor.departmentId &&
-        !actor.roles.includes("ADMIN")
+        input.departmentId !== actor.departmentId
       ) {
         throw new ForbiddenException(
           "Cross-department assignment is not permitted",
@@ -265,7 +264,7 @@ export class PaymentRequestService {
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
     const search = query.search?.trim() ? `%${query.search.trim()}%` : null;
     const broadAccess =
-      actor.roles.includes("ADMIN") || actor.roles.includes("FINANCE");
+      actor.roles.includes("FINANCE");
     const result = await this.database.pool.query<RequestRow>(
       `
       SELECT * FROM payment_requests

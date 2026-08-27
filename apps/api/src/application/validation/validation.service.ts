@@ -33,7 +33,7 @@ export class ValidationService {
     @Inject(AI_PROVIDER) private readonly provider: AiProvider | null,
   ) {}
   private validator(actor: Principal) {
-    if (!actor.roles.some((r) => r === "FINANCE" || r === "ADMIN"))
+    if (!actor.roles.includes("FINANCE"))
       throw new ForbiddenException("Validator permission required");
   }
   async start(id: string, actor: Principal, correlationId: string) {

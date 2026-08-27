@@ -32,7 +32,7 @@ export class FinancialAnalysisService {
     @Inject(AI_PROVIDER) private readonly provider: FinancialProvider | null,
   ) {}
   private authorize(a: Principal) {
-    if (!a.roles.some((r) => r === "FINANCE" || r === "ADMIN"))
+    if (!a.roles.includes("FINANCE"))
       throw new ForbiddenException("Finance permission required");
   }
   async start(id: string, actor: Principal, correlationId: string) {

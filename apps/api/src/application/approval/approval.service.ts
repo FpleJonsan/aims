@@ -25,7 +25,7 @@ export class ApprovalService {
     private readonly requests: PaymentRequestService,
   ) {}
   private finance(a: Principal) {
-    if (!a.roles.some((r) => r === "FINANCE" || r === "ADMIN"))
+    if (!a.roles.includes("FINANCE"))
       throw new ForbiddenException("Finance permission required");
   }
   private admin(a: Principal) {
@@ -412,14 +412,14 @@ export class ApprovalService {
           AND (aa.authority_scope='ORGANIZATION' OR aa.department_id=pr.department_id)
           AND (aa.minimum_amount_minor IS NULL OR aa.minimum_amount_minor<=fc.request_amount_minor) AND (aa.maximum_amount_minor IS NULL OR aa.maximum_amount_minor>=fc.request_amount_minor)
           AND (s.minimum_amount_minor IS NULL OR s.minimum_amount_minor<=fc.request_amount_minor) AND (s.maximum_amount_minor IS NULL OR s.maximum_amount_minor>=fc.request_amount_minor)))`,
-      [id, actor.id, actor.roles.some((r) => r === "FINANCE" || r === "ADMIN")],
+      [id, actor.id, actor.roles.includes("FINANCE")],
     );
     if (!allowed.rowCount)
       throw new NotFoundException("Payment request not found");
     return this.getWithin(this.db.pool, id, actor);
   }
   async list(actor: Principal, input: { page: number; pageSize: number } = { page: 1, pageSize: 25 }) {
-    const broad = actor.roles.some((r) => r === "FINANCE" || r === "ADMIN");
+    const broad = actor.roles.includes("FINANCE");
     const q = await this.db.pool.query(
       `WITH eligible AS (
        SELECT DISTINCT ac.id approval_case_id,ac.status,s.id step_id,s.sequence,s.required_role,s.status step_status,

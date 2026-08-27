@@ -74,7 +74,7 @@ export class ApprovalController {
     return this.approvals.bindTelegram(b, r.principal, r.correlationId);
   }
   @Post("approval-notifications/dispatch") dispatch(@Req() r: Request) {
-    if (!r.principal.roles.some((x) => x === "FINANCE" || x === "ADMIN"))
+    if (!r.principal.roles.includes("FINANCE"))
       throw new ForbiddenException("Finance permission required");
     return this.outbox.dispatch();
   }

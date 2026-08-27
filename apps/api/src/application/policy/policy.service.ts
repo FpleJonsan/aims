@@ -31,7 +31,7 @@ export class PolicyService {
     private readonly requests: PaymentRequestService,
   ) {}
   private finance(a: Principal) {
-    if (!a.roles.some((r) => r === "FINANCE" || r === "ADMIN"))
+    if (!a.roles.includes("FINANCE"))
       throw new ForbiddenException("Finance permission required");
   }
   private admin(a: Principal) {
@@ -303,9 +303,8 @@ export class PolicyService {
         throw new ConflictException("Policy clarification is not open");
       const allowed =
         e.rows[0].requested_role === "REQUESTER"
-          ? actor.roles.includes("REQUESTER") || actor.roles.includes("ADMIN")
-          : actor.roles.includes(e.rows[0].requested_role) ||
-            actor.roles.includes("ADMIN");
+          ? actor.roles.includes("REQUESTER")
+          : actor.roles.includes(e.rows[0].requested_role);
       if (!allowed)
         throw new ForbiddenException(
           "Not authorized to supply this justification",

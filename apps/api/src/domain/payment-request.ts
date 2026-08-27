@@ -50,7 +50,6 @@ export function canReadRequest(
   request: PaymentRequest,
 ): boolean {
   return (
-    actor.roles.includes("ADMIN") ||
     actor.roles.includes("FINANCE") ||
     (actor.departmentId === request.departmentId &&
       actor.id === request.createdBy)
@@ -63,9 +62,7 @@ export function canEditDraft(
 ): boolean {
   return (
     request.status === "DRAFT" &&
-    (actor.roles.includes("ADMIN") || actor.id === request.createdBy) &&
-    (actor.roles.includes("ADMIN") ||
-      actor.departmentId === request.departmentId)
+    actor.id === request.createdBy && actor.departmentId === request.departmentId
   );
 }
 

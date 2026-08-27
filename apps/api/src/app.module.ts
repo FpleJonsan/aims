@@ -44,6 +44,8 @@ import {
 } from "./infrastructure/storage/local-document-storage.js";
 import { HealthController } from "./application/health/health.controller.js";
 import { HealthService } from "./application/health/health.service.js";
+import { PortalController } from "./application/portal/portal.controller.js";
+import { PortalService } from "./application/portal/portal.service.js";
 
 @Module({
   controllers: [
@@ -59,6 +61,7 @@ import { HealthService } from "./application/health/health.service.js";
     DashboardController,
     FinanceIntelligenceController,
     HealthController,
+    PortalController,
   ],
   providers: [
     Postgres,
@@ -76,6 +79,7 @@ import { HealthService } from "./application/health/health.service.js";
     DashboardService,
     FinanceIntelligenceService,
     HealthService,
+    PortalService,
     {
       provide: APPROVAL_CHANNEL,
       useFactory: () => {

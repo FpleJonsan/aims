@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import "./day1.css";
 
 const API = process.env.NEXT_PUBLIC_AIMS_API_URL ?? "http://localhost:3001";
@@ -61,6 +61,41 @@ type DashboardDrill =
   | { view:"FINANCE_CONTROL"; status:"FINANCE_HOLD"; filters:DashboardFilterState }
   | { view:"PAYMENT_QUEUE"; status:"READY_FOR_PAYMENT"; filters:DashboardFilterState }
   | { view:"PAYMENT_HISTORY"; filters:Record<string,string> };
+type PortalSession = {
+  user:{id:string;subject:string;email:string;displayName:string;department:string};
+  workspaces:{requester:boolean;finance:boolean};
+  capabilities:{financeAnalysis:boolean;approval:boolean;financeControl:boolean;payment:boolean;reporting:boolean;policyAdmin:boolean};
+};
+type Workspace = "requester"|"finance";
+type FinanceView = "work-queue"|"approvals"|"finance-control"|"payment-queue"|"payment-history"|"dashboard"|"ai";
+
+function allowedFinanceView(session:PortalSession,view:FinanceView){
+  const c=session.capabilities;
+  return view==="work-queue"?c.financeAnalysis:view==="approvals"?c.approval:view==="finance-control"?c.financeControl:view==="payment-queue"?c.payment:view==="payment-history"?(c.payment||c.reporting):view==="dashboard"||view==="ai"?c.reporting:false;
+}
+
+function defaultFinanceView(session:PortalSession):FinanceView|null{
+  return (["dashboard","work-queue","approvals","finance-control","payment-queue","payment-history"] as FinanceView[]).find(view=>allowedFinanceView(session,view))??null;
+}
+
+const statusStage: Record<Item["status"], number> = {
+  DRAFT: 1, SUBMITTED: 2, VALIDATING: 3, NEEDS_CLARIFICATION: 3,
+  PENDING_APPROVAL: 6, APPROVED: 7, FINANCE_CHECK: 7, FINANCE_HOLD: 7,
+  READY_FOR_PAYMENT: 8, PAID: 11, REJECTED: 6,
+};
+
+function StatusChip({ status }: { status: string }) {
+  return <span className={`statusChip status-${status.toLowerCase()}`}>{status.replaceAll("_", " ")}</span>;
+}
+
+function AuthorityBadge({ children, ai = false }: { children: ReactNode; ai?: boolean }) {
+  return <span className={ai ? "authorityBadge aiAuthority" : "authorityBadge"}>{children}</span>;
+}
+
+function KpiCard({ label, value, detail, tone = "neutral", icon, onClick }: { label:string;value:string;detail:string;tone?:"neutral"|"success"|"warning"|"danger"|"info";icon:string;onClick?:()=>void }) {
+  const content = <><span className="metricIcon" aria-hidden="true">{icon}</span><small>{label}</small><b>{value}</b><span className="metricDetail">{detail}</span></>;
+  return onClick ? <button className={`kpiCard tone-${tone}`} onClick={onClick}>{content}</button> : <article className={`kpiCard tone-${tone}`}>{content}</article>;
+}
 
 export default function Home() {
   const [user, setUser] = useState<string | null>(null),
@@ -69,6 +104,10 @@ export default function Home() {
     [notice, setNotice] = useState(""),
     [showPaymentHistory, setShowPaymentHistory] = useState(false),
     [showDashboard, setShowDashboard] = useState(false),
+    [session,setSession]=useState<PortalSession|null>(null),
+    [workspace,setWorkspace]=useState<Workspace|null>(null),
+    [financeView,setFinanceView]=useState<FinanceView>("dashboard"),
+    [requesterHome,setRequesterHome]=useState(true),
     [approvalPage, setApprovalPage] = useState(1),
     [approvalPagination, setApprovalPagination] = useState<Pagination|null>(null),
     [dashboardDrill, setDashboardDrill] = useState<DashboardDrill|null>(null);
@@ -88,6 +127,8 @@ export default function Home() {
       const data = (await response.json().catch(() => ({}))) as {
         message?: string | string[];
       };
+      if(response.status===401)window.dispatchEvent(new Event("aims:unauthenticated"));
+      if(response.status===403)window.dispatchEvent(new Event("aims:forbidden"));
       if (!response.ok)
         throw Error(
           Array.isArray(data.message)
@@ -99,7 +140,11 @@ export default function Home() {
     [user],
   );
   const refresh = useCallback(async () => {
-    if (user === "demo.approver") {
+    if (!session || !workspace) return;
+    if (workspace === "requester") {
+      const rows=(await api("/requester/requests?pageSize=50")) as {items:Array<Record<string,unknown>>};
+      setItems(rows.items.map(requesterListItem));
+    } else if (financeView === "approvals") {
       const rows = (
         (await api(`/approvals?page=${approvalPage}&pageSize=25`)) as { items: Array<Record<string, unknown>> } & Pagination
       );
@@ -123,81 +168,74 @@ export default function Home() {
           humanFinalRisk: String(x.final_risk),
         })),
       );
-    } else if (user === "demo.finance") {
-      const control = (
+    } else {
+      const control = financeView==="finance-control" ? (
         (await api("/finance-control")) as {
           items: Array<Record<string, unknown>>;
         }
-      ).items;
-      const payment = (
+      ).items : [];
+      const payment = financeView==="payment-queue" ? (
         (await api("/payment-queue")) as {
           items: Array<Record<string, unknown>>;
         }
-      ).items;
+      ).items : [];
+      const work = financeView==="work-queue" ? ((await api("/payment-requests?pageSize=50")) as {items:Item[]}).items : [];
       setItems(
         [
+          ...work,
           ...control.map(financeQueueItem),
           ...payment.map(paymentQueueItem),
         ].filter((x, i, a) => a.findIndex((y) => y.id === x.id) === i),
       );
-    } else if (user)
-      setItems(
-        ((await api("/payment-requests?pageSize=50")) as { items: Item[] })
-          .items,
-      );
-  }, [api, user, approvalPage]);
+    }
+  }, [api, session, workspace, approvalPage, financeView]);
   useEffect(() => {
-    if (!user) return;
+    if (!user || !session || !workspace) return;
     let active = true;
-    void api(
-      user === "demo.approver"
-        ? `/approvals?page=${approvalPage}&pageSize=25`
-        : user === "demo.finance"
-          ? "/finance-control"
-          : "/payment-requests?pageSize=50",
-    )
-      .then((data) => {
-        if (active) {
-          const result = data as { items: Array<Record<string, unknown>> } & Partial<Pagination>;
-          const rows = result.items;
-          if (user === "demo.approver") {
-            setApprovalPagination(result as Pagination);
-            if (!rows.length && approvalPage > 1 && Number(result.totalPages) < approvalPage) {
-              setApprovalPage(Math.max(1, Number(result.totalPages)));
-              return;
-            }
-          }
-          setItems(
-            user === "demo.approver"
-              ? rows.map((x) => ({
-                  id: String(x.payment_request_id),
-                  ticketNumber: String(x.ticket_number),
-                  status: "PENDING_APPROVAL",
-                  payee: String(x.payee),
-                  purpose: `Current step ${x.sequence} · ${x.required_role}`,
-                  amount: String(x.amount),
-                  currency: String(x.currency),
-                  departmentId: String(x.department_id),
-                  dueDate: String(x.due_date),
-                  category: null,
-                  paymentMethod: null,
-                  paymentDetails: null,
-                  remark: null,
-                  humanFinalRisk: String(x.final_risk),
-                }))
-              : user === "demo.finance"
-                ? rows.map(financeQueueItem)
-                : (rows as unknown as Item[]),
-          );
-        }
-      })
+    void Promise.resolve().then(refresh)
       .catch((e) => {
         if (active) setNotice(msg(e));
       });
     return () => {
       active = false;
     };
-  }, [api, user, approvalPage]);
+  }, [refresh, user, session, workspace, approvalPage]);
+  useEffect(()=>{
+    if(!user)return;
+    let active=true;
+    void api("/session").then((value)=>{
+      if(!active)return;
+      const next=value as PortalSession;
+      setSession(next);
+      const preferred=window.localStorage.getItem("aims.workspace") as Workspace|null;
+      const valid=preferred&&next.workspaces[preferred];
+      const selectedWorkspace=valid?preferred:next.workspaces.finance?"finance":next.workspaces.requester?"requester":null;
+      setWorkspace(selectedWorkspace);
+      const path=window.location.pathname;
+      const requestedFinance=path.startsWith("/finance/")?path.slice("/finance/".length) as FinanceView:null;
+      if(path.startsWith("/requester")&&!next.workspaces.requester){setNotice("Requester Portal access is not authorized for this identity.");}
+      if(path.startsWith("/finance")&&(!next.workspaces.finance||!requestedFinance||!allowedFinanceView(next,requestedFinance))){setNotice("This Finance page is not authorized for your current capabilities.");}
+      const nextFinance=requestedFinance&&allowedFinanceView(next,requestedFinance)?requestedFinance:defaultFinanceView(next);
+      if(nextFinance)setFinanceView(nextFinance);
+      setRequesterHome(selectedWorkspace==="requester"&&path!=="/requester/requests");
+      setShowDashboard(selectedWorkspace==="finance"&&nextFinance==="dashboard");
+      setShowPaymentHistory(selectedWorkspace==="finance"&&nextFinance==="payment-history");
+      const safePath=selectedWorkspace==="requester"?(path.startsWith("/requester")?path:"/requester"):(nextFinance?`/finance/${nextFinance}`:"/login");
+      window.history.replaceState({},"",safePath);
+    }).catch((e)=>{if(active){setNotice(msg(e));setUser(null)}});
+    return()=>{active=false};
+  },[api,user]);
+  useEffect(()=>{
+    if(!user)return;
+    const unauthenticated=()=>{window.localStorage.removeItem("aims.workspace");setSession(null);setWorkspace(null);setItems([]);setSelected(null);setUser(null)};
+    const forbidden=()=>{void fetch(`${API}/session`,{headers:{"x-aims-user":user}}).then(async response=>{
+      if(response.status===401){unauthenticated();return null}
+      if(!response.ok)return null;
+      return response.json() as Promise<PortalSession>;
+    }).then(next=>{if(!next)return;setSession(next);setSelected(null);setDashboardDrill(null);const current=workspace;const fallback=current&&next.workspaces[current]?current:next.workspaces.finance?"finance":next.workspaces.requester?"requester":null;const nextFinance=defaultFinanceView(next);setWorkspace(fallback);setRequesterHome(fallback==="requester");if(nextFinance)setFinanceView(nextFinance);setShowDashboard(fallback==="finance"&&nextFinance==="dashboard");setShowPaymentHistory(fallback==="finance"&&nextFinance==="payment-history");const safePath=fallback==="requester"?"/requester":fallback==="finance"&&nextFinance?`/finance/${nextFinance}`:"/login";window.history.replaceState({},"",safePath);if(!fallback)setNotice("No authorized workspace is currently available.")})};
+    window.addEventListener("aims:unauthenticated",unauthenticated);window.addEventListener("aims:forbidden",forbidden);
+    return()=>{window.removeEventListener("aims:unauthenticated",unauthenticated);window.removeEventListener("aims:forbidden",forbidden)};
+  },[user,workspace]);
   async function initiate() {
     try {
       const item = (await api("/payment-requests", {
@@ -205,6 +243,7 @@ export default function Home() {
         body: "{}",
       })) as Item;
       setSelected(item);
+      window.history.pushState({},"","/requester/requests/new");
       await refresh();
     } catch (e) {
       setNotice(msg(e));
@@ -212,7 +251,11 @@ export default function Home() {
   }
   async function open(id: string) {
     try {
-      setSelected((await api(`/payment-requests/${id}`)) as Item);
+      if(workspace==="requester"){
+        const safe=await api(`/requester/requests/${id}`) as {request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>};
+        setSelected(requesterDetailItem(safe));
+        window.history.pushState({},"",`/requester/requests/${id}`);
+      } else setSelected((await api(`/payment-requests/${id}`)) as Item);
     } catch (e) {
       setNotice(msg(e));
     }
@@ -226,18 +269,43 @@ export default function Home() {
         }}
       />
     );
+  if(!session||!workspace)return <main className="portalLoading"><Brand/><p>{notice||"Loading authorized workspace…"}</p></main>;
+  const financeTitles:Record<FinanceView,string>={"work-queue":"Work Queue",approvals:"Approval Inbox","finance-control":"Finance Control","payment-queue":"Payment Queue","payment-history":"Payment History",dashboard:"Finance Dashboard",ai:"AI Finance Intelligence"};
+  const pageTitle = workspace==="requester"?(requesterHome?"Requester Dashboard":"My Requests"):financeTitles[financeView];
+  const currentStage = selected ? statusStage[selected.status] : -1;
+  const profile = {initials:session.user.displayName.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase(),name:session.user.displayName,department:session.user.department};
+  const goRequester=(home:boolean)=>{setSelected(null);setRequesterHome(home);window.history.pushState({},"",home?"/requester":"/requester/requests")};
+  const goFinance=(view:FinanceView)=>{if(!allowedFinanceView(session,view))return;setSelected(null);setDashboardDrill(null);setFinanceView(view);setShowDashboard(view==="dashboard");setShowPaymentHistory(view==="payment-history");window.history.pushState({},"",`/finance/${view}`)};
+  const switchWorkspace=(next:Workspace)=>{if(!session.workspaces[next])return;window.localStorage.setItem("aims.workspace",next);setWorkspace(next);setSelected(null);setItems([]);setDashboardDrill(null);if(next==="requester"){setRequesterHome(true);setShowDashboard(false);setShowPaymentHistory(false);window.history.pushState({},"","/requester")}else{const view=defaultFinanceView(session);if(view)goFinance(view)}};
   return (
     <main className="appShell">
       <aside className="sideNav">
         <Brand />
-        <nav aria-label="AIMS workflow areas">
-          <b>▦ Requests</b>
-          <span>◫ Validation</span>
-          <span>◫ Finance Context & Risk</span>
-          <span>◫ Policy & Approval</span>
-          <span>◫ Final Finance Control</span>
-          <span>◫ Payment & Reporting</span>
+        <nav aria-label="Primary navigation" className="primaryNav">
+          {workspace==="requester"?<>
+            <button className={requesterHome&&!selected?"active":""} onClick={()=>goRequester(true)}><span>▦</span>Dashboard</button>
+            <button className={!requesterHome&&!selected?"active":""} onClick={()=>goRequester(false)}><span>☷</span>My Requests</button>
+            <button onClick={()=>void initiate()}><span>＋</span>New Request</button>
+            <button onClick={()=>{setSelected(null);setRequesterHome(false)}}><span>◷</span>Payment Status</button>
+          </>:<>
+            {session.capabilities.reporting&&<button className={financeView==="dashboard"?"active":""} onClick={()=>goFinance("dashboard")}><span>▦</span>Dashboard</button>}
+            {session.capabilities.financeAnalysis&&<button className={financeView==="work-queue"&&!selected?"active":""} onClick={()=>goFinance("work-queue")}><span>☷</span>Work Queue</button>}
+            {session.capabilities.approval&&<button className={financeView==="approvals"?"active":""} onClick={()=>goFinance("approvals")}><span>✓</span>Approval Inbox</button>}
+            {session.capabilities.financeControl&&<button className={financeView==="finance-control"?"active":""} onClick={()=>goFinance("finance-control")}><span>◆</span>Finance Control</button>}
+            {session.capabilities.payment&&<button className={financeView==="payment-queue"?"active":""} onClick={()=>goFinance("payment-queue")}><span>→</span>Payment Queue</button>}
+            {(session.capabilities.payment||session.capabilities.reporting)&&<button className={financeView==="payment-history"?"active":""} onClick={()=>goFinance("payment-history")}><span>◷</span>Payment History</button>}
+          </>}
         </nav>
+        {workspace==="finance"&&<nav aria-label="AIMS workflow stages" className="workflowNav">
+          <small>WORKFLOW</small>
+          {stages.slice(0,10).map((stage,index)=><span key={stage}><i>{String(index+1).padStart(2,"0")}</i>{stage}</span>)}
+        </nav>}
+        {workspace==="finance"&&session.capabilities.reporting&&<nav aria-label="Reporting navigation" className="reportingNav">
+          <small>REPORTING</small>
+          <span><i>↗</i>Reports</span><span><i>◉</i>Budget & Spending</span><span><i>✦</i>AI Finance Intelligence</span>
+        </nav>}
+        <div className="userCard"><b>{profile.initials}</b><span><strong>{profile.name}</strong><small>{profile.department}</small></span></div>
+        {session.workspaces.requester&&session.workspaces.finance&&<button className="workspaceSwitch" onClick={()=>switchWorkspace(workspace==="requester"?"finance":"requester")}>Switch to {workspace==="requester"?"Finance":"Requester"} Portal</button>}
         <button
           onClick={() => {
             setSelected(null);
@@ -247,6 +315,9 @@ export default function Home() {
             setShowDashboard(false);
             setDashboardDrill(null);
             setNotice("");
+            window.localStorage.removeItem("aims.workspace");
+            setSession(null);
+            setWorkspace(null);
             setUser(null);
           }}
         >
@@ -257,73 +328,60 @@ export default function Home() {
         <header>
           <div>
             <small>AIMS · PAYMENT & FINANCE CONTROL</small>
-            <h1>
-              {user === "demo.approver"
-                ? "Approval inbox"
-                : user === "demo.finance"
-                  ? "Finance Control queue"
-                  : "Payment requests"}
-            </h1>
+            <h1>{pageTitle}</h1>
+            <p className="pageSubtitle">Controlled payment operations with authoritative financial truth.</p>
           </div>
-          {user === "demo.requester" && (
+          {workspace === "requester" && (
             <button className="primary" onClick={initiate}>
               ＋ New request
             </button>
           )}
-          {user === "demo.finance" && (
+          {workspace === "finance" && (
             <div className="headerActions">
-              <button
+              {session.capabilities.financeAnalysis&&<button
                 className="secondary"
                 onClick={() => {
-                  setShowPaymentHistory(false);
-                  setShowDashboard(false);
-                  setDashboardDrill(null);
+                  goFinance("work-queue");
                 }}
               >
                 Work queue
-              </button>
-              <button
+              </button>}
+              {(session.capabilities.payment||session.capabilities.reporting)&&<button
                 className="secondary"
                 onClick={() => {
-                  setSelected(null);
-                  setShowDashboard(false);
-                  setShowPaymentHistory(true);
-                  setDashboardDrill(null);
+                  goFinance("payment-history");
                 }}
               >
                 Payment History
-              </button>
-              <button
+              </button>}
+              {session.capabilities.reporting&&<button
                 className="primary"
                 onClick={() => {
-                  setSelected(null);
-                  setShowPaymentHistory(false);
-                  setShowDashboard(true);
-                  setDashboardDrill(null);
+                  goFinance("dashboard");
                 }}
               >
                 Finance Dashboard
-              </button>
+              </button>}
             </div>
           )}
         </header>
-        <div className="stageRail" aria-label="12-stage AIMS workflow">
+        {(workspace==="finance"||selected)&&<div className="stageRail" aria-label="12-stage AIMS workflow">
           {stages.map((s, i) => (
-            <div className="available" key={s}>
+            <div className={currentStage < 0 ? "available" : i < currentStage ? "completed" : i === currentStage ? "current" : "future"} key={s}>
               <span>{String(i + 1).padStart(2, "0")}</span>
               <b>{s}</b>
-              <small>Available</small>
+              <small>{currentStage < 0 ? "Available" : i < currentStage ? "Completed" : i === currentStage ? "Current" : "Locked"}</small>
             </div>
           ))}
-        </div>
+        </div>}
         {notice && <p className="notice" role="status" aria-live="polite">{notice}</p>}
-        {showDashboard && user === "demo.finance" ? (
+        {workspace==="requester"&&requesterHome&&!selected?<RequesterDashboard api={api} open={open} newRequest={()=>void initiate()}/>:showDashboard && workspace === "finance" && session.capabilities.reporting ? (
           <FinanceDashboard api={api} onDrill={(drill) => {
             setDashboardDrill(drill);
             setShowDashboard(false);
             setShowPaymentHistory(drill.view === "PAYMENT_HISTORY");
           }} />
-        ) : showPaymentHistory && user === "demo.finance" ? (
+        ) : showPaymentHistory && workspace === "finance" && (session.capabilities.payment||session.capabilities.reporting) ? (
           <PaymentHistory api={api} user={user} initialFilters={dashboardDrill?.view === "PAYMENT_HISTORY" ? dashboardDrill.filters : {}} />
         ) : dashboardDrill?.view === "REPORTING_REQUESTS" ? (
           <ReportingRequestDrill api={api} drill={dashboardDrill} back={()=>setDashboardDrill(null)} />
@@ -335,9 +393,8 @@ export default function Home() {
             user={user}
             api={api}
             changed={async () => {
-              setSelected(
-                (await api(`/payment-requests/${selected.id}`)) as Item,
-              );
+              if(workspace==="requester")await open(selected.id);
+              else setSelected((await api(`/payment-requests/${selected.id}`)) as Item);
               await refresh();
             }}
             back={() => {
@@ -347,8 +404,8 @@ export default function Home() {
           />
         ) : (
           <>
-            <List items={items} open={open} empty={initiate} canCreate={user === "demo.requester"} />
-            {user === "demo.approver" && approvalPagination && (
+            <List items={items} open={open} empty={initiate} canCreate={workspace === "requester"} />
+            {workspace==="finance"&&session.capabilities.approval && approvalPagination && (
               <nav className="pagination" aria-label="Approval inbox pages">
                 <button aria-label="Previous approval page" disabled={!approvalPagination.hasPreviousPage} onClick={() => setApprovalPage((page) => Math.max(1, page - 1))}>Previous</button>
                 <span>Page {approvalPagination.page} of {Math.max(1, approvalPagination.totalPages)} · {approvalPagination.total} eligible approvals</span>
@@ -360,6 +417,23 @@ export default function Home() {
       </section>
     </main>
   );
+}
+
+function RequesterDashboard({api,open,newRequest}:{api:Api;open:(id:string)=>Promise<void>;newRequest:()=>void}){
+  const [summary,setSummary]=useState<{myRequests:number;awaitingReview:number;needsClarification:number;pendingApproval:number;approvedReady:number;paid:number}|null>(null),[recent,setRecent]=useState<Item[]>([]),[notice,setNotice]=useState("");
+  useEffect(()=>{let active=true;void Promise.all([api("/requester/dashboard"),api("/requester/requests?pageSize=5")]).then(([s,r])=>{if(active){setSummary(s as typeof summary);setRecent((r as {items:Array<Record<string,unknown>>}).items.map(requesterListItem))}}).catch(e=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api]);
+  if(!summary)return <section className="card"><p>{notice||"Loading your requests…"}</p></section>;
+  return <section className="requesterDashboard">
+    <div className="requesterWelcome"><div><small>REQUESTER PORTAL</small><h2>Your payment requests, clearly tracked.</h2><p>Create requests and follow their progress without internal finance complexity.</p></div><button className="primary" onClick={newRequest}>＋ New request</button></div>
+    <div className="requesterMetrics">
+      <KpiCard icon="☷" label="My requests" value={String(summary.myRequests)} detail="All owned requests"/>
+      <KpiCard icon="◷" label="Awaiting review" value={String(summary.awaitingReview)} detail="Submitted or validating" tone="info"/>
+      <KpiCard icon="!" label="Needs clarification" value={String(summary.needsClarification)} detail="Your response required" tone="warning"/>
+      <KpiCard icon="✓" label="Approved / ready" value={String(summary.approvedReady)} detail="Progressing to payment" tone="success"/>
+      <KpiCard icon="●" label="Paid" value={String(summary.paid)} detail="Payment recorded" tone="success"/>
+    </div>
+    <section className="card"><header><div><small>RECENT ACTIVITY</small><h3>Recent requests</h3></div></header>{recent.length?<div className="requesterRecent">{recent.map(item=><button key={item.id} onClick={()=>void open(item.id)}><span><b>{item.ticketNumber||"Draft request"}</b><small>{item.payee||"Payee not added"}</small></span><span>{item.currency} {item.amount||"—"}</span><StatusChip status={item.status}/><strong>View →</strong></button>)}</div>:<div className="emptyState"><b>No requests yet</b><span>Create your first payment request to begin.</span><button className="primary" onClick={newRequest}>Create request</button></div>}</section>
+  </section>
 }
 
 function ReportingRequestDrill({api,drill,back}:{api:Api;drill:Extract<DashboardDrill,{view:"REPORTING_REQUESTS"}>;back:()=>void}) {
@@ -445,35 +519,34 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
         <p>{notice || "Loading authoritative finance data…"}</p>
       </section>
     );
-  const cards: Array<{label:string;value:string;view?:DashboardDrill["view"];reportView?:"PENDING_APPROVAL"|"RISK_ATTENTION"}> = [
-    {label:"Active budget",value:summary.financial.budget},{label:"Actual spending",value:summary.financial.actual},
-    {label:"Active committed",value:summary.financial.committed},{label:"Available budget",value:summary.financial.available},
-    {label:"Paid",value:summary.payments.paid_amount,view:"PAYMENT_HISTORY"},{label:"Ready for payment",value:String(summary.financeControl.ready),view:"PAYMENT_QUEUE"},
-    {label:"Finance holds",value:String(summary.financeControl.holds),view:"FINANCE_CONTROL"},{label:"Pending approval",value:String(summary.requests.PENDING_APPROVAL?.count??0),view:"REPORTING_REQUESTS",reportView:"PENDING_APPROVAL"},
-    {label:"High / critical risk",value:String((summary.risk.HIGH??0)+(summary.risk.CRITICAL??0)),view:"REPORTING_REQUESTS",reportView:"RISK_ATTENTION"},
-  ];
+  const utilisation = summary.financial.utilisationBasisPoints === null ? null : summary.financial.utilisationBasisPoints / 100,
+    availableNegative = String(summary.financial.available).startsWith("-"),
+    numericAmount = (value: unknown) => Number(String(value).replace(/[^0-9.-]/g, "")) || 0,
+    trendMaximum = Math.max(0, ...trend.map((entry: any) => numericAmount(entry.amount))),
+    vendorMaximum = Math.max(0, ...summary.vendors.map((entry: any) => numericAmount(entry.amount)));
+  const drill = (view:DashboardDrill["view"],reportView?:"PENDING_APPROVAL"|"RISK_ATTENTION") => onDrill(view==="REPORTING_REQUESTS"?{view,reportView:reportView!,filters}:view==="PAYMENT_HISTORY"?{view,filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),status:"PAID"}}:view==="FINANCE_CONTROL"?{view,status:"FINANCE_HOLD",filters}:{view,status:"READY_FOR_PAYMENT",filters});
   return (
     <section className="dashboard">
       <header className="dashboardHero">
         <div>
           <small>11 · FINANCE DASHBOARD</small>
-          <h2>Financial position & control</h2>
+          <h2>Authoritative finance reporting</h2>
           <p>
-            Authoritative live reporting · snapshot{" "}
+            Live financial position and control · snapshot{" "}
             {new Date(summary.dataSnapshotAsOf).toLocaleString()}
           </p>
         </div>
-        <span>SYSTEM CALCULATED</span>
+        <AuthorityBadge>SYSTEM CALCULATED</AuthorityBadge>
       </header>
       {notice && <p className="notice">{notice}</p>}
       <div className="dashboardFilters" aria-label="Finance dashboard filters">
-        <input aria-label="From date" type="date" value={filters.dateFrom} onChange={(e)=>setFilters(x=>({...x,dateFrom:e.target.value}))}/>
-        <input aria-label="To date" type="date" value={filters.dateTo} onChange={(e)=>setFilters(x=>({...x,dateTo:e.target.value}))}/>
-        <select aria-label="Department" value={filters.departmentId} onChange={(e)=>setFilters(x=>({...x,departmentId:e.target.value}))}>
+        <label><span>From</span><input type="date" value={filters.dateFrom} onChange={(e)=>setFilters(x=>({...x,dateFrom:e.target.value}))}/></label>
+        <label><span>To</span><input type="date" value={filters.dateTo} onChange={(e)=>setFilters(x=>({...x,dateTo:e.target.value}))}/></label>
+        <label><span>Department</span><select value={filters.departmentId} onChange={(e)=>setFilters(x=>({...x,departmentId:e.target.value}))}>
           <option value="">All authorized departments</option>
           {scope?.departments.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}
-        </select>
-        <input aria-label="Category" placeholder="Category" value={filters.category} onChange={(e)=>setFilters(x=>({...x,category:e.target.value}))}/>
+        </select></label>
+        <label><span>Category</span><input placeholder="All categories" value={filters.category} onChange={(e)=>setFilters(x=>({...x,category:e.target.value}))}/></label>
         <button className="secondary" onClick={()=>setFilters({dateFrom:"",dateTo:"",departmentId:"",category:""})}>Clear</button>
       </div>
       <small>One authorized filter context applies throughout. Budget position remains live; dated metrics use the displayed source semantics.</small>
@@ -482,15 +555,29 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
           Finance Control: current queue — live operational status, not date filtered.
         </p>
       )}
-      <div className="kpiGrid">
-        {cards.map(({label, value, view, reportView}) => view ? (
-          <button className="kpiCard" key={label} onClick={()=>onDrill(view==="REPORTING_REQUESTS"?{view,reportView:reportView!,filters}:view==="PAYMENT_HISTORY"?{view,filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),status:"PAID"}}:view==="FINANCE_CONTROL"?{view,status:"FINANCE_HOLD",filters}:{view,status:"READY_FOR_PAYMENT",filters})}>
-            <small>{label}</small>
-            <b>{value}</b>
-          </button>
-        ):(<article key={label}><small>{label}</small><b>{value}</b></article>))}
+      <div className="sectionHeading"><div><small>FINANCIAL POSITION</small><h3>Live budget position</h3></div><span>Authoritative ledger</span></div>
+      <div className="kpiGrid financialKpis">
+        <KpiCard icon="▤" label="Active budget" value={summary.financial.budget} detail="Live approved budget" tone="info" />
+        <KpiCard icon="↘" label="Actual spending" value={summary.financial.actual} detail="Authoritative ledger total" />
+        <KpiCard icon="◇" label="Active committed" value={summary.financial.committed} detail="Reserved by approvals" tone="warning" />
+        <KpiCard icon="◎" label="Available budget" value={summary.financial.available} detail={availableNegative?"Over committed":"Available to commit"} tone={availableNegative?"danger":"success"} />
+      </div>
+      <div className="sectionHeading"><div><small>OPERATIONAL FINANCE</small><h3>Current control workload</h3></div><span>Live operations</span></div>
+      <div className="kpiGrid operationalKpis">
+        <KpiCard icon="✓" label="Paid" value={summary.payments.paid_amount} detail={`${summary.payments.total_paid} payment records`} tone="success" onClick={()=>drill("PAYMENT_HISTORY")} />
+        <KpiCard icon="→" label="Ready for payment" value={String(summary.financeControl.ready)} detail="Passed final control" tone="success" onClick={()=>drill("PAYMENT_QUEUE")} />
+        <KpiCard icon="!" label="Finance holds" value={String(summary.financeControl.holds)} detail="Requires resolution" tone="warning" onClick={()=>drill("FINANCE_CONTROL")} />
+        <KpiCard icon="◷" label="Pending approval" value={String(summary.requests.PENDING_APPROVAL?.count??0)} detail="Awaiting authority" onClick={()=>drill("REPORTING_REQUESTS","PENDING_APPROVAL")} />
+        <KpiCard icon="▲" label="High / critical risk" value={String((summary.risk.HIGH??0)+(summary.risk.CRITICAL??0))} detail="Human final assessment" tone="danger" onClick={()=>drill("REPORTING_REQUESTS","RISK_ATTENTION")} />
       </div>
       <div className="dashboardGrid">
+        <section className="card utilizationCard">
+          <header><div><small>BUDGET UTILISATION</small><h3>Authoritative position</h3></div><AuthorityBadge>SYSTEM CALCULATED</AuthorityBadge></header>
+          <div className="utilizationBody">
+            <div className={`utilizationRing ${availableNegative?"overBudget":""}`} style={{"--utilization":Math.max(0,Math.min(utilisation??0,100))} as CSSProperties}><span><b>{utilisation===null?"—":`${utilisation.toFixed(1)}%`}</b><small>of budget used</small></span></div>
+            <div className="metricLegend"><p><i className="actualDot"/>Actual spending <b>{summary.financial.actual}</b></p><p><i className="commitDot"/>Active committed <b>{summary.financial.committed}</b></p><p><i className="availableDot"/>Available budget <b>{summary.financial.available}</b></p>{availableNegative&&<strong>Budget is over committed</strong>}</div>
+          </div>
+        </section>
         <section className="card">
           <header>
             <div>
@@ -534,12 +621,12 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
             </div>
           </header>
           {trend.length ? (
-            trend.map((x: any) => (
+            <div className="trendChart">{trend.map((x: any) => (
               <div className="trendRow" key={x.month}>
                 <b>{x.month}</b>
-                <span>{x.amount}</span>
+                <i style={{width:`${Math.max(3, trendMaximum ? (numericAmount(x.amount)/trendMaximum)*100 : 0)}%`}}/><span>{x.amount}</span>
               </div>
-            ))
+            ))}</div>
           ) : (
             <p>NO PAYMENTS IN PERIOD</p>
           )}
@@ -593,8 +680,8 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
           <p>{usage.estimatedCost}</p>
         </section>
       </div>
-      <section className="card"><header><div><small>TOP PAYEES</small><h3>Paid concentration</h3></div></header>
-        {summary.vendors.length ? summary.vendors.map((x:any)=><button className="payeeDrill" key={x.payee} onClick={()=>onDrill({view:"PAYMENT_HISTORY",filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),search:x.payee,status:"PAID"}})}><b>{x.payee}</b><span>{x.payment_count} payments · {x.amount}</span></button>):<p>NO DATA IN SELECTED RANGE</p>}
+      <section className="card topPayees"><header><div><small>TOP PAYEES</small><h3>Paid concentration</h3></div><button className="textButton" onClick={()=>drill("PAYMENT_HISTORY")}>View all →</button></header>
+        {summary.vendors.length ? summary.vendors.slice(0,6).map((x:any,index:number)=><button className="payeeDrill" key={x.payee} onClick={()=>onDrill({view:"PAYMENT_HISTORY",filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),search:x.payee,status:"PAID"}})}><span className="rank">{String(index+1).padStart(2,"0")}</span><span><b title={x.payee}>{x.payee}</b><i style={{width:`${Math.max(3, vendorMaximum ? (numericAmount(x.amount)/vendorMaximum)*100 : 0)}%`}}/></span><strong>{x.amount}<small>{x.payment_count} payments</small></strong></button>):<div className="emptyState"><b>No payment records</b><span>No paid transactions exist in the selected period.</span></div>}
       </section>
       <section className="card aiWatch">
         <header>
@@ -602,12 +689,12 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
             <small>12 · AI FINANCE INTELLIGENCE</small>
             <h3>Finance Watch</h3>
           </div>
-          <button className="primary" onClick={() => void generateWatch()}>
+          <button className="secondary aiButton" onClick={() => void generateWatch()}>
             Refresh AI insights
           </button>
         </header>
         <p>
-          <b>AI INTERPRETATION</b> · generated only from the deterministic
+          <AuthorityBadge ai>AI INTERPRETATION</AuthorityBadge> · generated only from the deterministic
           evidence catalog.
         </p>
         {watch?.insights?.length ? (
@@ -623,9 +710,7 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
               </small>
             </article>
           ))
-        ) : (
-          <p>NO AI INSIGHTS GENERATED</p>
-        )}
+        ) : <div className="emptyState aiEmpty"><b>No AI insights generated</b><span>Generate an evidence-backed interpretation of the current authorized finance context.</span><button className="secondary aiButton" onClick={() => void generateWatch()}>Generate insights</button></div>}
       </section>
       <section className="card askAims">
         <header>
@@ -660,9 +745,7 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
             </small>
           </div>
         )}
-        <small>
-          Controlled analytics tools only · no arbitrary SQL · no bank details.
-        </small>
+        <div className="assistantGuardrails"><span>Controlled analytics only</span><span>No arbitrary SQL</span><span>No bank details</span><span>Read-only</span></div>
       </section>
     </section>
   );
@@ -855,8 +938,8 @@ function PaymentHistory({ api, user, initialFilters = {} }: { api: Api; user: st
         </select>
       </div>
       <div className="table">
-        {rows.map((row) => (
-          <button key={row.id} onClick={() => void open(row.id)}>
+        {rows.map((row,index) => (
+          <button key={`${row.id}-${index}`} onClick={() => void open(row.id)}>
             <span className="ticket">{row.ticketNumber}</span>
             <span>
               <b>{row.payee}</b>
@@ -903,52 +986,50 @@ function PaymentHistory({ api, user, initialFilters = {} }: { api: Api; user: st
 function Login({ onLogin }: { onLogin: (id: string) => void }) {
   return (
     <main className="login">
-      <section>
-        <div className="loginBrand">A</div>
-        <p>AIMAZING INTELLIGENT MANAGEMENT SYSTEM</p>
-        <h1>
-          Payment control,
-          <br />
-          <em>with accountability.</em>
-        </h1>
-        <p className="copy">
-          A secure local identity adapter provides the Day 1 request workflow.
-          Production requires a trusted identity proxy.
-        </p>
-        <div>
-          <button onClick={() => onLogin("demo.requester")}>
-            Continue as requester →
-          </button>
-          <button className="secondary" onClick={() => onLogin("demo.finance")}>
-            View as finance
-          </button>
-          <button
-            className="secondary"
-            onClick={() => onLogin("demo.approver")}
-          >
-            View approval inbox
-          </button>
-        </div>
-        <small>
-          LOCAL DEVELOPMENT IDENTITIES · NO PASSWORDS OR TOKENS STORED
-        </small>
-      </section>
-      <aside>
-        <p>DAY 1 SCOPE</p>
-        {[
-          "Authenticated shell",
-          "Request initiation",
-          "Request capture",
-          "Document foundation",
-          "Submit to SUBMITTED",
-          "Audit history",
-        ].map((x, i) => (
-          <div key={x}>
-            <span>{String(i + 1).padStart(2, "0")}</span>
-            <b>{x}</b>
+      <section className="loginStory">
+        <Brand />
+        <div className="loginMessage">
+          <p>AIMAZING INTELLIGENT MANAGEMENT SYSTEM</p>
+          <h1>Payment and finance control you can trust.</h1>
+          <p className="copy">
+            One controlled workflow for payment requests, validation, approval,
+            final finance control, payment records, and authoritative reporting.
+          </p>
+          <div className="loginAssurances" aria-label="AIMS control principles">
+            <span><b>12</b> distinct workflow stages</span>
+            <span><b>Human</b> approval accountability</span>
+            <span><b>Deterministic</b> finance controls</span>
           </div>
-        ))}
-        <footer>Validation and all later stages remain inactive.</footer>
+        </div>
+        <small>AI is advisory. Finance authority remains deterministic and human-controlled.</small>
+      </section>
+      <aside className="loginAccess">
+        <div className="loginCard">
+          <header>
+            <span className="loginLock" aria-hidden="true">A</span>
+            <div><small>LOCAL DEVELOPMENT ACCESS</small><h2>Sign in to AIMS</h2></div>
+          </header>
+          <p>Select a demonstration identity to enter the corresponding controlled workspace.</p>
+          <div className="roleChoices">
+            <button onClick={() => onLogin("demo.requester")}>
+              <span className="roleIcon" aria-hidden="true">RQ</span>
+              <span><b>Requester</b><small>Create and track payment requests</small></span>
+              <strong aria-hidden="true">→</strong>
+            </button>
+            <button onClick={() => onLogin("demo.finance")}>
+              <span className="roleIcon" aria-hidden="true">FM</span>
+              <span><b>Finance Manager</b><small>Control, payment and reporting workspace</small></span>
+              <strong aria-hidden="true">→</strong>
+            </button>
+            <button onClick={() => onLogin("demo.approver")}>
+              <span className="roleIcon" aria-hidden="true">AP</span>
+              <span><b>Approver</b><small>Review assigned approval decisions</small></span>
+              <strong aria-hidden="true">→</strong>
+            </button>
+          </div>
+          <div className="localAccessNote"><b>Development mode</b><span>No passwords or tokens are stored. Production requires a trusted identity provider.</span></div>
+        </div>
+        <footer>Authorized access only · Activity is auditable</footer>
       </aside>
     </main>
   );
@@ -986,8 +1067,8 @@ function List({
       </header>
       {items.length ? (
         <div className="table">
-          {items.map((x) => (
-            <button key={x.id} onClick={() => open(x.id)}>
+          {items.map((x,index) => (
+            <button key={`${x.id}-${index}`} onClick={() => open(x.id)}>
               <span className="ticket">
                 {x.ticketNumber ?? "Draft · no ticket"}
               </span>
@@ -997,7 +1078,7 @@ function List({
               </span>
               <span>{x.amount ? `${x.currency} ${x.amount}` : "—"}</span>
               {x.humanFinalRisk && <span>Human risk: {x.humanFinalRisk}</span>}
-              <i className={x.status.toLowerCase()}>{x.status}</i>
+              <StatusChip status={x.status} />
               <strong>Open →</strong>
             </button>
           ))}
@@ -2764,6 +2845,13 @@ function financeQueueItem(x: Record<string, unknown>): Item {
     remark: null,
     humanFinalRisk: String(x.final_risk),
   };
+}
+function requesterListItem(x:Record<string,unknown>):Item{
+  return {id:String(x.id),ticketNumber:x.ticket_number?String(x.ticket_number):null,status:String(x.status) as Item["status"],payee:x.payee?String(x.payee):null,purpose:x.purpose?String(x.purpose):null,category:null,amount:x.amount?String(x.amount):null,currency:x.currency?String(x.currency):null,departmentId:"",dueDate:x.due_date?String(x.due_date):null,paymentMethod:null,paymentDetails:null,remark:null};
+}
+function requesterDetailItem(safe:{request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>}):Item{
+  const x=safe.request;
+  return {...requesterListItem(x),category:x.category?String(x.category):null,departmentId:String(x.department_id),paymentMethod:x.payment_method?String(x.payment_method):null,remark:x.remark?String(x.remark):null,documents:safe.documents.map(d=>({id:String(d.id),original_filename:String(d.original_filename),size_bytes:String(d.size_bytes),version:Number(d.version)})),audit:safe.activity.map(a=>({id:`${String(a.occurred_at)}-${String(a.action)}`,action:String(a.action),occurred_at:String(a.occurred_at)}))};
 }
 
 function paymentQueueItem(x: Record<string, unknown>): Item {
