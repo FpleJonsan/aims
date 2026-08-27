@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { createApiClient, type ApiClient } from "@/app/lib/api-client";
 
 interface UseApiOptions {

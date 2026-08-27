@@ -60,6 +60,8 @@ export class PortalService {
       needsClarification: statuses.NEEDS_CLARIFICATION??0,
       pendingApproval: statuses.PENDING_APPROVAL??0,
       approvedReady: (statuses.APPROVED??0)+(statuses.FINANCE_CHECK??0)+(statuses.FINANCE_HOLD??0)+(statuses.READY_FOR_PAYMENT??0),
+      readyForPayment: statuses.READY_FOR_PAYMENT??0,
+      inProgress: (statuses.SUBMITTED??0)+(statuses.VALIDATING??0)+(statuses.PENDING_APPROVAL??0)+(statuses.APPROVED??0)+(statuses.FINANCE_CHECK??0)+(statuses.FINANCE_HOLD??0),
       paid: statuses.PAID??0,
     };
   }
@@ -88,7 +90,11 @@ export class PortalService {
     if(!request.rowCount) throw new NotFoundException("Payment request not found");
     const [documents,clarifications,activity,payment]=await Promise.all([
       this.db.pool.query(`SELECT id,original_filename,mime_type,size_bytes,document_type,version,uploaded_at FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL ORDER BY uploaded_at`,[id]),
-      this.db.pool.query(`SELECT id,clarification_type,question,status,requested_at,response,responded_at FROM validation_clarifications WHERE payment_request_id=$1 ORDER BY requested_at`,[id]),
+      this.db.pool.query(`SELECT * FROM (
+        SELECT id,clarification_type,COALESCE(required_response,reason) question,status,requested_at,response,responded_at FROM validation_clarifications WHERE payment_request_id=$1
+        UNION ALL SELECT id,clarification_type,required_response question,status,requested_at,response,responded_at FROM approval_clarifications WHERE payment_request_id=$1
+        UNION ALL SELECT id,clarification_type,required_justification question,status,requested_at,justification response,supplied_at responded_at FROM policy_exceptions WHERE payment_request_id=$1 AND requested_role='REQUESTER'
+       ) requester_clarifications ORDER BY requested_at`,[id]),
       this.db.pool.query(`SELECT action,previous_state,new_state,occurred_at FROM audit_events WHERE entity_type='PAYMENT_REQUEST' AND entity_id=$1 ORDER BY occurred_at`,[id]),
       this.db.pool.query(`SELECT payment_date,status,amount_minor,currency,payment_method,recorded_at FROM payments WHERE payment_request_id=$1`,[id]),
     ]);

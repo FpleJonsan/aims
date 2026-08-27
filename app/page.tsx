@@ -45,6 +45,9 @@ type Item = {
   paymentDetails: string | null;
   remark: string | null;
   humanFinalRisk?: string;
+  submittedAt?: string | null;
+  clarifications?: Array<{id:string;type:string;question:string;status:string;requestedAt:string;response?:string|null;respondedAt?:string|null}>;
+  paymentSummary?: {paymentDate:string;status:string;amountMinor:string;currency:string;paymentMethod:string;recordedAt:string}|null;
   documents?: Array<{
     id: string;
     original_filename: string;
@@ -84,8 +87,23 @@ const statusStage: Record<Item["status"], number> = {
   READY_FOR_PAYMENT: 8, PAID: 11, REJECTED: 6,
 };
 
+const statusPresentation:Record<Item["status"],{label:string;tone:"neutral"|"info"|"warning"|"danger"|"success";owner:string;action:string}>={
+  DRAFT:{label:"Draft",tone:"neutral",owner:"You",action:"Complete and submit the request"},
+  SUBMITTED:{label:"Submitted",tone:"info",owner:"Finance validation",action:"Finance will begin validation"},
+  VALIDATING:{label:"Under Finance Review",tone:"info",owner:"Finance team",action:"No action required"},
+  NEEDS_CLARIFICATION:{label:"Clarification Required",tone:"warning",owner:"You",action:"Respond to the clarification"},
+  PENDING_APPROVAL:{label:"Waiting for Approval",tone:"warning",owner:"Assigned approver",action:"Awaiting an approval decision"},
+  APPROVED:{label:"Approved",tone:"success",owner:"Finance team",action:"Preparing final finance review"},
+  FINANCE_CHECK:{label:"Final Finance Review",tone:"info",owner:"Finance Control",action:"Final checks are in progress"},
+  FINANCE_HOLD:{label:"Finance Review Requires Attention",tone:"warning",owner:"Finance Control",action:"Finance is resolving a blocking condition"},
+  READY_FOR_PAYMENT:{label:"Ready for Payment",tone:"success",owner:"Payment Operations",action:"Awaiting external payment processing"},
+  PAID:{label:"Paid",tone:"success",owner:"Complete",action:"Payment has been recorded"},
+  REJECTED:{label:"Rejected",tone:"danger",owner:"Complete",action:"Review the decision and activity history"},
+};
+
 function StatusChip({ status }: { status: string }) {
-  return <span className={`statusChip status-${status.toLowerCase()}`}>{status.replaceAll("_", " ")}</span>;
+  const meta=statusPresentation[status as Item["status"]];
+  return <span className={`statusChip status-${meta?.tone??"neutral"}`}>{meta?.label??status.replaceAll("_", " ")}</span>;
 }
 
 function AuthorityBadge({ children, ai = false }: { children: ReactNode; ai?: boolean }) {
@@ -96,6 +114,7 @@ function KpiCard({ label, value, detail, tone = "neutral", icon, onClick }: { la
   const content = <><span className="metricIcon" aria-hidden="true">{icon}</span><small>{label}</small><b>{value}</b><span className="metricDetail">{detail}</span></>;
   return onClick ? <button className={`kpiCard tone-${tone}`} onClick={onClick}>{content}</button> : <article className={`kpiCard tone-${tone}`}>{content}</article>;
 }
+function formatMoney(currency:string|null,value:string|null){return value?`${currency??""} ${Number(value).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`.trim():"—"}
 
 export default function Home() {
   const [user, setUser] = useState<string | null>(null),
@@ -252,7 +271,7 @@ export default function Home() {
   async function open(id: string) {
     try {
       if(workspace==="requester"){
-        const safe=await api(`/requester/requests/${id}`) as {request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>};
+        const safe=await api(`/requester/requests/${id}`) as {request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>;clarifications:Array<Record<string,unknown>>;payment:Record<string,unknown>|null};
         setSelected(requesterDetailItem(safe));
         window.history.pushState({},"",`/requester/requests/${id}`);
       } else setSelected((await api(`/payment-requests/${id}`)) as Item);
@@ -271,11 +290,12 @@ export default function Home() {
     );
   if(!session||!workspace)return <main className="portalLoading"><Brand/><p>{notice||"Loading authorized workspace…"}</p></main>;
   const financeTitles:Record<FinanceView,string>={"work-queue":"Work Queue",approvals:"Approval Inbox","finance-control":"Finance Control","payment-queue":"Payment Queue","payment-history":"Payment History",dashboard:"Finance Dashboard",ai:"AI Finance Intelligence"};
+  const financeDescriptions:Record<FinanceView,string>={"work-queue":"General Finance review within your authorized scope.",approvals:"Requests on which you have actionable Approval authority.","finance-control":"The mandatory final controlled gate before payment readiness.","payment-queue":"Only requests you are authorized to record as externally paid.","payment-history":"Immutable historical payment records within your authorized scope.",dashboard:"Authoritative financial position and operational attention.",ai:"Read-only interpretation grounded in authorized finance evidence."};
   const pageTitle = workspace==="requester"?(requesterHome?"Requester Dashboard":"My Requests"):financeTitles[financeView];
   const currentStage = selected ? statusStage[selected.status] : -1;
   const profile = {initials:session.user.displayName.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase(),name:session.user.displayName,department:session.user.department};
-  const goRequester=(home:boolean)=>{setSelected(null);setRequesterHome(home);window.history.pushState({},"",home?"/requester":"/requester/requests")};
-  const goFinance=(view:FinanceView)=>{if(!allowedFinanceView(session,view))return;setSelected(null);setDashboardDrill(null);setFinanceView(view);setShowDashboard(view==="dashboard");setShowPaymentHistory(view==="payment-history");window.history.pushState({},"",`/finance/${view}`)};
+  const goRequester=(home:boolean)=>{setNotice("");setSelected(null);setRequesterHome(home);window.history.pushState({},"",home?"/requester":"/requester/requests")};
+  const goFinance=(view:FinanceView)=>{if(!allowedFinanceView(session,view))return;setNotice("");setSelected(null);setDashboardDrill(null);setFinanceView(view);setShowDashboard(view==="dashboard");setShowPaymentHistory(view==="payment-history");window.history.pushState({},"",`/finance/${view}`)};
   const switchWorkspace=(next:Workspace)=>{if(!session.workspaces[next])return;window.localStorage.setItem("aims.workspace",next);setWorkspace(next);setSelected(null);setItems([]);setDashboardDrill(null);if(next==="requester"){setRequesterHome(true);setShowDashboard(false);setShowPaymentHistory(false);window.history.pushState({},"","/requester")}else{const view=defaultFinanceView(session);if(view)goFinance(view)}};
   return (
     <main className="appShell">
@@ -294,6 +314,7 @@ export default function Home() {
             {session.capabilities.financeControl&&<button className={financeView==="finance-control"?"active":""} onClick={()=>goFinance("finance-control")}><span>◆</span>Finance Control</button>}
             {session.capabilities.payment&&<button className={financeView==="payment-queue"?"active":""} onClick={()=>goFinance("payment-queue")}><span>→</span>Payment Queue</button>}
             {(session.capabilities.payment||session.capabilities.reporting)&&<button className={financeView==="payment-history"?"active":""} onClick={()=>goFinance("payment-history")}><span>◷</span>Payment History</button>}
+            {session.capabilities.reporting&&<button className={financeView==="ai"?"active":""} onClick={()=>goFinance("ai")}><span>✦</span>AI Finance Intelligence</button>}
           </>}
         </nav>
         {workspace==="finance"&&<nav aria-label="AIMS workflow stages" className="workflowNav">
@@ -329,7 +350,7 @@ export default function Home() {
           <div>
             <small>AIMS · PAYMENT & FINANCE CONTROL</small>
             <h1>{pageTitle}</h1>
-            <p className="pageSubtitle">Controlled payment operations with authoritative financial truth.</p>
+            <p className="pageSubtitle">{workspace==="requester"?"Track your requests, required actions, and payment progress.":financeDescriptions[financeView]}</p>
           </div>
           {workspace === "requester" && (
             <button className="primary" onClick={initiate}>
@@ -365,7 +386,7 @@ export default function Home() {
             </div>
           )}
         </header>
-        {(workspace==="finance"||selected)&&<div className="stageRail" aria-label="12-stage AIMS workflow">
+        {workspace==="finance"&&<div className="stageRail" aria-label="12-stage AIMS workflow">
           {stages.map((s, i) => (
             <div className={currentStage < 0 ? "available" : i < currentStage ? "completed" : i === currentStage ? "current" : "future"} key={s}>
               <span>{String(i + 1).padStart(2, "0")}</span>
@@ -375,7 +396,8 @@ export default function Home() {
           ))}
         </div>}
         {notice && <p className="notice" role="status" aria-live="polite">{notice}</p>}
-        {workspace==="requester"&&requesterHome&&!selected?<RequesterDashboard api={api} open={open} newRequest={()=>void initiate()}/>:showDashboard && workspace === "finance" && session.capabilities.reporting ? (
+        {workspace==="finance"&&financeView==="payment-queue"&&<p className="controlNotice"><AuthorityBadge>PAYMENT RECORDING</AuthorityBadge><span>AIMS records externally executed payments. AIMS does not execute bank transfers.</span></p>}
+        {workspace==="requester"&&requesterHome&&!selected?<RequesterDashboard api={api} open={open} newRequest={()=>void initiate()}/>:financeView==="ai"&&workspace==="finance"&&session.capabilities.reporting?<FinanceIntelligenceWorkspace api={api}/>:showDashboard && workspace === "finance" && session.capabilities.reporting ? (
           <FinanceDashboard api={api} onDrill={(drill) => {
             setDashboardDrill(drill);
             setShowDashboard(false);
@@ -391,6 +413,7 @@ export default function Home() {
           <Editor
             item={selected}
             user={user}
+            requesterView={workspace==="requester"}
             api={api}
             changed={async () => {
               if(workspace==="requester")await open(selected.id);
@@ -404,7 +427,7 @@ export default function Home() {
           />
         ) : (
           <>
-            <List items={items} open={open} empty={initiate} canCreate={workspace === "requester"} />
+            <List items={items} open={open} empty={initiate} canCreate={workspace === "requester"} requesterView={workspace==="requester"} />
             {workspace==="finance"&&session.capabilities.approval && approvalPagination && (
               <nav className="pagination" aria-label="Approval inbox pages">
                 <button aria-label="Previous approval page" disabled={!approvalPagination.hasPreviousPage} onClick={() => setApprovalPage((page) => Math.max(1, page - 1))}>Previous</button>
@@ -420,19 +443,20 @@ export default function Home() {
 }
 
 function RequesterDashboard({api,open,newRequest}:{api:Api;open:(id:string)=>Promise<void>;newRequest:()=>void}){
-  const [summary,setSummary]=useState<{myRequests:number;awaitingReview:number;needsClarification:number;pendingApproval:number;approvedReady:number;paid:number}|null>(null),[recent,setRecent]=useState<Item[]>([]),[notice,setNotice]=useState("");
-  useEffect(()=>{let active=true;void Promise.all([api("/requester/dashboard"),api("/requester/requests?pageSize=5")]).then(([s,r])=>{if(active){setSummary(s as typeof summary);setRecent((r as {items:Array<Record<string,unknown>>}).items.map(requesterListItem))}}).catch(e=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api]);
+  const [summary,setSummary]=useState<{myRequests:number;awaitingReview:number;needsClarification:number;pendingApproval:number;approvedReady:number;readyForPayment:number;inProgress:number;paid:number}|null>(null),[recent,setRecent]=useState<Item[]>([]),[attention,setAttention]=useState<Item[]>([]),[notice,setNotice]=useState("");
+  useEffect(()=>{let active=true;void Promise.all([api("/requester/dashboard"),api("/requester/requests?pageSize=5"),api("/requester/requests?pageSize=5&status=NEEDS_CLARIFICATION")]).then(([s,r,a])=>{if(active){setSummary(s as typeof summary);setRecent((r as {items:Array<Record<string,unknown>>}).items.map(requesterListItem));setAttention((a as {items:Array<Record<string,unknown>>}).items.map(requesterListItem))}}).catch(e=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api]);
   if(!summary)return <section className="card"><p>{notice||"Loading your requests…"}</p></section>;
   return <section className="requesterDashboard">
-    <div className="requesterWelcome"><div><small>REQUESTER PORTAL</small><h2>Your payment requests, clearly tracked.</h2><p>Create requests and follow their progress without internal finance complexity.</p></div><button className="primary" onClick={newRequest}>＋ New request</button></div>
+    <div className="requesterWelcome"><div><small>REQUESTER WORKSPACE</small><h2>My Requests</h2><p>Track payment requests and actions requiring your attention.</p></div><button className="primary" onClick={newRequest}>＋ New Request</button></div>
     <div className="requesterMetrics">
-      <KpiCard icon="☷" label="My requests" value={String(summary.myRequests)} detail="All owned requests"/>
-      <KpiCard icon="◷" label="Awaiting review" value={String(summary.awaitingReview)} detail="Submitted or validating" tone="info"/>
-      <KpiCard icon="!" label="Needs clarification" value={String(summary.needsClarification)} detail="Your response required" tone="warning"/>
-      <KpiCard icon="✓" label="Approved / ready" value={String(summary.approvedReady)} detail="Progressing to payment" tone="success"/>
+      <KpiCard icon="☷" label="Total Requests" value={String(summary.myRequests)} detail="Requests you created"/>
+      <KpiCard icon="!" label="Needs My Attention" value={String(summary.needsClarification)} detail="Your response is required" tone="warning"/>
+      <KpiCard icon="◷" label="In Progress" value={String(summary.inProgress)} detail="With Finance or an approver" tone="info"/>
+      <KpiCard icon="→" label="Ready for Payment" value={String(summary.readyForPayment)} detail="Passed final finance review" tone="success"/>
       <KpiCard icon="●" label="Paid" value={String(summary.paid)} detail="Payment recorded" tone="success"/>
     </div>
-    <section className="card"><header><div><small>RECENT ACTIVITY</small><h3>Recent requests</h3></div></header>{recent.length?<div className="requesterRecent">{recent.map(item=><button key={item.id} onClick={()=>void open(item.id)}><span><b>{item.ticketNumber||"Draft request"}</b><small>{item.payee||"Payee not added"}</small></span><span>{item.currency} {item.amount||"—"}</span><StatusChip status={item.status}/><strong>View →</strong></button>)}</div>:<div className="emptyState"><b>No requests yet</b><span>Create your first payment request to begin.</span><button className="primary" onClick={newRequest}>Create request</button></div>}</section>
+    <section className="attentionSection" aria-labelledby="attention-title"><div className="sectionHeading"><div><small>ACTION REQUIRED</small><h3 id="attention-title">Needs My Attention</h3></div><span>{summary.needsClarification} open</span></div>{attention.length?<div className="attentionList">{attention.map(item=><article key={item.id}><span className="attentionIcon">!</span><div><StatusChip status={item.status}/><h4>{item.ticketNumber||"Draft request"} · {item.payee||"Payee not added"}</h4><p>Finance needs additional information before this request can continue.</p><small>Requested during validation · respond to keep the request moving.</small></div><button className="primary" onClick={()=>void open(item.id)}>Respond to Clarification</button></article>)}</div>:<div className="quietEmpty"><b>No requests require your attention.</b><span>We’ll highlight clarifications or revisions here.</span></div>}</section>
+    <section className="card"><header><div><small>RECENT ACTIVITY</small><h3>Recent requests</h3></div></header>{recent.length?<div className="requesterRecent">{recent.map(item=><button key={item.id} onClick={()=>void open(item.id)}><span><b>{item.ticketNumber||"Draft request"}</b><small>{item.payee||"Payee not added"}</small></span><span>{formatMoney(item.currency,item.amount)}</span><StatusChip status={item.status}/><strong>View →</strong></button>)}</div>:<div className="emptyState"><b>No requests yet</b><span>Create your first payment request to begin.</span><button className="primary" onClick={newRequest}>Create request</button></div>}</section>
   </section>
 }
 
@@ -446,7 +470,14 @@ function ReportingRequestDrill({api,drill,back}:{api:Api;drill:Extract<Dashboard
 function OperationalDrill({api,drill,open,back}:{api:Api;drill:Extract<DashboardDrill,{view:"FINANCE_CONTROL"|"PAYMENT_QUEUE"}>;open:(id:string)=>Promise<void>;back:()=>void}) {
   const [rows,setRows]=useState<Item[]>([]),[notice,setNotice]=useState("");
   useEffect(()=>{let active=true;const query=new URLSearchParams(Object.entries({departmentId:drill.filters.departmentId,category:drill.filters.category}).filter(([,v])=>v)).toString(),path=`${drill.view==="FINANCE_CONTROL"?"/finance-control":"/payment-queue"}?${query}`;void api(path).then((x)=>{if(!active)return;const raw=(x as {items:Array<Record<string,unknown>>}).items;const mapped=raw.map(drill.view==="FINANCE_CONTROL"?financeQueueItem:paymentQueueItem);setRows(mapped.filter((item)=>item.status===drill.status));}).catch((e)=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api,drill]);
-  return <section><button className="back" onClick={back}>← Finance Dashboard</button>{notice&&<p className="notice">{notice}</p>}<List items={rows} open={open} empty={()=>Promise.resolve()} canCreate={false}/></section>;
+  return <section><button className="back" onClick={back}>← Finance Dashboard</button>{notice&&<p className="notice">{notice}</p>}<List items={rows} open={open} empty={()=>Promise.resolve()} canCreate={false} requesterView={false}/></section>;
+}
+
+function FinanceIntelligenceWorkspace({api}:{api:Api}){
+  const [watch,setWatch]=useState<any>(null),[answer,setAnswer]=useState<any>(null),[question,setQuestion]=useState(""),[notice,setNotice]=useState("");
+  const runWatch=async()=>{try{setNotice("");setWatch(await api("/finance-intelligence/watch",{method:"POST",body:"{}"}))}catch(e){setNotice(msg(e))}};
+  const ask=async(e:FormEvent)=>{e.preventDefault();try{setNotice("");setAnswer(await api("/finance-intelligence/ask",{method:"POST",body:JSON.stringify({question})}))}catch(error){setNotice(msg(error))}};
+  return <section className="aiWorkspace"><header><div><small>AI FINANCE INTELLIGENCE · READ ONLY</small><h2>Interpretation, grounded in authorized evidence</h2><p>AI can summarize and explain. It cannot approve, calculate authoritative balances, or change workflow state.</p></div><AuthorityBadge ai>AI INTERPRETATION</AuthorityBadge></header>{notice&&<div className="aiDisabled" role="status"><b>AI Finance Intelligence is unavailable.</b><span>The deterministic Finance Dashboard remains available.</span></div>}<div className="aiWorkspaceGrid"><section className="aiPanel"><div className="sectionHeading"><div><small>FINANCE WATCH</small><h3>Operational interpretation</h3></div><AuthorityBadge ai>AI INTERPRETATION</AuthorityBadge></div><p>Generate a bounded, evidence-backed reading of the current authorized finance position.</p><button className="aiButton" onClick={()=>void runWatch()}>Generate Finance Watch</button>{watch&&<article><h4>{String(watch.headline??"Finance Watch")}</h4><p>{String(watch.summary??watch.interpretation??"Interpretation generated from authorized evidence.")}</p></article>}</section><section className="aiPanel"><div className="sectionHeading"><div><small>ASK AIMS</small><h3>Ask about finance evidence</h3></div><AuthorityBadge ai>AI INTERPRETATION</AuthorityBadge></div><form onSubmit={ask}><label htmlFor="aims-question">Question</label><textarea id="aims-question" value={question} onChange={e=>setQuestion(e.target.value)} placeholder="What requires Finance attention?" required/><button className="aiButton">Ask AIMS</button></form>{answer&&<article><h4>Advisory response</h4><p>{String(answer.answer??answer.response??"Response generated from authorized evidence.")}</p></article>}</section></div><footer><AuthorityBadge>SYSTEM CALCULATED DATA REMAINS AUTHORITATIVE</AuthorityBadge><span>AI OFF preserves the complete deterministic workflow.</span></footer></section>;
 }
 
 function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:DashboardDrill)=>void }) {
@@ -1050,18 +1081,20 @@ function List({
   open,
   empty,
   canCreate,
+  requesterView,
 }: {
   items: Item[];
   open: (id: string) => void;
   empty: () => void;
   canCreate: boolean;
+  requesterView:boolean;
 }) {
   return (
     <section className="card">
       <header>
         <div>
-          <small>REQUEST REGISTER</small>
-          <h2>Current requests</h2>
+          <small>{requesterView?"MY REQUESTS":"AUTHORIZED WORK QUEUE"}</small>
+          <h2>{requesterView?"Payment requests":"Current requests"}</h2>
         </div>
         <span>{items.length} records</span>
       </header>
@@ -1075,10 +1108,11 @@ function List({
               <span>
                 <b>{x.payee ?? "Untitled request"}</b>
                 <small>{x.purpose ?? "Capture not completed"}</small>
+                {requesterView&&<small>{x.submittedAt?`Submitted ${new Date(x.submittedAt).toLocaleDateString()}`:"Not submitted"}</small>}
               </span>
-              <span>{x.amount ? `${x.currency} ${x.amount}` : "—"}</span>
+              <span>{formatMoney(x.currency,x.amount)}</span>
               {x.humanFinalRisk && <span>Human risk: {x.humanFinalRisk}</span>}
-              <StatusChip status={x.status} />
+              <span className="requestProgress"><StatusChip status={x.status}/>{requesterView&&<small>Next: {statusPresentation[x.status].owner}</small>}</span>
               <strong>Open →</strong>
             </button>
           ))}
@@ -1101,12 +1135,14 @@ function List({
 function Editor({
   item,
   user,
+  requesterView,
   api,
   changed,
   back,
 }: {
   item: Item;
   user: string;
+  requesterView:boolean;
   api: Api;
   changed: () => Promise<void>;
   back: () => void;
@@ -1202,13 +1238,14 @@ function Editor({
           <small>{item.ticketNumber ?? "REQUEST INITIATION"}</small>
           <h2>{item.payee || "New payment request"}</h2>
         </div>
-        <i className={item.status.toLowerCase()}>{item.status}</i>
+        <StatusChip status={item.status}/>
       </header>
       {notice && <p className="notice">{notice}</p>}
-      {item.status !== "DRAFT" && (
+      {requesterView&&<RequesterDetailOverview item={item}/>}
+      {!requesterView&&item.status !== "DRAFT" && (
         <ValidationPanel item={item} user={user} api={api} changed={changed} />
       )}
-      {[
+      {!requesterView&&[
         "VALIDATING",
         "APPROVED",
         "FINANCE_CHECK",
@@ -1218,7 +1255,7 @@ function Editor({
       ].includes(item.status) && (
         <FinanceContextPanel item={item} user={user} api={api} />
       )}
-      {[
+      {!requesterView&&[
         "VALIDATING",
         "APPROVED",
         "FINANCE_CHECK",
@@ -1228,10 +1265,10 @@ function Editor({
       ].includes(item.status) && (
         <FinancialAnalysisPanel item={item} user={user} api={api} />
       )}
-      {item.status === "VALIDATING" && user === "demo.finance" && (
+      {!requesterView&&item.status === "VALIDATING" && user === "demo.finance" && (
         <FinancialHumanReview item={item} api={api} />
       )}
-      {[
+      {!requesterView&&[
         "VALIDATING",
         "APPROVED",
         "FINANCE_CHECK",
@@ -1241,7 +1278,7 @@ function Editor({
       ].includes(item.status) && (
         <PolicyDecisionPanel item={item} user={user} api={api} />
       )}
-      {[
+      {!requesterView&&[
         "VALIDATING",
         "PENDING_APPROVAL",
         "APPROVED",
@@ -1254,7 +1291,7 @@ function Editor({
       ].includes(item.status) && (
         <ApprovalPanel item={item} user={user} api={api} changed={changed} />
       )}
-      {[
+      {!requesterView&&[
         "APPROVED",
         "FINANCE_CHECK",
         "FINANCE_HOLD",
@@ -1264,7 +1301,7 @@ function Editor({
         user === "demo.finance" && (
           <FinanceControlPanel item={item} api={api} changed={changed} />
         )}
-      {["READY_FOR_PAYMENT", "PAID"].includes(item.status) &&
+      {!requesterView&&["READY_FOR_PAYMENT", "PAID"].includes(item.status) &&
         user === "demo.finance" && (
           <PaymentPanel item={item} api={api} changed={changed} />
         )}
@@ -1370,7 +1407,7 @@ function Editor({
           )}
         </form>
         <aside className="right">
-          <section>
+          <section id="supporting-documents">
             <small>SUPPORTING DOCUMENTS</small>
             {(draft || item.status === "NEEDS_CLARIFICATION") && (
               <form className="upload" onSubmit={upload}>
@@ -1412,6 +1449,17 @@ function Editor({
       </div>
     </section>
   );
+}
+
+function RequesterDetailOverview({item}:{item:Item}){
+  const meta=statusPresentation[item.status],current=statusStage[item.status];
+  const openClarifications=item.clarifications?.filter(x=>x.status==="OPEN")??[];
+  return <section className="requesterDetailOverview" aria-label="Request progress and required actions">
+    <div className="requesterSnapshot"><div><small>CURRENT STATUS</small><StatusChip status={item.status}/><p>{meta.action}</p></div><div><small>NEXT OWNER</small><b>{meta.owner}</b><p>{item.status==="PAID"?"No further action required.":meta.action}</p></div><div><small>REQUEST VALUE</small><b>{formatMoney(item.currency,item.amount)}</b><p>{item.payee||"Payee not added"}</p></div></div>
+    <div className="requesterJourney"><div className="sectionHeading"><div><small>PROGRESS</small><h3>Your request journey</h3></div><span>Stage {Math.min(12,current+1)} of 12</span></div><div className="compactJourney" role="list">{stages.map((stage,index)=><div role="listitem" key={stage} className={index<current?"completed":index===current?item.status==="NEEDS_CLARIFICATION"||item.status==="FINANCE_HOLD"?"blocked":"current":"upcoming"}><span>{index<current?"✓":String(index+1).padStart(2,"0")}</span><b>{stage}</b></div>)}</div></div>
+    {openClarifications.length>0&&<section className="requesterAction"><div><StatusChip status="NEEDS_CLARIFICATION"/><h3>Finance needs information from you</h3><p>{openClarifications[0].question}</p><small>Requested {new Date(openClarifications[0].requestedAt).toLocaleString()}</small></div><a className="primary" href="#supporting-documents">Respond to Clarification</a></section>}
+    {item.paymentSummary&&<section className="requesterPayment"><div><small>PAYMENT SUMMARY</small><h3>Payment recorded</h3></div><dl><div><dt>Payment date</dt><dd>{new Date(item.paymentSummary.paymentDate).toLocaleDateString()}</dd></div><div><dt>Amount</dt><dd>{item.paymentSummary.currency} {(Number(item.paymentSummary.amountMinor)/100).toFixed(2)}</dd></div><div><dt>Method</dt><dd>{item.paymentSummary.paymentMethod.replaceAll("_"," ")}</dd></div><div><dt>Status</dt><dd><StatusChip status="PAID"/></dd></div></dl></section>}
+  </section>;
 }
 
 function ValidationPanel({
@@ -1735,7 +1783,7 @@ function FinanceContextPanel({
           ) : (
             <>
               <div className="financeGrid">
-                {[
+              {[
                   ["Original budget", amount(data.originalBudget)],
                   ["Revised budget", amount(data.revisedBudget)],
                   ["Actual spending", amount(data.actual)],
@@ -2847,11 +2895,11 @@ function financeQueueItem(x: Record<string, unknown>): Item {
   };
 }
 function requesterListItem(x:Record<string,unknown>):Item{
-  return {id:String(x.id),ticketNumber:x.ticket_number?String(x.ticket_number):null,status:String(x.status) as Item["status"],payee:x.payee?String(x.payee):null,purpose:x.purpose?String(x.purpose):null,category:null,amount:x.amount?String(x.amount):null,currency:x.currency?String(x.currency):null,departmentId:"",dueDate:x.due_date?String(x.due_date):null,paymentMethod:null,paymentDetails:null,remark:null};
+  return {id:String(x.id),ticketNumber:x.ticket_number?String(x.ticket_number):null,status:String(x.status) as Item["status"],payee:x.payee?String(x.payee):null,purpose:x.purpose?String(x.purpose):null,category:null,amount:x.amount?String(x.amount):null,currency:x.currency?String(x.currency):null,departmentId:"",dueDate:x.due_date?String(x.due_date):null,paymentMethod:null,paymentDetails:null,remark:null,submittedAt:x.submitted_at?String(x.submitted_at):null};
 }
-function requesterDetailItem(safe:{request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>}):Item{
+function requesterDetailItem(safe:{request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>;clarifications?:Array<Record<string,unknown>>;payment?:Record<string,unknown>|null}):Item{
   const x=safe.request;
-  return {...requesterListItem(x),category:x.category?String(x.category):null,departmentId:String(x.department_id),paymentMethod:x.payment_method?String(x.payment_method):null,remark:x.remark?String(x.remark):null,documents:safe.documents.map(d=>({id:String(d.id),original_filename:String(d.original_filename),size_bytes:String(d.size_bytes),version:Number(d.version)})),audit:safe.activity.map(a=>({id:`${String(a.occurred_at)}-${String(a.action)}`,action:String(a.action),occurred_at:String(a.occurred_at)}))};
+  return {...requesterListItem(x),category:x.category?String(x.category):null,departmentId:String(x.department_id),paymentMethod:x.payment_method?String(x.payment_method):null,remark:x.remark?String(x.remark):null,documents:safe.documents.map(d=>({id:String(d.id),original_filename:String(d.original_filename),size_bytes:String(d.size_bytes),version:Number(d.version)})),audit:safe.activity.map(a=>({id:`${String(a.occurred_at)}-${String(a.action)}`,action:String(a.action),occurred_at:String(a.occurred_at)})),clarifications:(safe.clarifications??[]).map(c=>({id:String(c.id),type:String(c.clarification_type),question:String(c.question),status:String(c.status),requestedAt:String(c.requested_at),response:c.response?String(c.response):null,respondedAt:c.responded_at?String(c.responded_at):null})),paymentSummary:safe.payment?{paymentDate:String(safe.payment.payment_date),status:String(safe.payment.status),amountMinor:String(safe.payment.amount_minor),currency:String(safe.payment.currency),paymentMethod:String(safe.payment.payment_method),recordedAt:String(safe.payment.recorded_at)}:null};
 }
 
 function paymentQueueItem(x: Record<string, unknown>): Item {

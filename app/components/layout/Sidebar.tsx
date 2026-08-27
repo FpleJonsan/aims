@@ -1,5 +1,4 @@
 import type { PortalSession, Workspace, FinanceView } from "@/app/lib/types";
-import { allowedFinanceView } from "@/app/lib/utils";
 import { Brand } from "./Brand";
 import { UserCard } from "./UserCard";
 
