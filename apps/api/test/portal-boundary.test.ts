@@ -65,6 +65,21 @@ test("requester list queries only the owner's payment requests",async()=>{
   assert.match(queries[0],/FROM payment_requests WHERE created_by=\$1 AND department_id=\$2/);
 });
 
+test("requester dashboard counts reconcile drafts, attention, progress, approval, ready, and paid",async()=>{
+  const db={pool:{query:async()=>({rows:[
+    {status:"DRAFT",count:2},{status:"NEEDS_CLARIFICATION",count:1},{status:"VALIDATING",count:3},
+    {status:"PENDING_APPROVAL",count:4},{status:"READY_FOR_PAYMENT",count:5},{status:"PAID",count:6},
+  ]})}};
+  const result=await new PortalService(db as never).requesterSummary(requester);
+  assert.equal(result.myRequests,21);
+  assert.equal(result.drafts,2);
+  assert.equal(result.needsClarification,1);
+  assert.equal(result.inProgress,7);
+  assert.equal(result.pendingApproval,4);
+  assert.equal(result.readyForPayment,5);
+  assert.equal(result.paid,6);
+});
+
 test("workspace bootstrap derives capabilities from authoritative tables",async()=>{
   const db={pool:{query:async(sql:string)=>sql.includes("FROM users u JOIN departments")
     ?{rowCount:1,rows:[{external_subject:"multi",email:"multi@aims.local",display_name:"Multi User",department_name:"Operations"}]}

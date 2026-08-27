@@ -56,6 +56,7 @@ export class PortalService {
     const statuses = Object.fromEntries(result.rows.map((row)=>[row.status,row.count]));
     return {
       myRequests: result.rows.reduce((total,row)=>total+row.count,0),
+      drafts: statuses.DRAFT??0,
       awaitingReview: (statuses.SUBMITTED??0)+(statuses.VALIDATING??0),
       needsClarification: statuses.NEEDS_CLARIFICATION??0,
       pendingApproval: statuses.PENDING_APPROVAL??0,

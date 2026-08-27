@@ -4,6 +4,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import "./day1.css";
 import { allowedFinanceView, defaultFinanceView, routeForSession, safeInternalPath, type FinanceView, type Workspace } from "./lib/session-ux";
+import { clarificationActionable, friendlyActivity, requesterActivityVisible, requesterNeedsAction, requesterStatusPresentation, type RequesterStatus } from "./lib/requester-presentation";
 
 const API = process.env.NEXT_PUBLIC_AIMS_API_URL ?? "http://localhost:3001";
 const stages = [
@@ -34,7 +35,8 @@ type Item = {
     | "FINANCE_HOLD"
     | "READY_FOR_PAYMENT"
     | "PAID"
-    | "REJECTED";
+    | "REJECTED"
+    | "CANCELLED";
   payee: string | null;
   purpose: string | null;
   category: string | null;
@@ -47,6 +49,8 @@ type Item = {
   remark: string | null;
   humanFinalRisk?: string;
   submittedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
   clarifications?: Array<{id:string;type:string;question:string;status:string;requestedAt:string;response?:string|null;respondedAt?:string|null}>;
   paymentSummary?: {paymentDate:string;status:string;amountMinor:string;currency:string;paymentMethod:string;recordedAt:string}|null;
   documents?: Array<{
@@ -54,6 +58,8 @@ type Item = {
     original_filename: string;
     size_bytes: string;
     version: number;
+    document_type?: string;
+    uploaded_at?: string;
   }>;
   audit?: Array<{ id: string; action: string; occurred_at: string }>;
 };
@@ -76,25 +82,11 @@ type LocalIdentity = {subject:string;displayName:string;department:string;person
 const statusStage: Record<Item["status"], number> = {
   DRAFT: 1, SUBMITTED: 2, VALIDATING: 3, NEEDS_CLARIFICATION: 3,
   PENDING_APPROVAL: 6, APPROVED: 7, FINANCE_CHECK: 7, FINANCE_HOLD: 7,
-  READY_FOR_PAYMENT: 8, PAID: 11, REJECTED: 6,
-};
-
-const statusPresentation:Record<Item["status"],{label:string;tone:"neutral"|"info"|"warning"|"danger"|"success";owner:string;action:string}>={
-  DRAFT:{label:"Draft",tone:"neutral",owner:"You",action:"Complete and submit the request"},
-  SUBMITTED:{label:"Submitted",tone:"info",owner:"Finance validation",action:"Finance will begin validation"},
-  VALIDATING:{label:"Under Finance Review",tone:"info",owner:"Finance team",action:"No action required"},
-  NEEDS_CLARIFICATION:{label:"Clarification Required",tone:"warning",owner:"You",action:"Respond to the clarification"},
-  PENDING_APPROVAL:{label:"Waiting for Approval",tone:"warning",owner:"Assigned approver",action:"Awaiting an approval decision"},
-  APPROVED:{label:"Approved",tone:"success",owner:"Finance team",action:"Preparing final finance review"},
-  FINANCE_CHECK:{label:"Final Finance Review",tone:"info",owner:"Finance Control",action:"Final checks are in progress"},
-  FINANCE_HOLD:{label:"Finance Review Requires Attention",tone:"warning",owner:"Finance Control",action:"Finance is resolving a blocking condition"},
-  READY_FOR_PAYMENT:{label:"Ready for Payment",tone:"success",owner:"Payment Operations",action:"Awaiting external payment processing"},
-  PAID:{label:"Paid",tone:"success",owner:"Complete",action:"Payment has been recorded"},
-  REJECTED:{label:"Rejected",tone:"danger",owner:"Complete",action:"Review the decision and activity history"},
+  READY_FOR_PAYMENT: 8, PAID: 9, REJECTED: 6, CANCELLED:1,
 };
 
 function StatusChip({ status }: { status: string }) {
-  const meta=statusPresentation[status as Item["status"]];
+  const meta=requesterStatusPresentation[status as RequesterStatus];
   return <span className={`statusChip status-${meta?.tone??"neutral"}`}>{meta?.label??status.replaceAll("_", " ")}</span>;
 }
 
@@ -107,6 +99,7 @@ function KpiCard({ label, value, detail, tone = "neutral", icon, onClick }: { la
   return onClick ? <button className={`kpiCard tone-${tone}`} onClick={onClick}>{content}</button> : <article className={`kpiCard tone-${tone}`}>{content}</article>;
 }
 function formatMoney(currency:string|null,value:string|null){return value?`${currency??""} ${Number(value).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`.trim():"—"}
+function formatDate(value:string|null|undefined){if(!value)return "—";const date=/^\d{4}-\d{2}-\d{2}$/.test(value)?new Date(`${value}T00:00:00`):new Date(value);return new Intl.DateTimeFormat("en-MY",{day:"2-digit",month:"short",year:"numeric"}).format(date)}
 
 export default function Home() {
   const localLogin=process.env.NODE_ENV!=="production";
@@ -122,6 +115,7 @@ export default function Home() {
     [workspace,setWorkspace]=useState<Workspace|null>(null),
     [financeView,setFinanceView]=useState<FinanceView>("dashboard"),
     [requesterHome,setRequesterHome]=useState(true),
+    [requesterPaymentOnly,setRequesterPaymentOnly]=useState(false),
     [approvalPage, setApprovalPage] = useState(1),
     [approvalPagination, setApprovalPagination] = useState<Pagination|null>(null),
     [dashboardDrill, setDashboardDrill] = useState<DashboardDrill|null>(null);
@@ -162,7 +156,8 @@ export default function Home() {
     const destination=routeForSession(next,requestedPath,preferred);
     setWorkspace(destination.workspace);
     if(destination.financeView)setFinanceView(destination.financeView);
-    setRequesterHome(destination.workspace==="requester"&&!destination.path.startsWith("/requester/requests"));
+    setRequesterPaymentOnly(destination.workspace==="requester"&&destination.path.startsWith("/requester/payment-status"));
+    setRequesterHome(destination.workspace==="requester"&&(destination.path==="/requester"||destination.path==="/requester/"));
     setShowDashboard(destination.workspace==="finance"&&destination.financeView==="dashboard");
     setShowPaymentHistory(destination.workspace==="finance"&&destination.financeView==="payment-history");
     setNotice(message);
@@ -332,10 +327,10 @@ export default function Home() {
   if(authPhase==="no-access"||!session||!workspace)return <NoAccess session={session} signOut={signOut}/>;
   const financeTitles:Record<FinanceView,string>={"work-queue":"Work Queue",approvals:"Approval Inbox","finance-control":"Finance Control","payment-queue":"Payment Queue","payment-history":"Payment History",dashboard:"Finance Dashboard",ai:"AI Finance Intelligence"};
   const financeDescriptions:Record<FinanceView,string>={"work-queue":"General Finance review within your authorized scope.",approvals:"Requests on which you have actionable Approval authority.","finance-control":"The mandatory final controlled gate before payment readiness.","payment-queue":"Only requests you are authorized to record as externally paid.","payment-history":"Immutable historical payment records within your authorized scope.",dashboard:"Authoritative financial position and operational attention.",ai:"Read-only interpretation grounded in authorized finance evidence."};
-  const pageTitle = workspace==="requester"?(requesterHome?"Requester Dashboard":"My Requests"):financeTitles[financeView];
+  const pageTitle = workspace==="requester"?(requesterHome?"Requester Dashboard":requesterPaymentOnly?"Payment Status":"My Requests"):financeTitles[financeView];
   const currentStage = selected ? statusStage[selected.status] : -1;
   const profile = {initials:session.user.displayName.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase(),name:session.user.displayName,department:session.user.department};
-  const goRequester=(home:boolean)=>{setNotice("");setSelected(null);setRequesterHome(home);window.history.pushState({},"",home?"/requester":"/requester/requests")};
+  const goRequester=(home:boolean,paymentOnly=false)=>{setNotice("");setSelected(null);setRequesterHome(home);setRequesterPaymentOnly(paymentOnly);window.history.pushState({},"",home?"/requester":paymentOnly?"/requester/payment-status":"/requester/requests")};
   const goFinance=(view:FinanceView)=>{if(!allowedFinanceView(session,view))return;setNotice("");setSelected(null);setDashboardDrill(null);setFinanceView(view);setShowDashboard(view==="dashboard");setShowPaymentHistory(view==="payment-history");window.history.pushState({},"",`/finance/${view}`)};
   const switchWorkspace=(next:Workspace)=>{if(!session.workspaces[next])return;window.localStorage.setItem("aims.workspace",next);setWorkspace(next);setSelected(null);setItems([]);setDashboardDrill(null);if(next==="requester"){setRequesterHome(true);setShowDashboard(false);setShowPaymentHistory(false);window.history.pushState({},"","/requester")}else{const view=defaultFinanceView(session);if(view)goFinance(view)}};
   return (
@@ -345,9 +340,9 @@ export default function Home() {
         <nav aria-label="Primary navigation" className="primaryNav">
           {workspace==="requester"?<>
             <button className={requesterHome&&!selected?"active":""} onClick={()=>goRequester(true)}><span>▦</span>Dashboard</button>
-            <button className={!requesterHome&&!selected?"active":""} onClick={()=>goRequester(false)}><span>☷</span>My Requests</button>
+            <button className={!requesterHome&&!requesterPaymentOnly&&!selected?"active":""} onClick={()=>goRequester(false)}><span>☷</span>My Requests</button>
             <button onClick={()=>void initiate()}><span>＋</span>New Request</button>
-            <button onClick={()=>{setSelected(null);setRequesterHome(false)}}><span>◷</span>Payment Status</button>
+            <button className={requesterPaymentOnly&&!selected?"active":""} onClick={()=>goRequester(false,true)}><span>◷</span>Payment Status</button>
           </>:<>
             {session.capabilities.reporting&&<button className={financeView==="dashboard"?"active":""} onClick={()=>goFinance("dashboard")}><span>▦</span>Dashboard</button>}
             {session.capabilities.financeAnalysis&&<button className={financeView==="work-queue"&&!selected?"active":""} onClick={()=>goFinance("work-queue")}><span>☷</span>Work Queue</button>}
@@ -426,7 +421,7 @@ export default function Home() {
         </div>}
         {notice && <p className="notice" role="status" aria-live="polite">{notice}</p>}
         {workspace==="finance"&&financeView==="payment-queue"&&<p className="controlNotice"><AuthorityBadge>PAYMENT RECORDING</AuthorityBadge><span>AIMS records externally executed payments. AIMS does not execute bank transfers.</span></p>}
-        {workspace==="requester"&&requesterHome&&!selected?<RequesterDashboard api={api} open={open} newRequest={()=>void initiate()}/>:financeView==="ai"&&workspace==="finance"&&session.capabilities.reporting?<FinanceIntelligenceWorkspace api={api}/>:showDashboard && workspace === "finance" && session.capabilities.reporting ? (
+        {workspace==="requester"&&requesterHome&&!selected?<RequesterDashboard api={api} open={open} newRequest={()=>void initiate()} viewAll={()=>goRequester(false)}/>:financeView==="ai"&&workspace==="finance"&&session.capabilities.reporting?<FinanceIntelligenceWorkspace api={api}/>:showDashboard && workspace === "finance" && session.capabilities.reporting ? (
           <FinanceDashboard api={api} onDrill={(drill) => {
             setDashboardDrill(drill);
             setShowDashboard(false);
@@ -456,7 +451,7 @@ export default function Home() {
           />
         ) : (
           <>
-            <List items={items} open={open} empty={initiate} canCreate={workspace === "requester"} requesterView={workspace==="requester"} />
+            <List key={workspace==="requester"?(requesterPaymentOnly?"requester-payment":"requester-all"):`finance-${financeView}`} items={workspace==="requester"&&requesterPaymentOnly?items.filter(item=>item.status==="READY_FOR_PAYMENT"||item.status==="PAID"):items} open={open} empty={initiate} canCreate={workspace === "requester"&&!requesterPaymentOnly} requesterView={workspace==="requester"} paymentOnly={workspace==="requester"&&requesterPaymentOnly} api={workspace==="requester"?api:undefined}/>
             {workspace==="finance"&&session.capabilities.approval && approvalPagination && (
               <nav className="pagination" aria-label="Approval inbox pages">
                 <button aria-label="Previous approval page" disabled={!approvalPagination.hasPreviousPage} onClick={() => setApprovalPage((page) => Math.max(1, page - 1))}>Previous</button>
@@ -471,21 +466,22 @@ export default function Home() {
   );
 }
 
-function RequesterDashboard({api,open,newRequest}:{api:Api;open:(id:string)=>Promise<void>;newRequest:()=>void}){
-  const [summary,setSummary]=useState<{myRequests:number;awaitingReview:number;needsClarification:number;pendingApproval:number;approvedReady:number;readyForPayment:number;inProgress:number;paid:number}|null>(null),[recent,setRecent]=useState<Item[]>([]),[attention,setAttention]=useState<Item[]>([]),[notice,setNotice]=useState("");
-  useEffect(()=>{let active=true;void Promise.all([api("/requester/dashboard"),api("/requester/requests?pageSize=5"),api("/requester/requests?pageSize=5&status=NEEDS_CLARIFICATION")]).then(([s,r,a])=>{if(active){setSummary(s as typeof summary);setRecent((r as {items:Array<Record<string,unknown>>}).items.map(requesterListItem));setAttention((a as {items:Array<Record<string,unknown>>}).items.map(requesterListItem))}}).catch(e=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api]);
+function RequesterDashboard({api,open,newRequest,viewAll}:{api:Api;open:(id:string)=>Promise<void>;newRequest:()=>void;viewAll:()=>void}){
+  const [summary,setSummary]=useState<{myRequests:number;drafts:number;awaitingReview:number;needsClarification:number;pendingApproval:number;approvedReady:number;readyForPayment:number;inProgress:number;paid:number}|null>(null),[recent,setRecent]=useState<Item[]>([]),[attention,setAttention]=useState<Item[]>([]),[notice,setNotice]=useState("");
+  useEffect(()=>{let active=true;void Promise.all([api("/requester/dashboard"),api("/requester/requests?pageSize=5"),api("/requester/requests?pageSize=5&status=NEEDS_CLARIFICATION"),api("/requester/requests?pageSize=5&status=DRAFT")]).then(([s,r,clarifications,drafts])=>{if(active){setSummary(s as typeof summary);setRecent((r as {items:Array<Record<string,unknown>>}).items.map(requesterListItem));setAttention([...(clarifications as {items:Array<Record<string,unknown>>}).items,...(drafts as {items:Array<Record<string,unknown>>}).items].map(requesterListItem))}}).catch(e=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api]);
   if(!summary)return <section className="card"><p>{notice||"Loading your requests…"}</p></section>;
   return <section className="requesterDashboard">
     <div className="requesterWelcome"><div><small>REQUESTER WORKSPACE</small><h2>My Requests</h2><p>Track payment requests and actions requiring your attention.</p></div><button className="primary" onClick={newRequest}>＋ New Request</button></div>
-    <div className="requesterMetrics">
+    <section className="attentionSection" aria-labelledby="attention-title"><div className="sectionHeading"><div><small>ACTION REQUIRED</small><h3 id="attention-title">Needs My Attention</h3></div><span>{summary.needsClarification+summary.drafts} open</span></div>{attention.length?<div className="attentionList">{attention.map(item=>{const clarification=item.status==="NEEDS_CLARIFICATION";return <article key={item.id}><span className="attentionIcon">!</span><div><StatusChip status={item.status}/><h4>{item.ticketNumber||"Draft request"} · {item.payee||"Payee not added"}</h4><p>{clarification?"Finance needs additional information before this request can continue.":"This draft has not been submitted to Finance."}</p><small>{clarification?"Open the request to review what Finance needs.":`Last updated ${formatDate(item.updatedAt)}`}</small></div><button className="primary" onClick={()=>void open(item.id)}>{clarification?"Respond":"Continue Request"}</button></article>})}</div>:<div className="quietEmpty"><b>You’re all caught up.</b><span>No requests currently need your action.</span></div>}</section>
+    <section aria-label="Request summary"><div className="sectionHeading"><div><small>REQUEST SUMMARY</small><h3>Your requests at a glance</h3></div></div><div className="requesterMetrics">
       <KpiCard icon="☷" label="Total Requests" value={String(summary.myRequests)} detail="Requests you created"/>
-      <KpiCard icon="!" label="Needs My Attention" value={String(summary.needsClarification)} detail="Your response is required" tone="warning"/>
-      <KpiCard icon="◷" label="In Progress" value={String(summary.inProgress)} detail="With Finance or an approver" tone="info"/>
-      <KpiCard icon="→" label="Ready for Payment" value={String(summary.readyForPayment)} detail="Passed final finance review" tone="success"/>
+      <KpiCard icon="!" label="Needs My Attention" value={String(summary.needsClarification+summary.drafts)} detail="Drafts and clarifications" tone="warning"/>
+      <KpiCard icon="◷" label="In Progress" value={String(summary.inProgress)} detail="With Finance" tone="info"/>
+      <KpiCard icon="✓" label="Waiting for Approval" value={String(summary.pendingApproval)} detail="With an approver" tone="warning"/>
+      <KpiCard icon="→" label="Ready for Payment" value={String(summary.readyForPayment)} detail="Payment not yet recorded" tone="success"/>
       <KpiCard icon="●" label="Paid" value={String(summary.paid)} detail="Payment recorded" tone="success"/>
-    </div>
-    <section className="attentionSection" aria-labelledby="attention-title"><div className="sectionHeading"><div><small>ACTION REQUIRED</small><h3 id="attention-title">Needs My Attention</h3></div><span>{summary.needsClarification} open</span></div>{attention.length?<div className="attentionList">{attention.map(item=><article key={item.id}><span className="attentionIcon">!</span><div><StatusChip status={item.status}/><h4>{item.ticketNumber||"Draft request"} · {item.payee||"Payee not added"}</h4><p>Finance needs additional information before this request can continue.</p><small>Requested during validation · respond to keep the request moving.</small></div><button className="primary" onClick={()=>void open(item.id)}>Respond to Clarification</button></article>)}</div>:<div className="quietEmpty"><b>No requests require your attention.</b><span>We’ll highlight clarifications or revisions here.</span></div>}</section>
-    <section className="card"><header><div><small>RECENT ACTIVITY</small><h3>Recent requests</h3></div></header>{recent.length?<div className="requesterRecent">{recent.map(item=><button key={item.id} onClick={()=>void open(item.id)}><span><b>{item.ticketNumber||"Draft request"}</b><small>{item.payee||"Payee not added"}</small></span><span>{formatMoney(item.currency,item.amount)}</span><StatusChip status={item.status}/><strong>View →</strong></button>)}</div>:<div className="emptyState"><b>No requests yet</b><span>Create your first payment request to begin.</span><button className="primary" onClick={newRequest}>Create request</button></div>}</section>
+    </div></section>
+    <section className="card"><header><div><small>RECENT REQUESTS</small><h3>Recently updated</h3></div><button className="textButton" onClick={viewAll}>View all requests →</button></header>{recent.length?<div className="requesterRecent requesterRecentDetailed">{recent.map(item=><button key={item.id} onClick={()=>void open(item.id)}><span><b>{item.ticketNumber||"Draft request"}</b><small>{item.payee||"Payee not added"} · {item.purpose||"Purpose not added"}</small></span><span>{formatMoney(item.currency,item.amount)}</span><span><StatusChip status={item.status}/><small>Next: {requesterStatusPresentation[item.status].action}</small></span><span>{formatDate(item.updatedAt)}</span><strong>View →</strong></button>)}</div>:<div className="emptyState"><b>You haven’t submitted any payment requests yet.</b><span>Create a request when you need Finance to process a payment.</span><button className="primary" onClick={newRequest}>Create Request</button></div>}</section>
   </section>
 }
 
@@ -1122,45 +1118,55 @@ function List({
   empty,
   canCreate,
   requesterView,
+  paymentOnly=false,
+  api,
 }: {
   items: Item[];
   open: (id: string) => void;
   empty: () => void;
   canCreate: boolean;
   requesterView:boolean;
+  paymentOnly?:boolean;
+  api?:Api;
 }) {
+  const [requesterFilters,setRequesterFilters]=useState({search:"",status:"",dateFrom:"",dateTo:""});
+  const [requesterRows,setRequesterRows]=useState(items);
+  useEffect(()=>{if(!requesterView||!api)return;let active=true;const base={pageSize:"100",...Object.fromEntries(Object.entries(requesterFilters).filter(([,value])=>value))};const paymentStatuses=requesterFilters.status?[requesterFilters.status]:["READY_FOR_PAYMENT","PAID"],work=paymentOnly?Promise.all(paymentStatuses.map(status=>api(`/requester/requests?${new URLSearchParams({...base,status}).toString()}`))).then(results=>results.flatMap(result=>(result as {items:Array<Record<string,unknown>>}).items)):api(`/requester/requests?${new URLSearchParams(base).toString()}`).then(result=>(result as {items:Array<Record<string,unknown>>}).items);void work.then(rows=>{if(active)setRequesterRows(rows.map(requesterListItem))}).catch(()=>undefined);return()=>{active=false}},[api,paymentOnly,requesterFilters,requesterView]);
+  const visibleItems=requesterView?(paymentOnly?requesterRows.filter(item=>item.status==="READY_FOR_PAYMENT"||item.status==="PAID"):requesterRows):items;
   return (
     <section className="card">
       <header>
         <div>
-          <small>{requesterView?"MY REQUESTS":"AUTHORIZED WORK QUEUE"}</small>
-          <h2>{requesterView?"Payment requests":"Current requests"}</h2>
+          <small>{requesterView?(paymentOnly?"PAYMENT STATUS":"MY REQUESTS"):"AUTHORIZED WORK QUEUE"}</small>
+          <h2>{requesterView?(paymentOnly?"Ready and completed payments":"Payment requests"):"Current requests"}</h2>
         </div>
-        <span>{items.length} records</span>
+        <span>{visibleItems.length} records</span>
       </header>
-      {items.length ? (
-        <div className="table">
-          {items.map((x,index) => (
-            <button key={`${x.id}-${index}`} onClick={() => open(x.id)}>
+      {requesterView&&<div className="requesterFilters" aria-label="Filter my requests"><label>Search<input value={requesterFilters.search} onChange={event=>setRequesterFilters(value=>({...value,search:event.target.value}))} placeholder="Ticket, payee or purpose"/></label><label>Status<select value={requesterFilters.status} onChange={event=>setRequesterFilters(value=>({...value,status:event.target.value}))}><option value="">All statuses</option>{Object.entries(requesterStatusPresentation).filter(([status])=>!paymentOnly||status==="READY_FOR_PAYMENT"||status==="PAID").map(([status,meta])=><option key={status} value={status}>{meta.label}</option>)}</select></label><label>From<input type="date" value={requesterFilters.dateFrom} onChange={event=>setRequesterFilters(value=>({...value,dateFrom:event.target.value}))}/></label><label>To<input type="date" value={requesterFilters.dateTo} onChange={event=>setRequesterFilters(value=>({...value,dateTo:event.target.value}))}/></label><button className="secondary" onClick={()=>setRequesterFilters({search:"",status:"",dateFrom:"",dateTo:""})}>Clear</button></div>}
+      {visibleItems.length ? (
+        <div className={`table ${requesterView?"requesterRequestList":""}`}>
+          {visibleItems.map((x,index) => (
+            <button className={requesterView&&requesterNeedsAction(x.status)?"requiresAction":""} key={`${x.id}-${index}`} onClick={() => open(x.id)}>
               <span className="ticket">
                 {x.ticketNumber ?? "Draft · no ticket"}
               </span>
               <span>
                 <b>{x.payee ?? "Untitled request"}</b>
                 <small>{x.purpose ?? "Capture not completed"}</small>
-                {requesterView&&<small>{x.submittedAt?`Submitted ${new Date(x.submittedAt).toLocaleDateString()}`:"Not submitted"}</small>}
+                {requesterView&&<small>{x.submittedAt?`Submitted ${formatDate(x.submittedAt)}`:"Not submitted to Finance"}</small>}
               </span>
               <span>{formatMoney(x.currency,x.amount)}</span>
               {x.humanFinalRisk && <span>Human risk: {x.humanFinalRisk}</span>}
-              <span className="requestProgress"><StatusChip status={x.status}/>{requesterView&&<small>Next: {statusPresentation[x.status].owner}</small>}</span>
+              <span className="requestProgress"><StatusChip status={x.status}/>{requesterView&&<><small>Next owner: {requesterStatusPresentation[x.status].owner}</small><small>{requesterStatusPresentation[x.status].action}</small></>}</span>
+              {requesterView&&<span>{formatDate(x.updatedAt)}<small>Updated</small></span>}
               <strong>Open →</strong>
             </button>
           ))}
         </div>
       ) : (
         <div className="empty">
-          <h3>No payment requests yet</h3>
-          <p>Initiate a request to create a controlled draft context.</p>
+          <h3>{items.length?"No requests match these filters":paymentOnly?"No completed payments yet.":"You haven’t submitted any payment requests yet."}</h3>
+          <p>{items.length?"Clear or change the filters to see more requests.":paymentOnly?"Requests will appear here when they are ready for payment or paid.":"Create a request when you need Finance to process a payment."}</p>
           {canCreate && (
             <button className="primary" onClick={empty}>
               Start first request
@@ -1189,7 +1195,10 @@ function Editor({
 }) {
   const [form, setForm] = useState(item),
     [notice, setNotice] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [fieldErrors,setFieldErrors]=useState<Record<string,string>>({}),
+    [confirming,setConfirming]=useState(false),
+    [submittedTicket,setSubmittedTicket]=useState<string|null>(null);
   const draft = item.status === "DRAFT";
   const field = (name: keyof Item, value: string) =>
     setForm((x) => ({ ...x, [name]: value }));
@@ -1199,13 +1208,16 @@ function Editor({
     try {
       await work();
     } catch (e) {
-      setNotice(msg(e));
+      setNotice(requesterView?humanizeRequestError(e):msg(e));
     } finally {
       setBusy(false);
     }
   }
   async function save(e: FormEvent) {
     e.preventDefault();
+    await persistDraft();
+  }
+  async function persistDraft(successMessage="Draft saved. This request has not been submitted to Finance.") {
     await act(async () => {
       const {
         payee,
@@ -1233,7 +1245,7 @@ function Editor({
         }),
       });
       await changed();
-      setNotice("Draft saved.");
+      setNotice(successMessage);
     });
   }
   async function submit() {
@@ -1268,6 +1280,24 @@ function Editor({
       await changed();
     });
   }
+  function reviewRequesterSubmission(){
+    const required:Record<string,string>={payee:"Enter the person or organization to be paid.",purpose:"Explain what this payment is for.",category:"Enter a payment category.",amount:"Enter a valid payment amount.",currency:"Select a currency.",dueDate:"Select when Finance should complete the payment.",paymentMethod:"Select a payment method.",paymentDetails:"Provide the information Finance needs to complete the payment."};
+    const next=Object.fromEntries(Object.entries(required).filter(([name])=>!String(form[name as keyof Item]??"").trim()));
+    if(form.amount&&!/^\d+(\.\d{1,4})?$/.test(form.amount)||Number(form.amount)<=0)next.amount="Enter a valid payment amount greater than zero.";
+    setFieldErrors(next);
+    if(Object.keys(next).length){setNotice("Complete the highlighted fields before reviewing your request.");requestAnimationFrame(()=>document.getElementById(`request-${Object.keys(next)[0]}`)?.focus());return;}
+    setNotice("");setConfirming(true);
+  }
+  async function confirmRequesterSubmission(){
+    setConfirming(false);
+    await act(async()=>{
+      const {payee,purpose,category,amount,currency,dueDate,paymentMethod,paymentDetails,remark}=form;
+      await api(`/payment-requests/${item.id}`,{method:"PATCH",body:JSON.stringify({payee,purpose,category,amount,currency,dueDate,paymentMethod,paymentDetails,remark})});
+      const submitted=await api(`/payment-requests/${item.id}/submit`,{method:"POST",body:"{}"}) as Item;
+      setSubmittedTicket(submitted.ticketNumber??"Submitted request");await changed();
+    });
+  }
+  if(requesterView)return <RequesterRequestExperience item={item} form={form} field={field} fieldErrors={fieldErrors} busy={busy} notice={notice} submittedTicket={submittedTicket} confirming={confirming} setConfirming={setConfirming} save={save} reviewSubmission={reviewRequesterSubmission} confirmSubmission={confirmRequesterSubmission} upload={upload} remove={remove} api={api} changed={changed} back={back}/>;
   return (
     <section className="editor">
       <button className="back" onClick={back}>
@@ -1281,7 +1311,6 @@ function Editor({
         <StatusChip status={item.status}/>
       </header>
       {notice && <p className="notice">{notice}</p>}
-      {requesterView&&<RequesterDetailOverview item={item}/>}
       {!requesterView&&item.status !== "DRAFT" && (
         <ValidationPanel item={item} user={user} api={api} changed={changed} />
       )}
@@ -1491,14 +1520,62 @@ function Editor({
   );
 }
 
+function RequesterRequestExperience({item,form,field,fieldErrors,busy,notice,submittedTicket,confirming,setConfirming,save,reviewSubmission,confirmSubmission,upload,remove,api,changed,back}:{item:Item;form:Item;field:(name:keyof Item,value:string)=>void;fieldErrors:Record<string,string>;busy:boolean;notice:string;submittedTicket:string|null;confirming:boolean;setConfirming:(value:boolean)=>void;save:(event:FormEvent)=>Promise<void>;reviewSubmission:()=>void;confirmSubmission:()=>Promise<void>;upload:(event:FormEvent<HTMLFormElement>)=>Promise<void>;remove:(id:string)=>Promise<void>;api:Api;changed:()=>Promise<void>;back:()=>void}){
+  const draft=item.status==="DRAFT";
+  if(submittedTicket)return <section className="requesterSuccess" role="status"><span aria-hidden="true">✓</span><small>REQUEST SUBMITTED</small><h2>{submittedTicket}</h2><p>Finance can now begin reviewing your request. If Finance needs more information, AIMS will highlight it in Needs My Attention.</p><div><button className="primary" onClick={()=>void changed()}>View Request</button><button onClick={back}>Back to My Requests</button></div></section>;
+  return <section className="requesterRequestExperience">
+    <button className="back" onClick={back}>← My Requests</button>
+    <header className="requesterRequestHeader"><div><small>{item.ticketNumber??"DRAFT · NOT SUBMITTED"}</small><h2>{draft?"New Payment Request":item.payee||"Payment request"}</h2><p>{draft?"Complete the sections below, attach supporting documents, then review before submitting.":item.purpose}</p></div><StatusChip status={item.status}/></header>
+    {notice&&<p className="notice" role="status" aria-live="polite">{notice}</p>}
+    {draft?<>
+      <form className="requesterDraftForm" onSubmit={save} noValidate>
+        <section><header><span>1</span><div><small>PAYMENT DETAILS</small><h3>What is this payment for?</h3></div></header><div className="fields">
+          <Field id="request-payee" label="Payee / Payer" value={form.payee} set={value=>field("payee",value)} disabled={false} required error={fieldErrors.payee}/>
+          <Field id="request-category" label="Category" value={form.category} set={value=>field("category",value)} disabled={false} required error={fieldErrors.category}/>
+          <Field id="request-purpose" label="Purpose" help="Explain what this payment is for." value={form.purpose} set={value=>field("purpose",value)} disabled={false} required error={fieldErrors.purpose} wide/>
+          <Field id="request-amount" label="Amount" value={form.amount} set={value=>field("amount",value)} disabled={false} required error={fieldErrors.amount}/>
+          <label className={fieldErrors.currency?"fieldInvalid":""} htmlFor="request-currency"><span>Currency <b>Required</b></span><select id="request-currency" value={form.currency??""} onChange={event=>field("currency",event.target.value)} aria-invalid={Boolean(fieldErrors.currency)} aria-describedby={fieldErrors.currency?"request-currency-error":undefined}><option value="">Select currency</option>{["MYR","USD","SGD","EUR","GBP"].map(value=><option key={value}>{value}</option>)}</select>{fieldErrors.currency&&<small id="request-currency-error" role="alert">{fieldErrors.currency}</small>}</label>
+          <label className={fieldErrors.dueDate?"fieldInvalid":""} htmlFor="request-dueDate"><span>Due Date <b>Required</b></span><small>When should Finance complete this payment?</small><input id="request-dueDate" type="date" value={form.dueDate??""} onChange={event=>field("dueDate",event.target.value)} aria-invalid={Boolean(fieldErrors.dueDate)} aria-describedby={fieldErrors.dueDate?"request-dueDate-error":undefined}/>{fieldErrors.dueDate&&<small id="request-dueDate-error" role="alert">{fieldErrors.dueDate}</small>}</label>
+          <label><span>Department</span><small>Your assigned department will be used.</small><input value="Your assigned department" disabled/></label>
+        </div></section>
+        <section><header><span>2</span><div><small>PAYMENT METHOD</small><h3>How should Finance complete it?</h3></div></header><div className="fields">
+          <label className={fieldErrors.paymentMethod?"fieldInvalid":""} htmlFor="request-paymentMethod"><span>Payment Method <b>Required</b></span><select id="request-paymentMethod" value={form.paymentMethod??""} onChange={event=>field("paymentMethod",event.target.value)} aria-invalid={Boolean(fieldErrors.paymentMethod)}><option value="">Select payment method</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CARD">Corporate card</option><option value="CASH">Cash</option></select>{fieldErrors.paymentMethod&&<small role="alert">{fieldErrors.paymentMethod}</small>}</label>
+          <Field id="request-paymentDetails" label="Payment Details" help="Provide the information Finance needs to complete the external payment." value={form.paymentDetails} set={value=>field("paymentDetails",value)} disabled={false} required error={fieldErrors.paymentDetails} wide/>
+          <Field id="request-remark" label="Remark" help="Add any additional context for Finance." value={form.remark} set={value=>field("remark",value)} disabled={false} optional wide/>
+        </div></section>
+        <footer><button disabled={busy}>Save Draft</button><span>Saving a draft does not submit it to Finance.</span></footer>
+      </form>
+      <RequesterDocuments item={item} editable upload={upload} remove={remove} busy={busy}/>
+      <section className="requestReview"><header><span>4</span><div><small>REVIEW & SUBMIT</small><h3>Check your request</h3></div></header><div className="reviewSummary"><p><span>Payee</span><b>{form.payee||"Not added"}</b></p><p><span>Purpose</span><b>{form.purpose||"Not added"}</b></p><p><span>Amount</span><b>{formatMoney(form.currency,form.amount)}</b></p><p><span>Due date</span><b>{formatDate(form.dueDate)}</b></p><p><span>Documents</span><b>{item.documents?.length??0} attached</b></p></div><button className="primary" disabled={busy} onClick={reviewSubmission}>Review and Submit →</button></section>
+      {confirming&&<div className="submitConfirmation" role="dialog" aria-modal="true" aria-labelledby="submit-title"><section><small>FINAL CONFIRMATION</small><h2 id="submit-title">Submit this request?</h2><p>After submission, Finance will begin reviewing the request. Editing becomes restricted. If corrections are needed later, Finance may request clarification or revised information.</p><div><button onClick={()=>setConfirming(false)}>Continue Editing</button><button className="primary" disabled={busy} onClick={()=>void confirmSubmission()}>Submit Request</button></div></section></div>}
+    </>:<RequesterSubmittedDetail item={item} api={api} changed={changed} upload={upload} busy={busy}/>}
+  </section>;
+}
+
+function RequesterDocuments({item,editable,upload,remove,busy}:{item:Item;editable:boolean;upload:(event:FormEvent<HTMLFormElement>)=>Promise<void>;remove?:(id:string)=>Promise<void>;busy:boolean}){
+  return <section className="requesterDocuments" id="supporting-documents"><header><span>3</span><div><small>SUPPORTING DOCUMENTS</small><h3>Invoices and supporting files</h3><p>Upload invoices, quotations, contracts, or other relevant supporting documents.</p></div></header>{editable&&<form className="upload" onSubmit={upload}><label>Choose document<input name="file" type="file" accept="application/pdf,image/jpeg,image/png" required/></label><label>Document type <small>Optional</small><input name="documentType" placeholder="Invoice, quotation, contract…"/></label><button disabled={busy}>Upload Document</button><small>PDF, JPG or PNG · maximum 10 MB</small></form>}<div className="requesterDocumentList">{item.documents?.map(document=><article key={document.id}><span>DOC</span><div><b>{document.original_filename}</b><small>{document.document_type||"Supporting document"} · {Math.ceil(Number(document.size_bytes)/1024)} KB{document.uploaded_at?` · ${formatDate(document.uploaded_at)}`:""}</small></div>{editable&&remove&&<button aria-label={`Remove ${document.original_filename}`} onClick={()=>void remove(document.id)}>Remove</button>}</article>)}</div>{!item.documents?.length&&<div className="emptyState"><b>No documents attached</b><span>Add the files Finance needs to review this payment.</span></div>}{!editable&&<p className="documentLock">Documents are locked after submission unless Finance requests a replacement.</p>}</section>;
+}
+
+function RequesterSubmittedDetail({item,api,changed,upload,busy}:{item:Item;api:Api;changed:()=>Promise<void>;upload:(event:FormEvent<HTMLFormElement>)=>Promise<void>;busy:boolean}){
+  const [response,setResponse]=useState(""),[responseNotice,setResponseNotice]=useState(""),[responding,setResponding]=useState(false);
+  const active=item.clarifications?.find(value=>clarificationActionable(value.status)),history=item.clarifications??[],visibleActivity=item.audit?.filter(event=>requesterActivityVisible(event.action))??[];
+  async function respond(){if(!active||!response.trim())return;setResponding(true);setResponseNotice("");try{const path=active.type==="APPROVAL"?`/payment-requests/${item.id}/approval-clarifications/${active.id}/respond`:active.type==="POLICY"?`/payment-requests/${item.id}/policy-clarifications/${active.id}/respond`:`/payment-requests/${item.id}/clarifications/${active.id}/respond`;await api(path,{method:"POST",body:JSON.stringify(active.type==="POLICY"?{justification:response.trim()}:{response:response.trim()})});setResponseNotice("Your response was submitted. Finance can continue reviewing the request.");setResponse("");await changed()}catch(error){setResponseNotice(humanizeRequestError(error))}finally{setResponding(false)}}
+  return <div className="requesterSubmittedDetail"><RequesterDetailOverview item={item}/>{active&&<section className="clarificationPanel" aria-labelledby="clarification-title"><small>ACTION REQUIRED</small><h2 id="clarification-title">Finance needs information from you</h2><p>Your request cannot continue until you respond.</p><dl><div><dt>Requested by</dt><dd>{active.type==="APPROVAL"?"Approval team":active.type==="POLICY"?"Finance policy review":"Finance"}</dd></div><div><dt>Requested</dt><dd>{formatDate(active.requestedAt)}</dd></div><div><dt>Information needed</dt><dd>{active.question}</dd></div></dl><label htmlFor="clarification-response">Your response <b>Required</b></label><textarea id="clarification-response" value={response} onChange={event=>setResponse(event.target.value)} placeholder="Provide the requested information" maxLength={4000}/>{item.status==="NEEDS_CLARIFICATION"&&<RequesterDocuments item={item} editable upload={upload} busy={busy}/>}<button className="primary" disabled={responding||!response.trim()} onClick={()=>void respond()}>Submit Response</button>{responseNotice&&<p className="notice" role="status">{responseNotice}</p>}</section>}
+    <section className="requestDetailsCard"><div className="sectionHeading"><div><small>REQUEST DETAILS</small><h3>Payment request</h3></div></div><dl><div><dt>Ticket</dt><dd>{item.ticketNumber}</dd></div><div><dt>Payee</dt><dd>{item.payee}</dd></div><div><dt>Purpose</dt><dd>{item.purpose}</dd></div><div><dt>Category</dt><dd>{item.category}</dd></div><div><dt>Amount</dt><dd>{formatMoney(item.currency,item.amount)}</dd></div><div><dt>Due date</dt><dd>{formatDate(item.dueDate)}</dd></div><div><dt>Payment method</dt><dd>{item.paymentMethod?.replaceAll("_"," ")}</dd></div><div><dt>Submitted</dt><dd>{formatDate(item.submittedAt)}</dd></div></dl></section>
+    {!active&&<RequesterDocuments item={item} editable={false} upload={upload} busy={busy}/>}
+    <section className="requesterStatusCard"><small>APPROVAL & FINANCE STATUS</small><h3>{requesterStatusPresentation[item.status].label}</h3><p>{item.status==="READY_FOR_PAYMENT"?"All required approval and Finance checks are complete. Payment has not yet been recorded.":item.status==="PAID"?"Finance has recorded the completed external payment in AIMS.":item.status==="REJECTED"?"This request was not approved. Review the requester-visible activity below for available information.":requesterStatusPresentation[item.status].action}</p></section>
+    {history.length>0&&<section className="clarificationHistory"><small>CLARIFICATION HISTORY</small><h3>Conversation</h3>{history.map(entry=><article key={entry.id}><div><b>{entry.type==="APPROVAL"?"Approval team":entry.type==="POLICY"?"Finance policy review":"Finance"}</b><small>{formatDate(entry.requestedAt)}</small><p>{entry.question}</p></div>{entry.response&&<div className="requesterReply"><b>You</b><small>{formatDate(entry.respondedAt)}</small><p>{entry.response}</p></div>}{entry.status!=="OPEN"&&!entry.response&&<p className="staleClarification">This clarification is no longer active.</p>}</article>)}</section>}
+    {visibleActivity.length>0&&<section className="requesterActivity"><small>ACTIVITY</small><h3>Request history</h3>{visibleActivity.map(event=><div className="activity" key={event.id}><i/><p><b>{friendlyActivity(event.action)}</b><small>{formatDate(event.occurred_at)}</small></p></div>)}</section>}
+  </div>;
+}
+
 function RequesterDetailOverview({item}:{item:Item}){
-  const meta=statusPresentation[item.status],current=statusStage[item.status];
-  const openClarifications=item.clarifications?.filter(x=>x.status==="OPEN")??[];
+  const meta=requesterStatusPresentation[item.status],current=statusStage[item.status];
+  const groups=[{label:"Request Submitted",at:1},{label:"Validation",at:2},{label:"Financial Review",at:3},{label:"Approval",at:6},{label:"Final Finance Review",at:7},{label:"Payment",at:8}];
   return <section className="requesterDetailOverview" aria-label="Request progress and required actions">
-    <div className="requesterSnapshot"><div><small>CURRENT STATUS</small><StatusChip status={item.status}/><p>{meta.action}</p></div><div><small>NEXT OWNER</small><b>{meta.owner}</b><p>{item.status==="PAID"?"No further action required.":meta.action}</p></div><div><small>REQUEST VALUE</small><b>{formatMoney(item.currency,item.amount)}</b><p>{item.payee||"Payee not added"}</p></div></div>
-    <div className="requesterJourney"><div className="sectionHeading"><div><small>PROGRESS</small><h3>Your request journey</h3></div><span>Stage {Math.min(12,current+1)} of 12</span></div><div className="compactJourney" role="list">{stages.map((stage,index)=><div role="listitem" key={stage} className={index<current?"completed":index===current?item.status==="NEEDS_CLARIFICATION"||item.status==="FINANCE_HOLD"?"blocked":"current":"upcoming"}><span>{index<current?"✓":String(index+1).padStart(2,"0")}</span><b>{stage}</b></div>)}</div></div>
-    {openClarifications.length>0&&<section className="requesterAction"><div><StatusChip status="NEEDS_CLARIFICATION"/><h3>Finance needs information from you</h3><p>{openClarifications[0].question}</p><small>Requested {new Date(openClarifications[0].requestedAt).toLocaleString()}</small></div><a className="primary" href="#supporting-documents">Respond to Clarification</a></section>}
-    {item.paymentSummary&&<section className="requesterPayment"><div><small>PAYMENT SUMMARY</small><h3>Payment recorded</h3></div><dl><div><dt>Payment date</dt><dd>{new Date(item.paymentSummary.paymentDate).toLocaleDateString()}</dd></div><div><dt>Amount</dt><dd>{item.paymentSummary.currency} {(Number(item.paymentSummary.amountMinor)/100).toFixed(2)}</dd></div><div><dt>Method</dt><dd>{item.paymentSummary.paymentMethod.replaceAll("_"," ")}</dd></div><div><dt>Status</dt><dd><StatusChip status="PAID"/></dd></div></dl></section>}
+    <div className="requesterSnapshot"><div><small>CURRENT STATUS</small><StatusChip status={item.status}/><p>{meta.action}</p></div><div><small>NEXT OWNER</small><b>{meta.owner}</b><p>{item.status==="PAID"?"No further action required.":meta.action}</p></div><div><small>REQUEST VALUE</small><b>{formatMoney(item.currency,item.amount)}</b><p>{item.payee||"Payee not added"}</p></div><div><small>SUBMITTED</small><b>{formatDate(item.submittedAt)}</b><p>{item.dueDate?`Due ${formatDate(item.dueDate)}`:"No due date"}</p></div></div>
+    <div className="requesterJourney"><div className="sectionHeading"><div><small>PROGRESS</small><h3>Your request journey</h3></div><span>{meta.action}</span></div><div className="journeySummary" role="list" aria-label="Simplified request progress">{groups.map(group=><div role="listitem" key={group.label} className={current>group.at?"completed":current===group.at?"current":"upcoming"}><span>{current>group.at?"✓":""}</span><b>{group.label}</b></div>)}</div><details><summary>View all 12 AIMS stages</summary><div className="compactJourney" role="list">{stages.map((stage,index)=><div role="listitem" key={stage} className={index<current?"completed":index===current?item.status==="NEEDS_CLARIFICATION"||item.status==="FINANCE_HOLD"?"blocked":"current":"upcoming"}><span>{index<current?"✓":String(index+1).padStart(2,"0")}</span><b>{stage}</b></div>)}</div></details></div>
+    {item.paymentSummary&&<section className="requesterPayment"><div><small>PAYMENT SUMMARY</small><h3>Paid</h3><p>Finance has recorded the completed external payment in AIMS.</p></div><dl><div><dt>Payment date</dt><dd>{formatDate(item.paymentSummary.paymentDate)}</dd></div><div><dt>Amount</dt><dd>{item.paymentSummary.currency} {(Number(item.paymentSummary.amountMinor)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</dd></div><div><dt>Method</dt><dd>{item.paymentSummary.paymentMethod.replaceAll("_"," ")}</dd></div><div><dt>Status</dt><dd><StatusChip status="PAID"/></dd></div></dl></section>}
   </section>;
 }
 
@@ -2935,11 +3012,11 @@ function financeQueueItem(x: Record<string, unknown>): Item {
   };
 }
 function requesterListItem(x:Record<string,unknown>):Item{
-  return {id:String(x.id),ticketNumber:x.ticket_number?String(x.ticket_number):null,status:String(x.status) as Item["status"],payee:x.payee?String(x.payee):null,purpose:x.purpose?String(x.purpose):null,category:null,amount:x.amount?String(x.amount):null,currency:x.currency?String(x.currency):null,departmentId:"",dueDate:x.due_date?String(x.due_date):null,paymentMethod:null,paymentDetails:null,remark:null,submittedAt:x.submitted_at?String(x.submitted_at):null};
+  return {id:String(x.id),ticketNumber:x.ticket_number?String(x.ticket_number):null,status:String(x.status) as Item["status"],payee:x.payee?String(x.payee):null,purpose:x.purpose?String(x.purpose):null,category:null,amount:x.amount?String(x.amount):null,currency:x.currency?String(x.currency):null,departmentId:"",dueDate:x.due_date?String(x.due_date).slice(0,10):null,paymentMethod:null,paymentDetails:null,remark:null,submittedAt:x.submitted_at?String(x.submitted_at):null,createdAt:x.created_at?String(x.created_at):null,updatedAt:x.updated_at?String(x.updated_at):null};
 }
 function requesterDetailItem(safe:{request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>;clarifications?:Array<Record<string,unknown>>;payment?:Record<string,unknown>|null}):Item{
   const x=safe.request;
-  return {...requesterListItem(x),category:x.category?String(x.category):null,departmentId:String(x.department_id),paymentMethod:x.payment_method?String(x.payment_method):null,remark:x.remark?String(x.remark):null,documents:safe.documents.map(d=>({id:String(d.id),original_filename:String(d.original_filename),size_bytes:String(d.size_bytes),version:Number(d.version)})),audit:safe.activity.map(a=>({id:`${String(a.occurred_at)}-${String(a.action)}`,action:String(a.action),occurred_at:String(a.occurred_at)})),clarifications:(safe.clarifications??[]).map(c=>({id:String(c.id),type:String(c.clarification_type),question:String(c.question),status:String(c.status),requestedAt:String(c.requested_at),response:c.response?String(c.response):null,respondedAt:c.responded_at?String(c.responded_at):null})),paymentSummary:safe.payment?{paymentDate:String(safe.payment.payment_date),status:String(safe.payment.status),amountMinor:String(safe.payment.amount_minor),currency:String(safe.payment.currency),paymentMethod:String(safe.payment.payment_method),recordedAt:String(safe.payment.recorded_at)}:null};
+  return {...requesterListItem(x),category:x.category?String(x.category):null,departmentId:String(x.department_id),paymentMethod:x.payment_method?String(x.payment_method):null,paymentDetails:x.payment_details?String(x.payment_details):null,remark:x.remark?String(x.remark):null,documents:safe.documents.map(d=>({id:String(d.id),original_filename:String(d.original_filename),size_bytes:String(d.size_bytes),version:Number(d.version),document_type:d.document_type?String(d.document_type):undefined,uploaded_at:d.uploaded_at?String(d.uploaded_at):undefined})),audit:safe.activity.map(a=>({id:`${String(a.occurred_at)}-${String(a.action)}`,action:String(a.action),occurred_at:String(a.occurred_at)})),clarifications:(safe.clarifications??[]).map(c=>({id:String(c.id),type:String(c.clarification_type),question:String(c.question),status:String(c.status),requestedAt:String(c.requested_at),response:c.response?String(c.response):null,respondedAt:c.responded_at?String(c.responded_at):null})),paymentSummary:safe.payment?{paymentDate:String(safe.payment.payment_date).slice(0,10),status:String(safe.payment.status),amountMinor:String(safe.payment.amount_minor),currency:String(safe.payment.currency),paymentMethod:String(safe.payment.payment_method),recordedAt:String(safe.payment.recorded_at)}:null};
 }
 
 function paymentQueueItem(x: Record<string, unknown>): Item {
@@ -2961,36 +3038,67 @@ function paymentQueueItem(x: Record<string, unknown>): Item {
 }
 
 function Field({
+  id,
   label,
+  help,
   value,
   set,
   disabled,
   wide,
+  required,
+  optional,
+  error,
 }: {
+  id?:string;
   label: string;
+  help?:string;
   value: string | null;
   set: (v: string) => void;
   disabled: boolean;
   wide?: boolean;
+  required?:boolean;
+  optional?:boolean;
+  error?:string;
 }) {
+  const describedBy=[help&&id?`${id}-help`:null,error&&id?`${id}-error`:null].filter(Boolean).join(" ")||undefined;
   return (
-    <label className={wide ? "wide" : ""}>
-      {label}
+    <label className={`${wide ? "wide" : ""} ${error?"fieldInvalid":""}`} htmlFor={id}>
+      <span>{label} {required&&<b>Required</b>}{optional&&<em>Optional</em>}</span>
+      {help&&<small id={id?`${id}-help`:undefined}>{help}</small>}
       {wide ? (
         <textarea
+          id={id}
           value={value ?? ""}
           onChange={(e) => set(e.target.value)}
           disabled={disabled}
+          required={required}
+          aria-invalid={Boolean(error)}
+          aria-describedby={describedBy}
         />
       ) : (
         <input
+          id={id}
           value={value ?? ""}
           onChange={(e) => set(e.target.value)}
           disabled={disabled}
+          required={required}
+          aria-invalid={Boolean(error)}
+          aria-describedby={describedBy}
         />
       )}
+      {error&&<small id={id?`${id}-error`:undefined} role="alert">{error}</small>}
     </label>
   );
+}
+function humanizeRequestError(error:unknown){
+  const value=msg(error).toLowerCase();
+  if(value.includes("missing required"))return "Complete all required fields before submitting your request.";
+  if(value.includes("amount"))return "Enter a valid payment amount.";
+  if(value.includes("due date"))return "Enter a valid due date.";
+  if(value.includes("currency"))return "Select a valid currency.";
+  if(value.includes("document"))return "Check the selected document and try again.";
+  if(value.includes("forbidden")||value.includes("permitted"))return "You can no longer perform this action. Refresh the request to see its current status.";
+  return "AIMS could not complete that action. Review the information and try again.";
 }
 function msg(error: unknown) {
   return error instanceof Error ? error.message : "Something went wrong";

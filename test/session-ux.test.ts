@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { defaultFinanceView, routeForSession, safeInternalPath, type SessionEntitlements } from "../app/lib/session-ux.ts";
+import { clarificationActionable, friendlyActivity, requesterActivityVisible, requesterNeedsAction, requesterStatusPresentation } from "../app/lib/requester-presentation.ts";
 
 const session=(overrides:Partial<SessionEntitlements["capabilities"]>={},workspaces={requester:true,finance:true}):SessionEntitlements=>({
   workspaces,
@@ -38,4 +39,29 @@ test("Finance landing priority is deterministic and capability based",()=>{
 test("Requester-only login never lands in Finance",()=>{
   const result=routeForSession(session({}, {requester:true,finance:false}),"/",null);
   assert.equal(result.path,"/requester");
+});
+
+test("requester statuses consistently expose a human label, next owner, and next action",()=>{
+  assert.deepEqual(requesterStatusPresentation.PENDING_APPROVAL,{label:"Waiting for Approval",tone:"warning",owner:"Approver",action:"Waiting for required approval"});
+  assert.equal(requesterStatusPresentation.READY_FOR_PAYMENT.label,"Ready for Payment");
+  assert.equal(requesterStatusPresentation.PAID.action,"No action required");
+  assert.equal(requesterStatusPresentation.REJECTED.label,"Not Approved");
+});
+
+test("only drafts and active clarification states require requester action",()=>{
+  assert.equal(requesterNeedsAction("DRAFT"),true);
+  assert.equal(requesterNeedsAction("NEEDS_CLARIFICATION"),true);
+  for(const status of ["SUBMITTED","PENDING_APPROVAL","READY_FOR_PAYMENT","PAID"] as const)assert.equal(requesterNeedsAction(status),false);
+});
+
+test("requester activity uses business language rather than event codes",()=>{
+  assert.equal(friendlyActivity("FINANCE_CONTROL_COMPLETED"),"Final Finance review completed");
+  assert.equal(friendlyActivity("PAYMENT_RECORDED"),"Payment recorded");
+  assert.equal(requesterActivityVisible("FINANCE_CONTEXT_STARTED"),false);
+});
+
+test("stale and superseded clarifications are non-actionable",()=>{
+  assert.equal(clarificationActionable("OPEN"),true);
+  assert.equal(clarificationActionable("RESPONDED"),false);
+  assert.equal(clarificationActionable("SUPERSEDED"),false);
 });
