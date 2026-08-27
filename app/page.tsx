@@ -1,8 +1,9 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { FormEvent, useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import "./day1.css";
+import { allowedFinanceView, defaultFinanceView, routeForSession, safeInternalPath, type FinanceView, type Workspace } from "./lib/session-ux";
 
 const API = process.env.NEXT_PUBLIC_AIMS_API_URL ?? "http://localhost:3001";
 const stages = [
@@ -69,17 +70,8 @@ type PortalSession = {
   workspaces:{requester:boolean;finance:boolean};
   capabilities:{financeAnalysis:boolean;approval:boolean;financeControl:boolean;payment:boolean;reporting:boolean;policyAdmin:boolean};
 };
-type Workspace = "requester"|"finance";
-type FinanceView = "work-queue"|"approvals"|"finance-control"|"payment-queue"|"payment-history"|"dashboard"|"ai";
-
-function allowedFinanceView(session:PortalSession,view:FinanceView){
-  const c=session.capabilities;
-  return view==="work-queue"?c.financeAnalysis:view==="approvals"?c.approval:view==="finance-control"?c.financeControl:view==="payment-queue"?c.payment:view==="payment-history"?(c.payment||c.reporting):view==="dashboard"||view==="ai"?c.reporting:false;
-}
-
-function defaultFinanceView(session:PortalSession):FinanceView|null{
-  return (["dashboard","work-queue","approvals","finance-control","payment-queue","payment-history"] as FinanceView[]).find(view=>allowedFinanceView(session,view))??null;
-}
+type AuthPhase = "login"|"checking"|"ready"|"no-access"|"error";
+type LocalIdentity = {subject:string;displayName:string;department:string;persona:string;workspaces:string[]};
 
 const statusStage: Record<Item["status"], number> = {
   DRAFT: 1, SUBMITTED: 2, VALIDATING: 3, NEEDS_CLARIFICATION: 3,
@@ -117,7 +109,10 @@ function KpiCard({ label, value, detail, tone = "neutral", icon, onClick }: { la
 function formatMoney(currency:string|null,value:string|null){return value?`${currency??""} ${Number(value).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`.trim():"—"}
 
 export default function Home() {
+  const localLogin=process.env.NODE_ENV!=="production";
   const [user, setUser] = useState<string | null>(null),
+    [authPhase,setAuthPhase]=useState<AuthPhase>(localLogin?"login":"checking"),
+    [authMessage,setAuthMessage]=useState(""),
     [items, setItems] = useState<Item[]>([]),
     [selected, setSelected] = useState<Item | null>(null),
     [notice, setNotice] = useState(""),
@@ -130,13 +125,18 @@ export default function Home() {
     [approvalPage, setApprovalPage] = useState(1),
     [approvalPagination, setApprovalPagination] = useState<Pagination|null>(null),
     [dashboardDrill, setDashboardDrill] = useState<DashboardDrill|null>(null);
+  const authorizationRefresh=useRef(false);
+  const clearProtectedState=useCallback(()=>{
+    setItems([]);setSelected(null);setApprovalPagination(null);setDashboardDrill(null);
+    setShowDashboard(false);setShowPaymentHistory(false);
+  },[]);
   const api = useCallback(
     async (path: string, init?: RequestInit): Promise<unknown> => {
-      if (!user) throw Error("Sign in required");
+      if (localLogin&&!user) throw Error("Sign in required");
       const response = await fetch(`${API}${path}`, {
         ...init,
         headers: {
-          "x-aims-user": user,
+          ...(user?{"x-aims-user":user}:{}),
           ...(init?.body instanceof FormData
             ? {}
             : { "content-type": "application/json" }),
@@ -146,18 +146,42 @@ export default function Home() {
       const data = (await response.json().catch(() => ({}))) as {
         message?: string | string[];
       };
-      if(response.status===401)window.dispatchEvent(new Event("aims:unauthenticated"));
-      if(response.status===403)window.dispatchEvent(new Event("aims:forbidden"));
+      const message=Array.isArray(data.message)?data.message.join(", "):(data.message??"Request failed");
+      if(response.status===401)window.dispatchEvent(new CustomEvent("aims:unauthenticated",{detail:{message}}));
+      if(response.status===403&&path!=="/session")window.dispatchEvent(new CustomEvent("aims:forbidden",{detail:{path}}));
       if (!response.ok)
-        throw Error(
-          Array.isArray(data.message)
-            ? data.message.join(", ")
-            : (data.message ?? "Request failed"),
-        );
+        throw Error(message);
       return data;
     },
-    [user],
+    [localLogin,user],
   );
+  const applySession=useCallback((next:PortalSession,requestedPath:string,message="")=>{
+    setSession(next);
+    const stored=window.localStorage.getItem("aims.workspace");
+    const preferred=stored==="requester"||stored==="finance"?stored:null;
+    const destination=routeForSession(next,requestedPath,preferred);
+    setWorkspace(destination.workspace);
+    if(destination.financeView)setFinanceView(destination.financeView);
+    setRequesterHome(destination.workspace==="requester"&&!destination.path.startsWith("/requester/requests"));
+    setShowDashboard(destination.workspace==="finance"&&destination.financeView==="dashboard");
+    setShowPaymentHistory(destination.workspace==="finance"&&destination.financeView==="payment-history");
+    setNotice(message);
+    setAuthPhase(destination.workspace?"ready":"no-access");
+    window.history.replaceState({},"",destination.path);
+  },[]);
+  const bootstrapSession=useCallback(async(requestedPath:string)=>{
+    setAuthPhase("checking");setAuthMessage("");clearProtectedState();
+    try {
+      const next=await api("/session") as PortalSession;
+      const savedRedirect=safeInternalPath(window.sessionStorage.getItem("aims.redirect"));
+      window.sessionStorage.removeItem("aims.redirect");
+      applySession(next,savedRedirect??requestedPath);
+    } catch(error) {
+      const message=msg(error);
+      if(message==="Authentication required"||message.includes("Unknown or inactive")||message.includes("Production identity proxy"))return;
+      setSession(null);setWorkspace(null);setAuthMessage("Unable to verify your AIMS session. Try again.");setAuthPhase("error");
+    }
+  },[api,applySession,clearProtectedState]);
   const refresh = useCallback(async () => {
     if (!session || !workspace) return;
     if (workspace === "requester") {
@@ -209,7 +233,7 @@ export default function Home() {
     }
   }, [api, session, workspace, approvalPage, financeView]);
   useEffect(() => {
-    if (!user || !session || !workspace) return;
+    if (authPhase!=="ready" || !session || !workspace) return;
     let active = true;
     void Promise.resolve().then(refresh)
       .catch((e) => {
@@ -218,43 +242,45 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [refresh, user, session, workspace, approvalPage]);
+  }, [refresh, authPhase, session, workspace, approvalPage]);
   useEffect(()=>{
-    if(!user)return;
-    let active=true;
-    void api("/session").then((value)=>{
-      if(!active)return;
-      const next=value as PortalSession;
-      setSession(next);
-      const preferred=window.localStorage.getItem("aims.workspace") as Workspace|null;
-      const valid=preferred&&next.workspaces[preferred];
-      const selectedWorkspace=valid?preferred:next.workspaces.finance?"finance":next.workspaces.requester?"requester":null;
-      setWorkspace(selectedWorkspace);
-      const path=window.location.pathname;
-      const requestedFinance=path.startsWith("/finance/")?path.slice("/finance/".length) as FinanceView:null;
-      if(path.startsWith("/requester")&&!next.workspaces.requester){setNotice("Requester Portal access is not authorized for this identity.");}
-      if(path.startsWith("/finance")&&(!next.workspaces.finance||!requestedFinance||!allowedFinanceView(next,requestedFinance))){setNotice("This Finance page is not authorized for your current capabilities.");}
-      const nextFinance=requestedFinance&&allowedFinanceView(next,requestedFinance)?requestedFinance:defaultFinanceView(next);
-      if(nextFinance)setFinanceView(nextFinance);
-      setRequesterHome(selectedWorkspace==="requester"&&path!=="/requester/requests");
-      setShowDashboard(selectedWorkspace==="finance"&&nextFinance==="dashboard");
-      setShowPaymentHistory(selectedWorkspace==="finance"&&nextFinance==="payment-history");
-      const safePath=selectedWorkspace==="requester"?(path.startsWith("/requester")?path:"/requester"):(nextFinance?`/finance/${nextFinance}`:"/login");
-      window.history.replaceState({},"",safePath);
-    }).catch((e)=>{if(active){setNotice(msg(e));setUser(null)}});
-    return()=>{active=false};
-  },[api,user]);
+    if(localLogin&&!user)return;
+    void Promise.resolve().then(()=>bootstrapSession(window.location.pathname+window.location.search));
+  },[bootstrapSession,localLogin,user]);
   useEffect(()=>{
-    if(!user)return;
-    const unauthenticated=()=>{window.localStorage.removeItem("aims.workspace");setSession(null);setWorkspace(null);setItems([]);setSelected(null);setUser(null)};
-    const forbidden=()=>{void fetch(`${API}/session`,{headers:{"x-aims-user":user}}).then(async response=>{
-      if(response.status===401){unauthenticated();return null}
-      if(!response.ok)return null;
-      return response.json() as Promise<PortalSession>;
-    }).then(next=>{if(!next)return;setSession(next);setSelected(null);setDashboardDrill(null);const current=workspace;const fallback=current&&next.workspaces[current]?current:next.workspaces.finance?"finance":next.workspaces.requester?"requester":null;const nextFinance=defaultFinanceView(next);setWorkspace(fallback);setRequesterHome(fallback==="requester");if(nextFinance)setFinanceView(nextFinance);setShowDashboard(fallback==="finance"&&nextFinance==="dashboard");setShowPaymentHistory(fallback==="finance"&&nextFinance==="payment-history");const safePath=fallback==="requester"?"/requester":fallback==="finance"&&nextFinance?`/finance/${nextFinance}`:"/login";window.history.replaceState({},"",safePath);if(!fallback)setNotice("No authorized workspace is currently available.")})};
+    const unauthenticated=(event:Event)=>{
+      const detail=(event as CustomEvent<{message?:string}>).detail;
+      const current=safeInternalPath(window.location.pathname+window.location.search);
+      if(current&&current!=="/login")window.sessionStorage.setItem("aims.redirect",current);
+      clearProtectedState();setSession(null);setWorkspace(null);setUser(null);
+      setAuthMessage(detail?.message?.includes("inactive")?"Your AIMS account is currently inactive.":"Your session has expired. Please sign in again.");
+      setAuthPhase("login");window.history.replaceState({},"","/login");
+    };
+    const forbidden=()=>{
+      if(authorizationRefresh.current)return;
+      authorizationRefresh.current=true;clearProtectedState();setAuthPhase("checking");setNotice("Your access changed. AIMS is refreshing your authorized workspace.");
+      void fetch(`${API}/session`,{headers:{...(user?{"x-aims-user":user}:{})}}).then(async response=>{
+        if(response.status===401){window.dispatchEvent(new CustomEvent("aims:unauthenticated"));return null;}
+        if(!response.ok)throw Error("session-refresh-failed");
+        return response.json() as Promise<PortalSession>;
+      }).then(next=>{
+        if(!next)return;
+        applySession(next,window.location.pathname,"You no longer have access to that feature. Your workspace has been updated.");
+      }).catch(()=>{setAuthMessage("Unable to verify your AIMS session. Try again.");setAuthPhase("error")}).finally(()=>{authorizationRefresh.current=false;});
+    };
     window.addEventListener("aims:unauthenticated",unauthenticated);window.addEventListener("aims:forbidden",forbidden);
     return()=>{window.removeEventListener("aims:unauthenticated",unauthenticated);window.removeEventListener("aims:forbidden",forbidden)};
-  },[user,workspace]);
+  },[user,applySession,clearProtectedState]);
+  useEffect(()=>{
+    if(authPhase!=="ready"||workspace!=="requester"||selected)return;
+    const match=window.location.pathname.match(/^\/requester\/requests\/([0-9a-f-]{36})$/i);
+    if(!match)return;
+    let active=true;
+    void api(`/requester/requests/${match[1]}`).then(value=>{
+      if(active)setSelected(requesterDetailItem(value as {request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>;clarifications:Array<Record<string,unknown>>;payment:Record<string,unknown>|null}));
+    }).catch(error=>{if(active)setNotice(msg(error))});
+    return()=>{active=false};
+  },[api,authPhase,workspace,selected]);
   async function initiate() {
     try {
       const item = (await api("/payment-requests", {
@@ -279,16 +305,31 @@ export default function Home() {
       setNotice(msg(e));
     }
   }
-  if (!user)
+  const signOut=()=>{
+    if(!localLogin){
+      const providerLogout=process.env.NEXT_PUBLIC_AIMS_LOGOUT_URL;
+      if(providerLogout){clearProtectedState();setSession(null);setWorkspace(null);window.location.assign(providerLogout);return;}
+      setNotice("Sign out must be completed through your organization identity provider. No provider logout URL is configured.");
+      return;
+    }
+    clearProtectedState();window.localStorage.removeItem("aims.workspace");window.sessionStorage.removeItem("aims.redirect");
+    setSession(null);setWorkspace(null);setUser(null);setAuthMessage("You have signed out of the local AIMS demo.");setAuthPhase("login");
+    window.history.replaceState({},"","/login");
+  };
+  if (authPhase==="login")
     return (
       <Login
+        local={localLogin}
+        message={authMessage}
         onLogin={(identity) => {
-          setNotice("");
-          setUser(identity);
+          setNotice("");setAuthMessage("");setAuthPhase("checking");setUser(identity);
         }}
+        onRetry={()=>void bootstrapSession("/")}
       />
     );
-  if(!session||!workspace)return <main className="portalLoading"><Brand/><p>{notice||"Loading authorized workspace…"}</p></main>;
+  if(authPhase==="checking")return <main className="portalLoading" aria-live="polite"><Brand/><span className="sessionSpinner" aria-hidden="true"/><h1>Checking your session…</h1><p>Confirming your identity and authorized workspace.</p></main>;
+  if(authPhase==="error")return <SessionProblem message={authMessage} retry={()=>void bootstrapSession(window.location.pathname)}/>;
+  if(authPhase==="no-access"||!session||!workspace)return <NoAccess session={session} signOut={signOut}/>;
   const financeTitles:Record<FinanceView,string>={"work-queue":"Work Queue",approvals:"Approval Inbox","finance-control":"Finance Control","payment-queue":"Payment Queue","payment-history":"Payment History",dashboard:"Finance Dashboard",ai:"AI Finance Intelligence"};
   const financeDescriptions:Record<FinanceView,string>={"work-queue":"General Finance review within your authorized scope.",approvals:"Requests on which you have actionable Approval authority.","finance-control":"The mandatory final controlled gate before payment readiness.","payment-queue":"Only requests you are authorized to record as externally paid.","payment-history":"Immutable historical payment records within your authorized scope.",dashboard:"Authoritative financial position and operational attention.",ai:"Read-only interpretation grounded in authorized finance evidence."};
   const pageTitle = workspace==="requester"?(requesterHome?"Requester Dashboard":"My Requests"):financeTitles[financeView];
@@ -325,22 +366,10 @@ export default function Home() {
           <small>REPORTING</small>
           <span><i>↗</i>Reports</span><span><i>◉</i>Budget & Spending</span><span><i>✦</i>AI Finance Intelligence</span>
         </nav>}
-        <div className="userCard"><b>{profile.initials}</b><span><strong>{profile.name}</strong><small>{profile.department}</small></span></div>
-        {session.workspaces.requester&&session.workspaces.finance&&<button className="workspaceSwitch" onClick={()=>switchWorkspace(workspace==="requester"?"finance":"requester")}>Switch to {workspace==="requester"?"Finance":"Requester"} Portal</button>}
+        <div className="userCard"><b>{profile.initials}</b><span><strong>{profile.name}</strong><small>{profile.department}</small><small>Current workspace: {workspace==="requester"?"Requester":"Finance"}</small></span></div>
+        {session.workspaces.requester&&session.workspaces.finance&&<button className="workspaceSwitch" aria-label={`Switch from ${workspace} to ${workspace==="requester"?"Finance":"Requester"} workspace`} onClick={()=>switchWorkspace(workspace==="requester"?"finance":"requester")}>Switch to {workspace==="requester"?"Finance":"Requester"} Portal</button>}
         <button
-          onClick={() => {
-            setSelected(null);
-            setItems([]);
-            setApprovalPagination(null);
-            setShowPaymentHistory(false);
-            setShowDashboard(false);
-            setDashboardDrill(null);
-            setNotice("");
-            window.localStorage.removeItem("aims.workspace");
-            setSession(null);
-            setWorkspace(null);
-            setUser(null);
-          }}
+          onClick={signOut}
         >
           Sign out
         </button>
@@ -404,7 +433,7 @@ export default function Home() {
             setShowPaymentHistory(drill.view === "PAYMENT_HISTORY");
           }} />
         ) : showPaymentHistory && workspace === "finance" && (session.capabilities.payment||session.capabilities.reporting) ? (
-          <PaymentHistory api={api} user={user} initialFilters={dashboardDrill?.view === "PAYMENT_HISTORY" ? dashboardDrill.filters : {}} />
+          <PaymentHistory api={api} user={session.user.subject} initialFilters={dashboardDrill?.view === "PAYMENT_HISTORY" ? dashboardDrill.filters : {}} />
         ) : dashboardDrill?.view === "REPORTING_REQUESTS" ? (
           <ReportingRequestDrill api={api} drill={dashboardDrill} back={()=>setDashboardDrill(null)} />
         ) : dashboardDrill?.view === "FINANCE_CONTROL" || dashboardDrill?.view === "PAYMENT_QUEUE" ? (
@@ -412,7 +441,7 @@ export default function Home() {
         ) : selected ? (
           <Editor
             item={selected}
-            user={user}
+            user={session.user.subject}
             requesterView={workspace==="requester"}
             api={api}
             changed={async () => {
@@ -1014,7 +1043,19 @@ function PaymentHistory({ api, user, initialFilters = {} }: { api: Api; user: st
   );
 }
 
-function Login({ onLogin }: { onLogin: (id: string) => void }) {
+function Login({ onLogin,local,message,onRetry }: { onLogin:(id:string)=>void;local:boolean;message:string;onRetry:()=>void }) {
+  const [identities,setIdentities]=useState<LocalIdentity[]>([]);
+  const [loading,setLoading]=useState(local);
+  const [identityError,setIdentityError]=useState("");
+  const loadIdentities=useCallback(()=>{
+    if(!local)return;
+    setLoading(true);setIdentityError("");
+    void fetch(`${API}/auth/local-identities`).then(async response=>{
+      if(!response.ok)throw Error("Local identity service unavailable");
+      return response.json() as Promise<{mode:string;identities:LocalIdentity[]}>;
+    }).then(result=>setIdentities(result.identities)).catch(()=>setIdentityError("Unable to load approved demo identities. Check that the AIMS API is running." )).finally(()=>setLoading(false));
+  },[local]);
+  useEffect(()=>{void Promise.resolve().then(loadIdentities)},[loadIdentities]);
   return (
     <main className="login">
       <section className="loginStory">
@@ -1038,32 +1079,31 @@ function Login({ onLogin }: { onLogin: (id: string) => void }) {
         <div className="loginCard">
           <header>
             <span className="loginLock" aria-hidden="true">A</span>
-            <div><small>LOCAL DEVELOPMENT ACCESS</small><h2>Sign in to AIMS</h2></div>
+            <div><small>{local?"LOCAL DEVELOPMENT / DEMO LOGIN":"ORGANIZATION SIGN-IN"}</small><h2>Sign in to AIMS</h2></div>
           </header>
-          <p>Select a demonstration identity to enter the corresponding controlled workspace.</p>
-          <div className="roleChoices">
-            <button onClick={() => onLogin("demo.requester")}>
-              <span className="roleIcon" aria-hidden="true">RQ</span>
-              <span><b>Requester</b><small>Create and track payment requests</small></span>
-              <strong aria-hidden="true">→</strong>
-            </button>
-            <button onClick={() => onLogin("demo.finance")}>
-              <span className="roleIcon" aria-hidden="true">FM</span>
-              <span><b>Finance Manager</b><small>Control, payment and reporting workspace</small></span>
-              <strong aria-hidden="true">→</strong>
-            </button>
-            <button onClick={() => onLogin("demo.approver")}>
-              <span className="roleIcon" aria-hidden="true">AP</span>
-              <span><b>Approver</b><small>Review assigned approval decisions</small></span>
-              <strong aria-hidden="true">→</strong>
-            </button>
-          </div>
-          <div className="localAccessNote"><b>Development mode</b><span>No passwords or tokens are stored. Production requires a trusted identity provider.</span></div>
+          <p>{local?"Choose a backend-approved synthetic identity. This selector is a local development adapter, not production authentication.":"AIMS uses your organization’s trusted identity provider. No local or fallback identity selector is available in production."}</p>
+          {message&&<p className="authMessage" role="status" aria-live="polite">{message}</p>}
+          {local?<>
+            {loading?<div className="identityLoading" aria-live="polite">Loading approved demo identities…</div>:identityError?<div className="identityError" role="alert"><span>{identityError}</span><button onClick={loadIdentities}>Retry</button></div>:<div className="roleChoices" aria-label="Approved local demo identities">
+              {identities.map(identity=><button key={identity.subject} onClick={()=>onLogin(identity.subject)}>
+                <span className="roleIcon" aria-hidden="true">{identity.persona.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase()}</span>
+                <span><b>{identity.persona}</b><small>{identity.displayName} · {identity.department}</small><small>{identity.workspaces.join(" + ")} workspace{identity.workspaces.length===1?"":"s"}</small></span>
+                <strong aria-hidden="true">→</strong>
+              </button>)}
+            </div>}
+            <div className="localAccessNote"><b>Local development only</b><span>Identity and authority are verified by the API. Frontend labels never grant access.</span></div>
+          </>:<div className="productionAccess"><span>Secure identity proxy required</span><button className="primary" onClick={onRetry}>Check organization session</button></div>}
         </div>
         <footer>Authorized access only · Activity is auditable</footer>
       </aside>
     </main>
   );
+}
+function SessionProblem({message,retry}:{message:string;retry:()=>void}){
+  return <main className="protectedState"><Brand/><section role="alert"><span className="stateIcon">!</span><h1>Unable to verify your session</h1><p>{message||"The AIMS session service is temporarily unavailable."}</p><button className="primary" onClick={retry}>Retry session check</button></section></main>;
+}
+function NoAccess({session,signOut}:{session:PortalSession|null;signOut:()=>void}){
+  return <main className="protectedState"><Brand/><section><span className="stateIcon" aria-hidden="true">—</span><h1>No workspace access</h1><p>Your account{session?` (${session.user.displayName})`:""} is active, but no AIMS workspace is currently assigned.</p><p>Contact your system administrator or Finance administrator if this is unexpected.</p><button className="primary" onClick={signOut}>Sign out</button></section></main>;
 }
 function Brand() {
   return (

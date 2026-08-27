@@ -1,9 +1,38 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PortalService } from "../src/application/portal/portal.service.js";
+import { LocalIdentityController } from "../src/application/auth/local-identity.controller.js";
 import type { Principal } from "../src/domain/payment-request.js";
 
 const requester:Principal={id:"10000000-0000-4000-8000-000000000001",departmentId:"00000000-0000-4000-8000-000000000001",roles:["REQUESTER"]};
+
+test("local login identities come from the backend and expose only safe context",async()=>{
+  const previous=process.env.NODE_ENV;
+  process.env.NODE_ENV="development";
+  try {
+    const controller=new LocalIdentityController({pool:{query:async()=>({rows:[{
+      subject:"demo.requester",display_name:"Demo Requester",department:"Operations",requester:true,
+      finance_analysis:false,approval:false,finance_control:false,payment:false,reporting:false,
+    }]})}} as never);
+    const result=await controller.list();
+    assert.deepEqual(result.identities,[{subject:"demo.requester",displayName:"Demo Requester",department:"Operations",persona:"Requester",workspaces:["Requester"]}]);
+    const raw=JSON.stringify(result);
+    for(const restricted of ["authorityId","amountLimit","databaseRole","executorRole"]) assert.equal(raw.includes(restricted),false);
+  } finally {
+    if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+  }
+});
+
+test("production does not expose the local identity catalogue",async()=>{
+  const previous=process.env.NODE_ENV;
+  process.env.NODE_ENV="production";
+  try {
+    const controller=new LocalIdentityController({} as never);
+    await assert.rejects(()=>controller.list(),/Not Found/);
+  } finally {
+    if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+  }
+});
 
 test("requester projection is owner scoped and excludes finance internals",async()=>{
   const queries:string[]=[];
