@@ -293,49 +293,104 @@ async function behindRequestLock<T>(
 
 async function readyPayment(db: Postgres, label: string) {
   const fixture = await approved(db),
-    run = (await fixture.service.start(fixture.request.id, finance, `${label}-start`)) as any;
+    run = (await fixture.service.start(
+      fixture.request.id,
+      finance,
+      `${label}-start`,
+    )) as any;
   await confirmRequired(fixture.service, run.run.id);
-  await fixture.service.finalize(run.run.id, { commandKey: randomUUID() }, finance, `${label}-ready`);
+  await fixture.service.finalize(
+    run.run.id,
+    { commandKey: randomUUID() },
+    finance,
+    `${label}-ready`,
+  );
   const slipId = randomUUID();
-  await db.paymentTransaction(finance.id, `${label}-slip`, (c) => c.query(
-    "SELECT attach_payment_slip($1,$2,$3,'payment.pdf',$4,'application/pdf',20,$5)",
-    [fixture.request.id, slipId, randomUUID(), `quarantine/tests/${randomUUID()}`, randomUUID().replaceAll("-", "").repeat(2)],
-  ));
+  await db.paymentTransaction(finance.id, `${label}-slip`, (c) =>
+    c.query(
+      "SELECT attach_payment_slip($1,$2,$3,'payment.pdf',$4,'application/pdf',20,$5)",
+      [
+        fixture.request.id,
+        slipId,
+        randomUUID(),
+        `quarantine/tests/${randomUUID()}`,
+        randomUUID().replaceAll("-", "").repeat(2),
+      ],
+    ),
+  );
   return {
-    fixture, run, slipId, service: new PaymentService(db, fixture.requests, {} as never),
+    fixture,
+    run,
+    slipId,
+    service: new PaymentService(db, fixture.requests, {} as never),
     command: {
-      commandKey: randomUUID(), paymentDate: new Date().toISOString().slice(0, 10),
-      amount: "10.00", currency: "MYR", bankReference: `${label}-${randomUUID()}`,
-      slipDocumentId: slipId, confirmPossibleDuplicate: false,
+      commandKey: randomUUID(),
+      paymentDate: new Date().toISOString().slice(0, 10),
+      amount: "10.00",
+      currency: "MYR",
+      bankReference: `${label}-${randomUUID()}`,
+      slipDocumentId: slipId,
+      confirmPossibleDuplicate: false,
     },
   };
 }
 
 async function assertFailedPaymentClean(db: Postgres, requestId: string) {
-  const state = (await db.pool.query(`SELECT pr.status,
+  const state = (
+    await db.pool.query(
+      `SELECT pr.status,
     (SELECT count(*)::int FROM payments WHERE payment_request_id=pr.id) payments,
     (SELECT count(*)::int FROM financial_ledger_entries le JOIN payments p ON p.id=le.reference_id WHERE p.payment_request_id=pr.id AND le.reference_type='PAYMENT') ledger,
     (SELECT status FROM budget_commitments WHERE payment_request_id=pr.id ORDER BY created_at DESC LIMIT 1) commitment,
     (SELECT count(*)::int FROM audit_events WHERE entity_id=pr.id AND action IN('PAYMENT_RECORDED','COMMITMENT_CONSUMED','ACTUAL_LEDGER_POSTED','PAYMENT_REQUEST_PAID')) success_audits
-    FROM payment_requests pr WHERE pr.id=$1`, [requestId])).rows[0];
-  assert.deepEqual({ status: state.status, payments: state.payments, ledger: state.ledger, commitment: state.commitment, audits: state.success_audits },
-    { status: "READY_FOR_PAYMENT", payments: 0, ledger: 0, commitment: "ACTIVE", audits: 0 });
+    FROM payment_requests pr WHERE pr.id=$1`,
+      [requestId],
+    )
+  ).rows[0];
+  assert.deepEqual(
+    {
+      status: state.status,
+      payments: state.payments,
+      ledger: state.ledger,
+      commitment: state.commitment,
+      audits: state.success_audits,
+    },
+    {
+      status: "READY_FOR_PAYMENT",
+      payments: 0,
+      ledger: 0,
+      commitment: "ACTIVE",
+      audits: 0,
+    },
+  );
 }
 
 async function assertPaymentOutcomeConsistent(db: Postgres, requestId: string) {
-  const row = (await db.pool.query(`SELECT pr.status,p.id payment_id,p.amount_minor payment_amount,p.currency payment_currency,
+  const row = (
+    await db.pool.query(
+      `SELECT pr.status,p.id payment_id,p.amount_minor payment_amount,p.currency payment_currency,
     le.amount_minor ledger_amount,le.currency ledger_currency,bc.status commitment_status,bc.amount_minor commitment_amount,bc.currency commitment_currency,
     f.status control_status,(SELECT count(*)::int FROM payments WHERE payment_request_id=pr.id) payment_count,
     (SELECT count(*)::int FROM financial_ledger_entries x JOIN payments px ON px.id=x.reference_id WHERE px.payment_request_id=pr.id AND x.reference_type='PAYMENT') ledger_count
     FROM payment_requests pr LEFT JOIN payments p ON p.payment_request_id=pr.id LEFT JOIN financial_ledger_entries le ON le.id=p.ledger_entry_id
     LEFT JOIN budget_commitments bc ON bc.payment_request_id=pr.id AND(bc.id=p.commitment_id OR p.id IS NULL)
-    LEFT JOIN finance_control_runs f ON f.id=p.finance_control_run_id WHERE pr.id=$1 ORDER BY bc.created_at DESC LIMIT 1`, [requestId])).rows[0];
+    LEFT JOIN finance_control_runs f ON f.id=p.finance_control_run_id WHERE pr.id=$1 ORDER BY bc.created_at DESC LIMIT 1`,
+      [requestId],
+    )
+  ).rows[0];
   if (row.status === "PAID") {
-    assert.equal(row.payment_count, 1); assert.equal(row.ledger_count, 1); assert.equal(row.commitment_status, "CONSUMED");
-    assert.equal(String(row.payment_amount), String(row.ledger_amount)); assert.equal(String(row.payment_amount), String(row.commitment_amount));
-    assert.equal(row.payment_currency, row.ledger_currency); assert.equal(row.payment_currency, row.commitment_currency); assert.equal(row.control_status, "PASSED");
+    assert.equal(row.payment_count, 1);
+    assert.equal(row.ledger_count, 1);
+    assert.equal(row.commitment_status, "CONSUMED");
+    assert.equal(String(row.payment_amount), String(row.ledger_amount));
+    assert.equal(String(row.payment_amount), String(row.commitment_amount));
+    assert.equal(row.payment_currency, row.ledger_currency);
+    assert.equal(row.payment_currency, row.commitment_currency);
+    assert.equal(row.control_status, "PASSED");
   } else {
-    assert.equal(row.payment_count, 0); assert.equal(row.ledger_count, 0); assert.notEqual(row.commitment_status, "CONSUMED");
+    assert.equal(row.payment_count, 0);
+    assert.equal(row.ledger_count, 0);
+    assert.notEqual(row.commitment_status, "CONSUMED");
   }
 }
 
@@ -1389,44 +1444,123 @@ test("barrier L: inverse dependent mutation fails fast without deadlock", async 
 
 test("DAY_8_2_PAYMENT_ATOMIC_FAILURE_INJECTION_MATRIX rolls back every posting boundary and remains retryable", async () => {
   const points = [
-    "AFTER_PAYMENT_INSERT", "AFTER_LEDGER_INSERT", "AFTER_COMMITMENT_CONSUMPTION",
-    "BEFORE_REQUEST_PAID", "AFTER_REQUEST_PAID_BEFORE_COMMIT", "BEFORE_SUCCESS_AUDIT",
+    "AFTER_PAYMENT_INSERT",
+    "AFTER_LEDGER_INSERT",
+    "AFTER_COMMITMENT_CONSUMPTION",
+    "BEFORE_REQUEST_PAID",
+    "AFTER_REQUEST_PAID_BEFORE_COMMIT",
+    "BEFORE_SUCCESS_AUDIT",
   ];
   for (const point of points) {
     const db = new Postgres();
     try {
-      const f = await readyPayment(db, point), beforeLedger = Number((await db.pool.query("SELECT count(*) FROM financial_ledger_entries")).rows[0].count);
-      await assert.rejects(() => db.paymentTransaction(finance.id, `fault-${point}`, async (c) => {
-        await c.query("SELECT set_config('aims.test_payment_fault',$1,true)", [point]);
-        await c.query("SELECT record_payment($1,$2,$3,$4,$5,$6,$7,$8,$9)", [
-          f.fixture.request.id, randomUUID(), f.command.commandKey, f.command.paymentDate, 1000,
-          f.command.currency, f.command.bankReference, f.command.slipDocumentId, f.command.confirmPossibleDuplicate,
-        ]);
-      }, f.command.commandKey), new RegExp(point));
+      const f = await readyPayment(db, point),
+        beforeLedger = Number(
+          (await db.pool.query("SELECT count(*) FROM financial_ledger_entries"))
+            .rows[0].count,
+        );
+      await assert.rejects(
+        () =>
+          db.paymentTransaction(
+            finance.id,
+            `fault-${point}`,
+            async (c) => {
+              await c.query(
+                "SELECT set_config('aims.test_payment_fault',$1,true)",
+                [point],
+              );
+              await c.query(
+                "SELECT record_payment($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                [
+                  f.fixture.request.id,
+                  randomUUID(),
+                  f.command.commandKey,
+                  f.command.paymentDate,
+                  1000,
+                  f.command.currency,
+                  f.command.bankReference,
+                  f.command.slipDocumentId,
+                  f.command.confirmPossibleDuplicate,
+                ],
+              );
+            },
+            f.command.commandKey,
+          ),
+        new RegExp(point),
+      );
       await assertFailedPaymentClean(db, f.fixture.request.id);
-      assert.equal(Number((await db.pool.query("SELECT count(*) FROM financial_ledger_entries")).rows[0].count), beforeLedger);
-      const paid = await f.service.record(f.fixture.request.id, f.command, finance, `retry-${point}`) as any;
+      assert.equal(
+        Number(
+          (await db.pool.query("SELECT count(*) FROM financial_ledger_entries"))
+            .rows[0].count,
+        ),
+        beforeLedger,
+      );
+      const paid = (await f.service.record(
+        f.fixture.request.id,
+        f.command,
+        finance,
+        `retry-${point}`,
+      )) as any;
       assert.ok(paid.id);
-      const success = (await db.pool.query("SELECT action,count(*)::int count FROM audit_events WHERE entity_id=$1 AND action IN('PAYMENT_RECORDED','COMMITMENT_CONSUMED','ACTUAL_LEDGER_POSTED','PAYMENT_REQUEST_PAID') GROUP BY action", [f.fixture.request.id])).rows;
-      assert.equal(success.length, 4); assert.equal(success.every((x: any) => x.count === 1), true);
-    } finally { await db.onModuleDestroy(); }
+      const success = (
+        await db.pool.query(
+          "SELECT action,count(*)::int count FROM audit_events WHERE entity_id=$1 AND action IN('PAYMENT_RECORDED','COMMITMENT_CONSUMED','ACTUAL_LEDGER_POSTED','PAYMENT_REQUEST_PAID') GROUP BY action",
+          [f.fixture.request.id],
+        )
+      ).rows;
+      assert.equal(success.length, 4);
+      assert.equal(
+        success.every((x: any) => x.count === 1),
+        true,
+      );
+    } finally {
+      await db.onModuleDestroy();
+    }
   }
 });
 
 test("PAYMENT_POST_COMMIT_RESPONSE_LOSS returns the original identity without duplicate effects", async () => {
   const db = new Postgres();
   try {
-    const f = await readyPayment(db, "response-loss"), first = await f.service.record(f.fixture.request.id, f.command, finance, "response-lost") as any;
-    const replay = await f.service.record(f.fixture.request.id, f.command, finance, "response-retry") as any;
+    const f = await readyPayment(db, "response-loss"),
+      first = (await f.service.record(
+        f.fixture.request.id,
+        f.command,
+        finance,
+        "response-lost",
+      )) as any;
+    const replay = (await f.service.record(
+      f.fixture.request.id,
+      f.command,
+      finance,
+      "response-retry",
+    )) as any;
     assert.equal(replay.id, first.id);
-    await assert.rejects(() => f.service.record(f.fixture.request.id, { ...f.command, bankReference: `${f.command.bankReference}-changed` }, finance, "response-conflict"), /IDEMPOTENCY_CONFLICT/);
-    const facts = (await db.pool.query(`SELECT
+    await assert.rejects(
+      () =>
+        f.service.record(
+          f.fixture.request.id,
+          { ...f.command, bankReference: `${f.command.bankReference}-changed` },
+          finance,
+          "response-conflict",
+        ),
+      /IDEMPOTENCY_CONFLICT/,
+    );
+    const facts = (
+      await db.pool.query(
+        `SELECT
       (SELECT count(*)::int FROM payments WHERE payment_request_id=$1) payments,
       (SELECT count(*)::int FROM financial_ledger_entries WHERE reference_type='PAYMENT' AND reference_id=$2) ledger,
       (SELECT count(*)::int FROM budget_commitments WHERE payment_request_id=$1 AND status='CONSUMED') consumed,
-      (SELECT count(*)::int FROM audit_events WHERE entity_id=$1 AND action IN('PAYMENT_RECORDED','COMMITMENT_CONSUMED','ACTUAL_LEDGER_POSTED','PAYMENT_REQUEST_PAID')) audits`, [f.fixture.request.id, first.id])).rows[0];
+      (SELECT count(*)::int FROM audit_events WHERE entity_id=$1 AND action IN('PAYMENT_RECORDED','COMMITMENT_CONSUMED','ACTUAL_LEDGER_POSTED','PAYMENT_REQUEST_PAID')) audits`,
+        [f.fixture.request.id, first.id],
+      )
+    ).rows[0];
     assert.deepEqual(facts, { payments: 1, ledger: 1, consumed: 1, audits: 4 });
-  } finally { await db.onModuleDestroy(); }
+  } finally {
+    await db.onModuleDestroy();
+  }
 });
 
 test("Day 8 records external payment atomically, idempotently, and immutably", async () => {
@@ -1571,20 +1705,43 @@ test("Day 8 records external payment atomically, idempotently, and immutably", a
       { confirmPossibleDuplicate: true },
     ])
       await assert.rejects(
-        () => service.record(fixture.request.id, { ...originalCommand, ...changed }, finance, "d8-fingerprint-conflict"),
+        () =>
+          service.record(
+            fixture.request.id,
+            { ...originalCommand, ...changed },
+            finance,
+            "d8-fingerprint-conflict",
+          ),
         /IDEMPOTENCY_CONFLICT/,
       );
-    const normalizedReplay = await service.record(
+    const normalizedReplay = (await service.record(
       fixture.request.id,
-      { ...originalCommand, bankReference: `  ${bankReference.toLowerCase()}  ` },
+      {
+        ...originalCommand,
+        bankReference: `  ${bankReference.toLowerCase()}  `,
+      },
       finance,
       "d8-normalized-replay",
-    ) as any;
+    )) as any;
     assert.equal(normalizedReplay.id, first.id);
 
-    for (const unauthorized of [requester, adminOnly, approver, scopedFinance, revokedFinance, inactivePayment, revokedPayment])
+    for (const unauthorized of [
+      requester,
+      adminOnly,
+      approver,
+      scopedFinance,
+      revokedFinance,
+      inactivePayment,
+      revokedPayment,
+    ])
       await assert.rejects(
-        () => service.record(fixture.request.id, originalCommand, unauthorized, "d8-unauthorized-replay"),
+        () =>
+          service.record(
+            fixture.request.id,
+            originalCommand,
+            unauthorized,
+            "d8-unauthorized-replay",
+          ),
         /(authority|authenticated)/i,
       );
     const facts = (
@@ -1613,23 +1770,45 @@ test("Day 8 records external payment atomically, idempotently, and immutably", a
     ).rows[0];
     assert.equal(BigInt(after.actual) - BigInt(before.actual), 1000n);
     assert.equal(BigInt(before.committed) - BigInt(after.committed), 1000n);
-    const history = await service.list(finance, { page: 1, pageSize: 25, search: first.ticketNumber });
+    const history = await service.list(finance, {
+      page: 1,
+      pageSize: 25,
+      search: first.ticketNumber,
+    });
     assert.equal(
       history.items.some((x: any) => x.id === first.id),
       true,
     );
     for (const filter of [
-      { search: first.ticketNumber }, { search: bankReference }, { payee: first.payee, search: first.ticketNumber },
-      { departmentId: first.departmentId, search: first.ticketNumber }, { category: first.category, search: first.ticketNumber },
-      { dateFrom: new Date().toISOString().slice(0, 10), search: first.ticketNumber },
-      { dateTo: new Date().toISOString().slice(0, 10), search: first.ticketNumber },
+      { search: first.ticketNumber },
+      { search: bankReference },
+      { payee: first.payee, search: first.ticketNumber },
+      { departmentId: first.departmentId, search: first.ticketNumber },
+      { category: first.category, search: first.ticketNumber },
+      {
+        dateFrom: new Date().toISOString().slice(0, 10),
+        search: first.ticketNumber,
+      },
+      {
+        dateTo: new Date().toISOString().slice(0, 10),
+        search: first.ticketNumber,
+      },
       { status: "PAID", search: first.ticketNumber },
     ]) {
-      const filtered = await service.list(finance, { page: 1, pageSize: 25, ...filter } as any);
-      assert.equal(filtered.items.some((x: any) => x.id === first.id), true, JSON.stringify(filter));
+      const filtered = await service.list(finance, {
+        page: 1,
+        pageSize: 25,
+        ...filter,
+      } as any);
+      assert.equal(
+        filtered.items.some((x: any) => x.id === first.id),
+        true,
+        JSON.stringify(filter),
+      );
     }
     const firstPage = await service.list(finance, { page: 1, pageSize: 1 });
-    assert.equal(firstPage.items.length, 1); assert.equal(firstPage.total >= 1, true);
+    assert.equal(firstPage.items.length, 1);
+    assert.equal(firstPage.total >= 1, true);
     assert.match(
       ((await service.get(first.id, requester)) as any).bankReference,
       /^••••/,
@@ -1639,8 +1818,18 @@ test("Day 8 records external payment atomically, idempotently, and immutably", a
       await service.export(finance, { page: 1, pageSize: 25 }),
       /Ticket Number/,
     );
-    assert.match(await service.export(finance, { page: 1, pageSize: 25, search: first.ticketNumber }), new RegExp(first.ticketNumber));
-    await assert.rejects(() => service.export(approver, { page: 1, pageSize: 25 }), /authority/i);
+    assert.match(
+      await service.export(finance, {
+        page: 1,
+        pageSize: 25,
+        search: first.ticketNumber,
+      }),
+      new RegExp(first.ticketNumber),
+    );
+    await assert.rejects(
+      () => service.export(approver, { page: 1, pageSize: 25 }),
+      /authority/i,
+    );
     await assert.rejects(() =>
       db.pool.query("INSERT INTO payments(id) VALUES($1)", [randomUUID()]),
     );
@@ -1718,71 +1907,185 @@ test("Day 8 records external payment atomically, idempotently, and immutably", a
 });
 
 for (const [name, mutate] of [
-  ["PAYMENT_RACE_B_EVIDENCE_MUTATION", async (db: Postgres, f: any) => addEvidence(db, f.fixture.request.id)],
-  ["PAYMENT_RACE_C_MATERIAL_REQUEST_MUTATION", async (db: Postgres, f: any) => db.pool.query("UPDATE payment_requests SET payee=payee||' changed' WHERE id=$1", [f.fixture.request.id])],
-  ["PAYMENT_RACE_D_COMMITMENT_RELEASE", async (db: Postgres, f: any) => db.pool.query("UPDATE budget_commitments SET status='RELEASED',released_at=now(),release_reason='PAYMENT_RACE' WHERE payment_request_id=$1 AND status='ACTIVE'", [f.fixture.request.id])],
-  ["PAYMENT_RACE_E_FINANCE_CONTROL_SUPERSESSION", async (db: Postgres, f: any) => db.pool.query("UPDATE finance_control_runs SET status='SUPERSEDED',is_current=false WHERE payment_request_id=$1 AND is_current", [f.fixture.request.id])],
-] as const) test(name, async () => {
-  const db = new Postgres();
-  try {
-    const f = await readyPayment(db, name);
-    const outcomes = await behindRequestLock(db, f.fixture.request.id, () => Promise.allSettled([
-      f.service.record(f.fixture.request.id, f.command, finance, `${name}-payment`), mutate(db, f),
-    ]));
-    assert.equal(outcomes.some((x) => x.status === "fulfilled"), true);
-    await assertPaymentOutcomeConsistent(db, f.fixture.request.id);
-  } finally { await db.onModuleDestroy(); }
-});
+  [
+    "PAYMENT_RACE_B_EVIDENCE_MUTATION",
+    async (db: Postgres, f: any) => addEvidence(db, f.fixture.request.id),
+  ],
+  [
+    "PAYMENT_RACE_C_MATERIAL_REQUEST_MUTATION",
+    async (db: Postgres, f: any) =>
+      db.pool.query(
+        "UPDATE payment_requests SET payee=payee||' changed' WHERE id=$1",
+        [f.fixture.request.id],
+      ),
+  ],
+  [
+    "PAYMENT_RACE_D_COMMITMENT_RELEASE",
+    async (db: Postgres, f: any) =>
+      db.pool.query(
+        "UPDATE budget_commitments SET status='RELEASED',released_at=now(),release_reason='PAYMENT_RACE' WHERE payment_request_id=$1 AND status='ACTIVE'",
+        [f.fixture.request.id],
+      ),
+  ],
+  [
+    "PAYMENT_RACE_E_FINANCE_CONTROL_SUPERSESSION",
+    async (db: Postgres, f: any) =>
+      db.pool.query(
+        "UPDATE finance_control_runs SET status='SUPERSEDED',is_current=false WHERE payment_request_id=$1 AND is_current",
+        [f.fixture.request.id],
+      ),
+  ],
+] as const)
+  test(name, async () => {
+    const db = new Postgres();
+    try {
+      const f = await readyPayment(db, name);
+      const outcomes = await behindRequestLock(db, f.fixture.request.id, () =>
+        Promise.allSettled([
+          f.service.record(
+            f.fixture.request.id,
+            f.command,
+            finance,
+            `${name}-payment`,
+          ),
+          mutate(db, f),
+        ]),
+      );
+      assert.equal(
+        outcomes.some((x) => x.status === "fulfilled"),
+        true,
+      );
+      await assertPaymentOutcomeConsistent(db, f.fixture.request.id);
+    } finally {
+      await db.onModuleDestroy();
+    }
+  });
 
 test("PAYMENT_RACE_F_SAME_BANK_REFERENCE_DIFFERENT_REQUESTS", async () => {
-  const db = new Postgres(), blocker = await db.pool.connect();
+  const db = new Postgres(),
+    blocker = await db.pool.connect();
   try {
-    const a = await readyPayment(db, "race-f-a"), b = await readyPayment(db, "race-f-b"), reference = `SHARED-${randomUUID()}`;
-    a.command.bankReference = reference; b.command.bankReference = reference;
-    await blocker.query("BEGIN"); await blocker.query("SELECT pg_advisory_xact_lock(hashtext('AIMS_DUPLICATE_CONTROL'))");
+    const a = await readyPayment(db, "race-f-a"),
+      b = await readyPayment(db, "race-f-b"),
+      reference = `SHARED-${randomUUID()}`;
+    a.command.bankReference = reference;
+    b.command.bankReference = reference;
+    await blocker.query("BEGIN");
+    await blocker.query(
+      "SELECT pg_advisory_xact_lock(hashtext('AIMS_DUPLICATE_CONTROL'))",
+    );
     let settled = false;
     const work = Promise.allSettled([
       a.service.record(a.fixture.request.id, a.command, finance, "race-f-a"),
-      b.service.record(b.fixture.request.id, b.command, secondFinance, "race-f-b"),
-    ]).finally(() => { settled = true; });
-    await new Promise((r) => setTimeout(r, 25)); assert.equal(settled, false); await blocker.query("COMMIT");
-    const outcomes = await work; assert.equal(outcomes.filter((x) => x.status === "fulfilled").length, 1);
-    await assertPaymentOutcomeConsistent(db, a.fixture.request.id); await assertPaymentOutcomeConsistent(db, b.fixture.request.id);
-  } finally { await blocker.query("ROLLBACK").catch(() => undefined); blocker.release(); await db.onModuleDestroy(); }
+      b.service.record(
+        b.fixture.request.id,
+        b.command,
+        secondFinance,
+        "race-f-b",
+      ),
+    ]).finally(() => {
+      settled = true;
+    });
+    await new Promise((r) => setTimeout(r, 25));
+    assert.equal(settled, false);
+    await blocker.query("COMMIT");
+    const outcomes = await work;
+    assert.equal(outcomes.filter((x) => x.status === "fulfilled").length, 1);
+    await assertPaymentOutcomeConsistent(db, a.fixture.request.id);
+    await assertPaymentOutcomeConsistent(db, b.fixture.request.id);
+  } finally {
+    await blocker.query("ROLLBACK").catch(() => undefined);
+    blocker.release();
+    await db.onModuleDestroy();
+  }
 });
 
 test("PAYMENT_RACE_G_DUPLICATE_CANDIDATE_INSERTION", async () => {
-  const db = new Postgres(), blocker = await db.pool.connect();
+  const db = new Postgres(),
+    blocker = await db.pool.connect();
   try {
     const f = await readyPayment(db, "race-g");
-    const candidate = await f.fixture.requests.initiate(requester, "race-g-candidate");
-    await f.fixture.requests.update(candidate.id, {
-      payee: String(f.fixture.request.payee), purpose: "New duplicate candidate", category: String(f.fixture.request.category),
-      amount: String(f.fixture.request.amount), currency: String(f.fixture.request.currency), dueDate: "2030-01-01",
-      paymentMethod: String(f.fixture.request.paymentMethod), paymentDetails: "Candidate",
-    }, requester, "race-g-capture");
-    await blocker.query("BEGIN"); await blocker.query("SELECT pg_advisory_xact_lock(hashtext('AIMS_DUPLICATE_CONTROL'))");
+    const candidate = await f.fixture.requests.initiate(
+      requester,
+      "race-g-candidate",
+    );
+    await f.fixture.requests.update(
+      candidate.id,
+      {
+        payee: String(f.fixture.request.payee),
+        purpose: "New duplicate candidate",
+        category: String(f.fixture.request.category),
+        amount: String(f.fixture.request.amount),
+        currency: String(f.fixture.request.currency),
+        dueDate: "2030-01-01",
+        paymentMethod: String(f.fixture.request.paymentMethod),
+        paymentDetails: "Candidate",
+      },
+      requester,
+      "race-g-capture",
+    );
+    await blocker.query("BEGIN");
+    await blocker.query(
+      "SELECT pg_advisory_xact_lock(hashtext('AIMS_DUPLICATE_CONTROL'))",
+    );
     let settled = false;
     const work = Promise.allSettled([
-      f.service.record(f.fixture.request.id, f.command, finance, "race-g-payment"),
+      f.service.record(
+        f.fixture.request.id,
+        f.command,
+        finance,
+        "race-g-payment",
+      ),
       f.fixture.requests.submit(candidate.id, requester, "race-g-submit"),
-    ]).finally(() => { settled = true; });
-    await new Promise((r) => setTimeout(r, 25)); assert.equal(settled, false); await blocker.query("COMMIT");
+    ]).finally(() => {
+      settled = true;
+    });
+    await new Promise((r) => setTimeout(r, 25));
+    assert.equal(settled, false);
+    await blocker.query("COMMIT");
     const outcomes = await work;
-    assert.equal(outcomes.some((x) => x.status === "fulfilled"), true); await assertPaymentOutcomeConsistent(db, f.fixture.request.id);
-  } finally { await blocker.query("ROLLBACK").catch(() => undefined); blocker.release(); await db.onModuleDestroy(); }
+    assert.equal(
+      outcomes.some((x) => x.status === "fulfilled"),
+      true,
+    );
+    await assertPaymentOutcomeConsistent(db, f.fixture.request.id);
+  } finally {
+    await blocker.query("ROLLBACK").catch(() => undefined);
+    blocker.release();
+    await db.onModuleDestroy();
+  }
 });
 
 test("PAYMENT_RACE_H_POST_COMMIT_RETRY", async () => {
   const db = new Postgres();
   try {
-    const f = await readyPayment(db, "race-h"), first = await f.service.record(f.fixture.request.id, f.command, finance, "race-h-commit") as any;
-    const results = await behindRequestLock(db, f.fixture.request.id, () => Promise.all([
-      f.service.record(f.fixture.request.id, f.command, finance, "race-h-1"), f.service.record(f.fixture.request.id, f.command, secondFinance, "race-h-2"),
-      f.service.record(f.fixture.request.id, f.command, finance, "race-h-3"),
-    ])) as any[];
-    assert.equal(results.every((x) => x.id === first.id), true); await assertPaymentOutcomeConsistent(db, f.fixture.request.id);
-  } finally { await db.onModuleDestroy(); }
+    const f = await readyPayment(db, "race-h"),
+      first = (await f.service.record(
+        f.fixture.request.id,
+        f.command,
+        finance,
+        "race-h-commit",
+      )) as any;
+    const results = (await behindRequestLock(db, f.fixture.request.id, () =>
+      Promise.all([
+        f.service.record(f.fixture.request.id, f.command, finance, "race-h-1"),
+        f.service.record(
+          f.fixture.request.id,
+          f.command,
+          secondFinance,
+          "race-h-2",
+        ),
+        f.service.record(f.fixture.request.id, f.command, finance, "race-h-3"),
+      ]),
+    )) as any[];
+    assert.equal(
+      results.every((x) => x.id === first.id),
+      true,
+    );
+    await assertPaymentOutcomeConsistent(db, f.fixture.request.id);
+  } finally {
+    await db.onModuleDestroy();
+  }
 });
 
 test("PAYMENT_RACE_A_SAME_REQUEST_TWO_OPERATORS produces one record and one ledger posting", async () => {
@@ -1823,20 +2126,22 @@ test("PAYMENT_RACE_A_SAME_REQUEST_TWO_OPERATORS produces one record and one ledg
         slipDocumentId: slipId,
         confirmPossibleDuplicate: false,
       };
-    const results = await behindRequestLock(db, fixture.request.id, () => Promise.allSettled([
-      service.record(
-        fixture.request.id,
-        { ...base, commandKey: randomUUID() },
-        finance,
-        "d8-race-a",
-      ),
-      service.record(
-        fixture.request.id,
-        { ...base, commandKey: randomUUID() },
-        secondFinance,
-        "d8-race-b",
-      ),
-    ]));
+    const results = await behindRequestLock(db, fixture.request.id, () =>
+      Promise.allSettled([
+        service.record(
+          fixture.request.id,
+          { ...base, commandKey: randomUUID() },
+          finance,
+          "d8-race-a",
+        ),
+        service.record(
+          fixture.request.id,
+          { ...base, commandKey: randomUUID() },
+          secondFinance,
+          "d8-race-b",
+        ),
+      ]),
+    );
     assert.equal(results.filter((x) => x.status === "fulfilled").length, 1);
     const counts = (
       await db.pool.query(

@@ -135,6 +135,8 @@ FROM budgets b JOIN budget_versions bv ON bv.budget_id=b.id AND bv.status='ACTIV
           requests: "submitted_at",
           approvals:
             "action counts use acted_at; completed case cycle uses completed_at",
+          financeControl:
+            "live current operational state; not restricted by selected historical date range",
         },
       },
       financial: {

@@ -477,6 +477,11 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
         <button className="secondary" onClick={()=>setFilters({dateFrom:"",dateTo:"",departmentId:"",category:""})}>Clear</button>
       </div>
       <small>One authorized filter context applies throughout. Budget position remains live; dated metrics use the displayed source semantics.</small>
+      {(filters.dateFrom || filters.dateTo) && (
+        <p className="notice" role="status">
+          Finance Control: current queue — live operational status, not date filtered.
+        </p>
+      )}
       <div className="kpiGrid">
         {cards.map(({label, value, view, reportView}) => view ? (
           <button className="kpiCard" key={label} onClick={()=>onDrill(view==="REPORTING_REQUESTS"?{view,reportView:reportView!,filters}:view==="PAYMENT_HISTORY"?{view,filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),status:"PAID"}}:view==="FINANCE_CONTROL"?{view,status:"FINANCE_HOLD",filters}:{view,status:"READY_FOR_PAYMENT",filters})}>

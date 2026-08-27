@@ -42,15 +42,34 @@ export class PaymentService {
       throw new ForbiddenException("Payment Operator authority is required");
   }
 
-  async queue(actor: Principal, filter?: {departmentId?:string;category?:string}) {
+  async queue(actor: Principal, filter: {departmentId?:string;category?:string;page?:number;pageSize?:number} = {}) {
+    const page = filter.page ?? 1,
+      pageSize = Math.min(filter.pageSize ?? 25, 100);
     const q = await this.db.pool.query(
-      `SELECT pr.id,pr.ticket_number,pr.payee,pr.amount,pr.currency,pr.department_id,pr.category,pr.due_date,pr.payment_method,f.status finance_control_status
-      FROM payment_requests pr JOIN payment_authorities a ON a.user_id=$1 AND a.active AND(a.scope='ORGANIZATION' OR a.department_id=pr.department_id)
-      JOIN finance_control_runs f ON f.payment_request_id=pr.id AND f.is_current AND f.status='PASSED'
-      WHERE pr.status='READY_FOR_PAYMENT' AND(a.allow_self_payment OR pr.created_by<>$1)AND($2::uuid IS NULL OR pr.department_id=$2)AND($3::text IS NULL OR pr.category=$3) ORDER BY pr.due_date,pr.ticket_number`,
-      [actor.id,filter?.departmentId??null,filter?.category??null],
+      `WITH eligible AS (
+        SELECT pr.id,pr.ticket_number,pr.payee,pr.amount,pr.currency,pr.department_id,pr.category,pr.due_date,pr.payment_method,f.status finance_control_status
+        FROM payment_requests pr
+        JOIN finance_control_runs f ON f.payment_request_id=pr.id AND f.is_current AND f.status='PASSED'
+        WHERE pr.status='READY_FOR_PAYMENT'
+          AND EXISTS(SELECT 1 FROM payment_authorities a JOIN users u ON u.id=a.user_id AND u.active
+            WHERE a.user_id=$1 AND a.active AND(a.scope='ORGANIZATION' OR a.department_id=pr.department_id)
+              AND(a.allow_self_payment OR pr.created_by<>$1)
+              AND(a.minimum_amount_minor IS NULL OR (pr.amount*100)::bigint>=a.minimum_amount_minor)
+              AND(a.maximum_amount_minor IS NULL OR (pr.amount*100)::bigint<=a.maximum_amount_minor))
+          AND($2::uuid IS NULL OR pr.department_id=$2)AND($3::text IS NULL OR pr.category=$3)
+      ), page_rows AS (
+        SELECT * FROM eligible ORDER BY due_date,ticket_number LIMIT $4 OFFSET $5
+      )
+      SELECT page_rows.*,totals.total::int total FROM(SELECT count(*) total FROM eligible)totals
+      LEFT JOIN page_rows ON true ORDER BY page_rows.due_date,page_rows.ticket_number`,
+      [actor.id,filter.departmentId??null,filter.category??null,pageSize,(page-1)*pageSize],
     );
-    return { items: q.rows };
+    const total = Number(q.rows[0]?.total ?? 0),
+      items = q.rows
+        .filter((row: any) => row.id !== null)
+        .map((row: any) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== "total"))),
+      totalPages = Math.ceil(total / pageSize);
+    return { items, page, pageSize, total, totalPages, hasNextPage: page < totalPages, hasPreviousPage: page > 1 };
   }
 
   async uploadSlip(

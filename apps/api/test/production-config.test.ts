@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { validateProductionConfig } from "../src/infrastructure/configuration/production-config.js";
 
@@ -56,4 +57,10 @@ test("production Telegram secrets and webhook must be strong and HTTPS", () => {
   assert.throws(() => validateProductionConfig(base), /TELEGRAM_WEBHOOK_URL/);
   assert.throws(() => validateProductionConfig({ ...base, TELEGRAM_WEBHOOK_URL: "http://example.test/hook" }), /HTTPS/);
   assert.equal(validateProductionConfig({ ...base, TELEGRAM_WEBHOOK_URL: "https://example.test/hook" }).telegramEnabled, true);
+});
+
+test("dashboard UI identifies Finance Control counters as live when a custom period is active", async () => {
+  const source = await readFile(new URL("../../../../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /filters\.dateFrom \|\| filters\.dateTo/);
+  assert.match(source, /Finance Control: current queue — live operational status, not date filtered\./);
 });

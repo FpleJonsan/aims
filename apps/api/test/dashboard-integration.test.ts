@@ -57,6 +57,28 @@ test("Day 9 dashboard reconciles authoritative financial truth without AI", asyn
     await db.onModuleDestroy();
   }
 });
+test("Finance Control counters stay live across historical ranges and declare their period semantics", async () => {
+  const db = new Postgres(), service = new DashboardService(db);
+  try {
+    const current = await service.summary(finance, { page: 1, pageSize: 25 }),
+      historical = await service.summary(finance, {
+        dateFrom: "1990-01-01",
+        dateTo: "1990-01-02",
+        page: 1,
+        pageSize: 25,
+      });
+    assert.deepEqual(historical.financeControl, current.financeControl);
+    assert.equal(
+      historical.period.semantics.financeControl,
+      "live current operational state; not restricted by selected historical date range",
+    );
+    assert.equal(historical.payments.total_paid, 0);
+    assert.deepEqual(historical.requests, {});
+    assert.deepEqual(historical.risk, {});
+  } finally {
+    await db.onModuleDestroy();
+  }
+});
 test("approval cycle averages each completed case once regardless of action count", async () => {
   const db = new Postgres();
   try {
