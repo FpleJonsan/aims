@@ -1,0 +1,45 @@
+# AIMS Production Gap Register
+
+Severity describes risk to a future real-data deployment. `Production blocker` does not imply a competition vulnerability.
+
+| ID | Area | Current state | Production requirement | Risk | Severity | Production blocker | Planned phase | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| PG-001 | Identity | Trusted-header contract exists, but no OIDC/proxy integration, signed assertion, expiry, secure session, or production logout | Corporate IdP integration with header-spoofing prevention and lifecycle controls | Identity impersonation or stale access if deployed as-is | HIGH | YES | P1-P2 | OPEN |
+| PG-002 | Authorization provisioning | Runtime enforcement is strong; production user/department/authority administration process is undefined | Approved identity mapping and authority joiner/mover/leaver workflow | Incorrect real-world business authority | HIGH | YES | P1-P2, P16 | OPEN |
+| PG-003 | Documents | Production rejects the local filesystem; no object adapter is wired | Private encrypted object storage with authorized access and reconciliation | Real evidence cannot be stored safely/durably | HIGH | YES | P3 | OPEN |
+| PG-004 | Malware | Scanner contract/tests exist; no production scanner or durable scan workflow is wired | Quarantine, scan, clean/reject, retry, audit and alert pipeline | Malicious evidence could become available | HIGH | YES | P4 | OPEN |
+| PG-005 | Secrets | Local env works; no selected runtime secret store or rotation runbook | Environment-separated secret manager, least privilege, rotation and audit | Credential exposure or uncontrolled rotation | HIGH | YES | P5 | OPEN |
+| PG-006 | PostgreSQL hosting | Local Docker server; production service/version/HA/TLS not selected | Managed or operated PostgreSQL with HA, TLS, monitoring, backups and tested compatibility | Database outage or insecure connection | HIGH | YES | P6 | OPEN |
+| PG-007 | DB role provisioning | Role design exists; production creation, ownership, credential rotation and audit are manual/undefined | Automated reviewed provisioning for app, Finance, Payment and migration roles | Trust-boundary misconfiguration | HIGH | YES | P6 | OPEN |
+| PG-008 | Migration safety | Immutable chain exists; no checksum manifest or production migration job; chain contains local fixture migrations | Validated production bootstrap/migration procedure that excludes synthetic data | Production pollution or partial schema deployment | HIGH | YES | P6, P17 | OPEN |
+| PG-009 | Redis | Environment placeholder only; no client or verified use | Decide whether Redis is needed; if used, private TLS/auth, HA and monitoring | Unnecessary dependency or unreliable job assumptions | MEDIUM | NO pending design | P7 | OPEN |
+| PG-010 | Workers | No independent worker/scheduler; PostgreSQL outbox exists | Supervised worker with leases, retries, poison/dead-letter policy, graceful shutdown and backlog metrics | Delayed/lost external notifications and operations | HIGH | YES where async features enabled | P7 | OPEN |
+| PG-011 | AI governance | Strict provider adapter and AI OFF exist; no approved provider/privacy/cost/timeout/circuit-breaker policy | Provider/model governance, data minimization, timeout, budgets, outage controls and rotation | Data leakage, cost spike, or request-path instability | HIGH | YES if AI ON; NO if launch AI OFF | P8 | OPEN |
+| PG-012 | Telegram | Hardened optional integration exists; production business need is unconfirmed | Disable for v1 or complete compliance, TLS, monitoring and rotation | Unsupported external channel | MEDIUM | NO if disabled | P9 | OPEN |
+| PG-013 | Logs | Safe failure filter and correlation IDs exist; console is the only sink | Central structured logging, retention, access control, redaction verification | Slow investigation or sensitive logging drift | HIGH | YES | P10 | OPEN |
+| PG-014 | Metrics/alerting | Health endpoints and some persisted operational data exist; no metrics exporter or alerts | Service, DB, queue/outbox, AI, control and payment metrics with on-call routing | Undetected failure or financial backlog | HIGH | YES | P10-P11 | OPEN |
+| PG-015 | Backup | Runbook states requirements; no configured backup evidence | Encrypted scheduled PostgreSQL and object backups/PITR with ownership and retention | Irrecoverable data loss | CRITICAL | YES | P12 | OPEN |
+| PG-016 | Restore/DR | No completed restore rehearsal, RPO or RTO | Isolated restore, document/hash validation, financial reconciliation and failover procedure | Backups may be unusable | CRITICAL | YES | P12 | OPEN |
+| PG-017 | Deployment | No API/worker container or infrastructure deployment definition; frontend hosting config only | Versioned artifacts, staging/prod topology, migration job and controlled promotion | Non-repeatable or insecure release | HIGH | YES | P13, P17 | OPEN |
+| PG-018 | TLS/network | No repository edge/TLS/private-network configuration | HTTPS/HSTS decision, trusted proxy, private DB/Redis/storage, firewall/security groups | Traffic interception or identity-header bypass | HIGH | YES | P13 | OPEN |
+| PG-019 | Rate/resource protection | Upload, pagination and export bounds exist; no edge/application rate policy | Usage-informed limits for auth, writes, upload, AI, exports and webhooks | Abuse, cost, or availability degradation | MEDIUM | YES before public exposure | P13-P15 | OPEN |
+| PG-020 | Performance | Strong correctness tests; no production load profile or load test | Capacity inputs, query/index analysis, pool budget and realistic load verification | Latency/backlog at real volume | MEDIUM | YES | P15 | OPEN |
+| PG-021 | Work Queue ceiling | Frontend traverses at most 10,000 authorized records per load (`RT-LOW-001`) | Redesign pagination/query only in performance phase with authority preserved | Future operational scalability | LOW | NO for competition; assess for production scale | P15 | ACCEPTED |
+| PG-022 | UAT | Synthetic UAT passes; no Finance stakeholder acceptance with real authority matrix | Staging UAT by all eight business personas with approved policies and data | Technically correct system may not meet business operations | HIGH | YES | P16 | OPEN |
+| PG-023 | CI/CD | No repository CI workflow, security scan, migration validation or staged deployment | Required gated pipeline and protected approvals | Regressions or unreviewed release | HIGH | YES | P13, P17 | OPEN |
+| PG-024 | Supply chain | Lockfile exists; no vulnerability/container scan, SBOM or base-image process | Lockfile enforcement, dependency and artifact scanning, update ownership | Vulnerable or unverifiable artifacts | MEDIUM | YES | P13-P14 | OPEN |
+| PG-025 | Release/rollback | Competition process is mature; production rollback and schema policy are not implemented | Staging RC, immutable tags/artifacts, rollback/forward-fix and emergency process | Unsafe recovery from bad release | HIGH | YES | P17-P18 | OPEN |
+| PG-026 | Bootstrap/migration data | Competition seed is guarded; production master/historical data strategy is undecided | Approved bootstrap/import with reconciliation and no synthetic identities | Incorrect opening balances or authorities | HIGH | YES | P6, P16-P18 | OPEN |
+| PG-027 | Data retention | No approved retention/legal-hold policy | Category-specific retention, archival and deletion rules that preserve financial obligations | Regulatory/privacy conflict | HIGH | YES | P3, P12, P19 | OPEN |
+| PG-028 | Support/incident response | Operational runbook exists; no approved on-call, SLA or incident command | Severity model, responders, communications and financial stop-the-line process | Prolonged or mishandled incident | HIGH | YES | P10, P19 | OPEN |
+| PG-029 | External AI privacy | Evidence controls exist; permissible real Finance data has not been approved | Legal/privacy review and provider agreement | Unauthorized disclosure of confidential data | HIGH | YES if AI ON | P8 | OPEN |
+| PG-030 | Environment model | Local, competition and production logic exist; staging is not implemented | Explicit staging isolation, identities, data and promotion controls | Production-only defects discovered too late | HIGH | YES | P1, P13, P17 | OPEN |
+
+## Risk summary
+
+- Critical: 2 — backup and restore/DR evidence.
+- High: 22 — primarily missing production capabilities and operational controls.
+- Medium: 5 — Redis decision, Telegram decision, rate/resource design, supply-chain maturity, and the documented performance ceiling.
+- Low: 1 — `RT-LOW-001`.
+
+The largest security risk is an incomplete trusted production identity/edge boundary. The largest financial-integrity risk is an untested restore or bootstrap that produces mismatched payment, ledger, commitment, document, or authority state. The largest operational risk is insufficient observability and ownership during database, storage, or worker failure.
