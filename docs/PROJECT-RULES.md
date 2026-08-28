@@ -1237,3 +1237,141 @@ If the review identifies a blocker:
 5. Immediately run a new read-only senior architecture review after the fixes.
 
 Never commit automatically. A READY TO COMMIT recommendation is not authorization to create the commit.
+
+
+==================================================
+21. MANDATORY FRONTEND UI/UX REVIEW GATE
+==================================================
+
+Rule ID: `AIMS-UX-001`
+
+Rule name: Mandatory Senior UI/UX Designer Review for Frontend Changes
+
+This rule applies to every AIMS development phase, productionization phase,
+bug fix, security change, refactor, maintenance task, and release patch.
+
+Trigger this rule whenever a change affects, or may reasonably affect:
+
+- frontend source code, routing presentation, navigation, or interaction behavior
+- pages, layouts, components, forms, tables, cards, dashboards, dialogs, or modals
+- notifications, loading, empty, error, disabled, read-only, or status states
+- user-facing wording, labels, typography, spacing, colors, icons, or design tokens
+- responsive/mobile presentation, accessibility, focus, keyboard behavior, or touch targets
+- action visibility, role/workspace presentation, or any Requester, Finance, Login,
+  Approval, Finance Control, Payment, Dashboard, or AI-related UI
+
+When uncertain whether a change affects frontend UX, perform the review.
+
+Required sequence:
+
+```text
+Implementation
+  -> Frontend tests
+  -> Build and typecheck
+  -> Rendered QA where applicable
+  -> STOP MODIFYING FRONTEND
+  -> Senior UI/UX Designer read-only review
+  -> PASS or FAIL
+  -> Phase exit gate
+```
+
+The review occurs after implementation and relevant verification, but before the
+phase is declared complete or READY TO COMMIT. It is strictly read-only. During
+the review, do not change code, CSS, components, copy, design tokens, business
+logic, or backend behavior, and do not make opportunistic improvements.
+
+Review the completed implementation as a real enterprise Finance product from
+the perspective of a Senior Product UI/UX Designer experienced in financial and
+workflow systems, information architecture, interaction and responsive design,
+accessibility, design systems, operational dashboards, and high-density business
+interfaces.
+
+Evaluate at minimum:
+
+- visual hierarchy and information architecture
+- navigation and workflow comprehension
+- interaction predictability and action hierarchy
+- Finance workflow and status semantics
+- design-system consistency
+- accessibility, including contrast, focus, labels, keyboard use, touch targets,
+  readable sizing, non-color meaning, and error communication
+- responsive behavior at desktop `1280x720` and mobile `390x844` where layout is affected
+- professional, consistent, actionable Finance microcopy
+- authority-boundary presentation
+
+The UI must not imply that:
+
+- Ready for Payment is equivalent to Paid
+- AI interpretation is authoritative
+- Approval is equivalent to Finance Control
+- Finance Control is equivalent to Payment
+- technical ADMIN grants Finance authority
+
+It must preserve the user's understanding that AI is advisory, Policy is
+deterministic, Approval is human/business authority, Finance Control is the final
+financial-readiness control, and Payment Recording records an externally
+completed payment.
+
+Classify findings as:
+
+- `CRITICAL`: could cause dangerous financial action, serious authority
+  misunderstanding, inaccessible critical functionality, or materially incorrect
+  interpretation of financial state.
+- `HIGH`: major usability, accessibility, workflow-comprehension, or visual-hierarchy
+  defect that blocks release.
+- `MEDIUM`: meaningful UX or design-consistency defect that normally requires
+  correction before production unless explicitly accepted.
+- `LOW`: minor polish or consistency issue without material workflow, authority,
+  accessibility, or financial-understanding impact.
+
+If any issue is discovered, report its ID, area, issue, impact, recommendation,
+severity, and file/line reference where available. Do not fix it during the review.
+Mark the review FAIL, mark READY TO COMMIT as NO, and stop. Corrections require a
+separately authorized implementation pass followed by tests, rendered QA, a new
+frontend freeze, and a new read-only review.
+
+The review may PASS only when `CRITICAL = 0`, `HIGH = 0`, and no unresolved issue
+makes the frontend unsafe, misleading, inaccessible for a critical workflow, or
+unsuitable for the current release gate. Document all MEDIUM and LOW findings and
+handle them under the current release policy.
+
+Whenever triggered, include:
+
+```text
+## Senior UI/UX Designer Review
+
+Frontend changes detected: YES
+Review mode: READ-ONLY
+Code changed during review: NO
+
+Visual Hierarchy: PASS / FAIL
+Information Architecture: PASS / FAIL
+Interaction Design: PASS / FAIL
+Finance Workflow Clarity: PASS / FAIL
+Status Semantics: PASS / FAIL
+Design System Consistency: PASS / FAIL
+Accessibility: PASS / FAIL
+Responsive UX: PASS / FAIL / NOT APPLICABLE
+Content / Microcopy: PASS / FAIL
+Authority Boundary Presentation: PASS / FAIL
+
+CRITICAL: [findings or NONE]
+HIGH: [findings or NONE]
+MEDIUM: [findings or NONE]
+LOW: [findings or NONE]
+
+SENIOR UI/UX REVIEW: PASS / FAIL
+FRONTEND RELEASE QUALITY: PASS / FAIL
+CODE CHANGED DURING REVIEW: NO
+```
+
+If no frontend behavior or presentation changed, report:
+
+```text
+Frontend changes detected: NO
+SENIOR UI/UX REVIEW: NOT REQUIRED
+```
+
+Do not perform a fake review merely to mark the gate PASS. When frontend changes
+exist, READY TO COMMIT must not be YES unless the frozen review has completed,
+`CRITICAL = 0`, `HIGH = 0`, and `SENIOR UI/UX REVIEW: PASS`.
