@@ -23,6 +23,7 @@ export class LocalIdentityController {
       throw new NotFoundException();
     }
 
+    const competitionMode = process.env.AIMS_DEMO_MODE === "true";
     const result = await this.database.pool.query<LocalIdentityRow>(`
       SELECT
         u.external_subject subject,
@@ -36,10 +37,14 @@ export class LocalIdentityController {
         EXISTS(SELECT 1 FROM finance_reporting_authorities ra WHERE ra.user_id=u.id AND ra.active) reporting
       FROM users u
       JOIN departments d ON d.id=u.department_id
-      WHERE u.active AND u.external_subject IN ('demo.requester','demo.finance','demo.approver')
+      WHERE u.active AND (
+        u.external_subject IN ('demo.requester','demo.finance','demo.approver')
+        OR ($1 AND u.external_subject LIKE 'competition.%')
+      )
       ORDER BY CASE u.external_subject
-        WHEN 'demo.requester' THEN 1 WHEN 'demo.finance' THEN 2 ELSE 3 END
-    `);
+        WHEN 'demo.requester' THEN 1 WHEN 'demo.finance' THEN 2 WHEN 'demo.approver' THEN 3 ELSE 4 END,
+        u.display_name
+    `, [competitionMode]);
 
     return {
       mode: "LOCAL_DEMO" as const,

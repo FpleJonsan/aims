@@ -27,6 +27,10 @@
     "test:payment:integration": "npm run test:payment:integration --workspace @aims/api",
     "test:uat:integration": "npm run test:uat:integration --workspace @aims/api",
     "test:telegram:live": "npm run test:telegram:live --workspace @aims/api"
+    ,"reset:competition": "npm run reset:competition --workspace @aims/api"
+    ,"seed:competition": "npm run seed:competition --workspace @aims/api"
+    ,"verify:competition-data": "npm run verify:competition-data --workspace @aims/api"
+    ,"dev:competition:api": "npm run dev:competition --workspace @aims/api"
   },
   "dependencies": {
     "next": "16.3.3",

@@ -23,6 +23,10 @@
     "test:policy:integration": "tsc -p tsconfig.test.json && node --env-file=../../.env --test .test-dist/test/policy-integration.test.js",
     "test:storage": "tsc -p tsconfig.test.json && node --test .test-dist/test/local-storage.test.js",
     "test:uat:integration": "tsc -p tsconfig.test.json && node --env-file=../../.env --test .test-dist/test/day10-uat-integration.test.js"
+    ,"reset:competition": "node --env-file=../../.env scripts/competition-reset.mjs"
+    ,"seed:competition": "npm run build && node --env-file=../../.env scripts/competition-seed.mjs"
+    ,"verify:competition-data": "node --env-file=../../.env scripts/competition-verify.mjs"
+    ,"dev:competition": "npm run build && node --env-file=../../.env scripts/competition-api.mjs"
   },
   "type": "module",
   "dependencies": {

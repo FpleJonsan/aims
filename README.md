@@ -1,5 +1,7 @@
 # AIMS
 
+Competition operators: see [Competition Demo Data](docs/competition-demo-data.md) for the isolated, production-guarded reset, seed, verification commands, identities, and scenario cheat sheet.
+
 AImazing Intelligent Management System — AI-Powered Payment & Finance Control.
 
 AIMS is an internal finance-control application. AI assists with evidence extraction, validation, risk analysis, and financial interpretation. Deterministic policy controls routing; authorized humans control approval, Final Finance Control, and recording an externally executed payment.
@@ -64,4 +66,3 @@ Live OpenAI and Telegram tests are explicit opt-in commands and never run as par
 ## Production boundary
 
 This repository is competition/local ready, but not deployable to production until trusted identity, production object storage with malware scanning, TLS, secrets management, backups and restore rehearsal, operational workers, and deployment-specific monitoring are supplied. Startup validation fails closed for unsafe production identity or local storage settings.
-
