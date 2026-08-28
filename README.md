@@ -1,6 +1,6 @@
 # AIMS
 
-Competition operators: see [Competition Demo Data](docs/competition-demo-data.md) for the isolated, production-guarded reset, seed, verification commands, identities, and scenario cheat sheet.
+Competition operators: use the [demo script](docs/competition-demo-script.md), [operator cheat sheet](docs/competition-demo-cheatsheet.md), and [demo data guide](docs/competition-demo-data.md).
 
 AImazing Intelligent Management System — AI-Powered Payment & Finance Control.
 

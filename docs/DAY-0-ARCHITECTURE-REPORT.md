@@ -22,7 +22,7 @@ Audit date: 2026-08-22 (Asia/Kuala_Lumpur). No secret values were read or printe
 
 | Area | Observed state | Assessment / action |
 |---|---|---|
-| Repository | `/Users/woonchunkit/Documents/ChatGPT/AIMS`; only `.git` exists | Greenfield; no existing code to migrate |
+| Repository | Repository root; only `.git` existed | Greenfield; no existing code to migrate |
 | Git | Branch `main`; no commits; clean working tree before this report | Create initial architecture/foundation commit only after Day 1 approval |
 | Repository instructions | No `AGENTS.md` found | No repository-specific conventions exist |
 | Node.js | `v24.5.0` at `/opt/homebrew/bin/node` | Compatible major, but old patch; pin a current Node 24 LTS patch in toolchain/container |
