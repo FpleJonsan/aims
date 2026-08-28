@@ -100,6 +100,22 @@ function KpiCard({ label, value, detail, tone = "neutral", icon, onClick }: { la
 }
 function formatMoney(currency:string|null,value:string|null){return value?`${currency??""} ${Number(value).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`.trim():"—"}
 function formatDate(value:string|null|undefined){if(!value)return "—";const date=/^\d{4}-\d{2}-\d{2}$/.test(value)?new Date(`${value}T00:00:00`):new Date(value);return new Intl.DateTimeFormat("en-MY",{day:"2-digit",month:"short",year:"numeric"}).format(date)}
+function financeNextAction(status:Item["status"]){
+  const actions:Record<Item["status"],{label:string;detail:string;tone:string}>={
+    DRAFT:{label:"Request capture in progress",detail:"The requester has not submitted this request to Finance.",tone:"neutral"},
+    SUBMITTED:{label:"Validation required",detail:"Review the request and supporting evidence before Finance analysis.",tone:"attention"},
+    VALIDATING:{label:"Finance analysis in progress",detail:"Complete Finance Context, risk assessment, and deterministic policy evaluation.",tone:"attention"},
+    NEEDS_CLARIFICATION:{label:"Clarification required",detail:"The request is waiting for information before the controlled workflow can continue.",tone:"attention"},
+    PENDING_APPROVAL:{label:"Waiting for authorized approval",detail:"Approval records a decision; it does not execute or record payment.",tone:"awaiting"},
+    APPROVED:{label:"Final Finance Control required",detail:"Approval is complete. Finance must verify the final control gate.",tone:"awaiting"},
+    FINANCE_CHECK:{label:"Final Finance Control in progress",detail:"Verify approval, evidence, financial position, payment details, and duplicate protection.",tone:"attention"},
+    FINANCE_HOLD:{label:"Finance Hold requires resolution",detail:"This is a controlled hold, not a rejection. Resolve the blocking check and recheck.",tone:"attention"},
+    READY_FOR_PAYMENT:{label:"Ready for external payment recording",detail:"Control is complete. AIMS has not executed a bank transfer and the request is not yet Paid.",tone:"awaiting"},
+    PAID:{label:"Payment completed and recorded",detail:"The external payment is recorded and the request is complete.",tone:"healthy"},
+    REJECTED:{label:"Request rejected",detail:"Review the decision history for the authoritative reason.",tone:"blocking"},
+    CANCELLED:{label:"Request cancelled",detail:"No further Finance action is required.",tone:"neutral"},
+  };return actions[status];
+}
 
 export default function Home() {
   const localLogin=process.env.NODE_ENV!=="production";
@@ -217,7 +233,14 @@ export default function Home() {
           items: Array<Record<string, unknown>>;
         }
       ).items : [];
-      const work = financeView==="work-queue" ? ((await api("/payment-requests?pageSize=50")) as {items:Item[]}).items : [];
+      const work:Item[]=[];
+      if(financeView==="work-queue"){
+        for(let page=1;page<=100;page+=1){
+          const batch=((await api(`/payment-requests?page=${page}&pageSize=100`)) as {items:Item[]}).items;
+          work.push(...batch.filter(item=>["SUBMITTED","VALIDATING","NEEDS_CLARIFICATION"].includes(item.status)));
+          if(batch.length<100)break;
+        }
+      }
       setItems(
         [
           ...work,
@@ -344,23 +367,17 @@ export default function Home() {
             <button onClick={()=>void initiate()}><span>＋</span>New Request</button>
             <button className={requesterPaymentOnly&&!selected?"active":""} onClick={()=>goRequester(false,true)}><span>◷</span>Payment Status</button>
           </>:<>
+            <small>FINANCE COMMAND CENTER</small>
             {session.capabilities.reporting&&<button className={financeView==="dashboard"?"active":""} onClick={()=>goFinance("dashboard")}><span>▦</span>Dashboard</button>}
+            <small>OPERATIONS</small>
             {session.capabilities.financeAnalysis&&<button className={financeView==="work-queue"&&!selected?"active":""} onClick={()=>goFinance("work-queue")}><span>☷</span>Work Queue</button>}
             {session.capabilities.approval&&<button className={financeView==="approvals"?"active":""} onClick={()=>goFinance("approvals")}><span>✓</span>Approval Inbox</button>}
             {session.capabilities.financeControl&&<button className={financeView==="finance-control"?"active":""} onClick={()=>goFinance("finance-control")}><span>◆</span>Finance Control</button>}
             {session.capabilities.payment&&<button className={financeView==="payment-queue"?"active":""} onClick={()=>goFinance("payment-queue")}><span>→</span>Payment Queue</button>}
             {(session.capabilities.payment||session.capabilities.reporting)&&<button className={financeView==="payment-history"?"active":""} onClick={()=>goFinance("payment-history")}><span>◷</span>Payment History</button>}
-            {session.capabilities.reporting&&<button className={financeView==="ai"?"active":""} onClick={()=>goFinance("ai")}><span>✦</span>AI Finance Intelligence</button>}
+            {session.capabilities.reporting&&<><small>ANALYTICS</small><button onClick={()=>goFinance("dashboard")}><span>◉</span>Budget &amp; Spending</button><button onClick={()=>goFinance("dashboard")}><span>↗</span>Reports</button><small>AI INTELLIGENCE</small><button className={financeView==="ai"?"active":""} onClick={()=>goFinance("ai")}><span>✦</span>Finance Watch &amp; Ask AIMS</button></>}
           </>}
         </nav>
-        {workspace==="finance"&&<nav aria-label="AIMS workflow stages" className="workflowNav">
-          <small>WORKFLOW</small>
-          {stages.slice(0,10).map((stage,index)=><span key={stage}><i>{String(index+1).padStart(2,"0")}</i>{stage}</span>)}
-        </nav>}
-        {workspace==="finance"&&session.capabilities.reporting&&<nav aria-label="Reporting navigation" className="reportingNav">
-          <small>REPORTING</small>
-          <span><i>↗</i>Reports</span><span><i>◉</i>Budget & Spending</span><span><i>✦</i>AI Finance Intelligence</span>
-        </nav>}
         <div className="userCard"><b>{profile.initials}</b><span><strong>{profile.name}</strong><small>{profile.department}</small><small>Current workspace: {workspace==="requester"?"Requester":"Finance"}</small></span></div>
         {session.workspaces.requester&&session.workspaces.finance&&<button className="workspaceSwitch" aria-label={`Switch from ${workspace} to ${workspace==="requester"?"Finance":"Requester"} workspace`} onClick={()=>switchWorkspace(workspace==="requester"?"finance":"requester")}>Switch to {workspace==="requester"?"Finance":"Requester"} Portal</button>}
         <button
@@ -410,7 +427,7 @@ export default function Home() {
             </div>
           )}
         </header>
-        {workspace==="finance"&&<div className="stageRail" aria-label="12-stage AIMS workflow">
+        {workspace==="finance"&&selected&&<div className="stageRail" aria-label="12-stage AIMS workflow">
           {stages.map((s, i) => (
             <div className={currentStage < 0 ? "available" : i < currentStage ? "completed" : i === currentStage ? "current" : "future"} key={s}>
               <span>{String(i + 1).padStart(2, "0")}</span>
@@ -451,7 +468,7 @@ export default function Home() {
           />
         ) : (
           <>
-            <List key={workspace==="requester"?(requesterPaymentOnly?"requester-payment":"requester-all"):`finance-${financeView}`} items={workspace==="requester"&&requesterPaymentOnly?items.filter(item=>item.status==="READY_FOR_PAYMENT"||item.status==="PAID"):items} open={open} empty={initiate} canCreate={workspace === "requester"&&!requesterPaymentOnly} requesterView={workspace==="requester"} paymentOnly={workspace==="requester"&&requesterPaymentOnly} api={workspace==="requester"?api:undefined}/>
+            <List key={workspace==="requester"?(requesterPaymentOnly?"requester-payment":"requester-all"):`finance-${financeView}`} items={workspace==="requester"&&requesterPaymentOnly?items.filter(item=>item.status==="READY_FOR_PAYMENT"||item.status==="PAID"):items} open={open} empty={initiate} canCreate={workspace === "requester"&&!requesterPaymentOnly} requesterView={workspace==="requester"} paymentOnly={workspace==="requester"&&requesterPaymentOnly} api={workspace==="requester"?api:undefined} financeView={workspace==="finance"?financeView:undefined}/>
             {workspace==="finance"&&session.capabilities.approval && approvalPagination && (
               <nav className="pagination" aria-label="Approval inbox pages">
                 <button aria-label="Previous approval page" disabled={!approvalPagination.hasPreviousPage} onClick={() => setApprovalPage((page) => Math.max(1, page - 1))}>Previous</button>
@@ -611,20 +628,25 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
           Finance Control: current queue — live operational status, not date filtered.
         </p>
       )}
-      <div className="sectionHeading"><div><small>FINANCIAL POSITION</small><h3>Live budget position</h3></div><span>Authoritative ledger</span></div>
+      <div className="sectionHeading"><div><small>A · FINANCIAL POSITION</small><h3>Live budget position</h3></div><AuthorityBadge>SYSTEM CALCULATED</AuthorityBadge></div>
       <div className="kpiGrid financialKpis">
-        <KpiCard icon="▤" label="Active budget" value={summary.financial.budget} detail="Live approved budget" tone="info" />
-        <KpiCard icon="↘" label="Actual spending" value={summary.financial.actual} detail="Authoritative ledger total" />
-        <KpiCard icon="◇" label="Active committed" value={summary.financial.committed} detail="Reserved by approvals" tone="warning" />
-        <KpiCard icon="◎" label="Available budget" value={summary.financial.available} detail={availableNegative?"Over committed":"Available to commit"} tone={availableNegative?"danger":"success"} />
+        <KpiCard icon="▤" label="Active budget" value={summary.financial.budget} detail="System calculated · live approved budget" tone="info" />
+        <KpiCard icon="↘" label="Actual spending" value={summary.financial.actual} detail="System calculated · authoritative ledger" />
+        <KpiCard icon="◇" label="Active committed" value={summary.financial.committed} detail="System calculated · active reservations" tone="warning" />
+        <KpiCard icon="◎" label="Available budget" value={summary.financial.available} detail={`System calculated · ${availableNegative?"over committed":"available to commit"}`} tone={availableNegative?"danger":"success"} />
       </div>
-      <div className="sectionHeading"><div><small>OPERATIONAL FINANCE</small><h3>Current control workload</h3></div><span>Live operations</span></div>
-      <div className="kpiGrid operationalKpis">
-        <KpiCard icon="✓" label="Paid" value={summary.payments.paid_amount} detail={`${summary.payments.total_paid} payment records`} tone="success" onClick={()=>drill("PAYMENT_HISTORY")} />
-        <KpiCard icon="→" label="Ready for payment" value={String(summary.financeControl.ready)} detail="Passed final control" tone="success" onClick={()=>drill("PAYMENT_QUEUE")} />
+      <div className="sectionHeading"><div><small>B · NEEDS ATTENTION</small><h3>Priorities requiring action</h3></div><span>Live operational state</span></div>
+      <div className="kpiGrid attentionKpis">
+        <KpiCard icon="▲" label="High / critical risk" value={String((summary.risk.HIGH??0)+(summary.risk.CRITICAL??0))} detail="Human final assessment · review risk" tone="danger" onClick={()=>drill("REPORTING_REQUESTS","RISK_ATTENTION")} />
+        <KpiCard icon="◷" label="Pending approval" value={String(summary.requests.PENDING_APPROVAL?.count??0)} detail="Awaiting authorized decision" tone="info" onClick={()=>drill("REPORTING_REQUESTS","PENDING_APPROVAL")} />
         <KpiCard icon="!" label="Finance holds" value={String(summary.financeControl.holds)} detail="Requires resolution" tone="warning" onClick={()=>drill("FINANCE_CONTROL")} />
-        <KpiCard icon="◷" label="Pending approval" value={String(summary.requests.PENDING_APPROVAL?.count??0)} detail="Awaiting authority" onClick={()=>drill("REPORTING_REQUESTS","PENDING_APPROVAL")} />
-        <KpiCard icon="▲" label="High / critical risk" value={String((summary.risk.HIGH??0)+(summary.risk.CRITICAL??0))} detail="Human final assessment" tone="danger" onClick={()=>drill("REPORTING_REQUESTS","RISK_ATTENTION")} />
+        <KpiCard icon="→" label="Ready for payment" value={String(summary.financeControl.ready)} detail="Awaiting external payment recording" tone="info" onClick={()=>drill("PAYMENT_QUEUE")} />
+      </div>
+      <div className="sectionHeading"><div><small>C · OPERATIONS</small><h3>Current Finance activity</h3></div><span>Controlled workflow</span></div>
+      <div className="kpiGrid operationsSummary">
+        <KpiCard icon="✓" label="Paid this period" value={summary.payments.paid_amount} detail={`${summary.payments.total_paid} immutable payment records`} tone="success" onClick={()=>drill("PAYMENT_HISTORY")} />
+        <KpiCard icon="☷" label="Requests processed" value={String(workflow.processed)} detail="Completed operational workload" tone="info" />
+        <KpiCard icon="◉" label="Average request to paid" value={workflow.avg_request_to_paid_seconds?`${Math.round(Number(workflow.avg_request_to_paid_seconds)/3600)} h`:"—"} detail="Measured processing time" />
       </div>
       <div className="dashboardGrid">
         <section className="card utilizationCard">
@@ -739,6 +761,7 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
       <section className="card topPayees"><header><div><small>TOP PAYEES</small><h3>Paid concentration</h3></div><button className="textButton" onClick={()=>drill("PAYMENT_HISTORY")}>View all →</button></header>
         {summary.vendors.length ? summary.vendors.slice(0,6).map((x:any,index:number)=><button className="payeeDrill" key={x.payee} onClick={()=>onDrill({view:"PAYMENT_HISTORY",filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),search:x.payee,status:"PAID"}})}><span className="rank">{String(index+1).padStart(2,"0")}</span><span><b title={x.payee}>{x.payee}</b><i style={{width:`${Math.max(3, vendorMaximum ? (numericAmount(x.amount)/vendorMaximum)*100 : 0)}%`}}/></span><strong>{x.amount}<small>{x.payment_count} payments</small></strong></button>):<div className="emptyState"><b>No payment records</b><span>No paid transactions exist in the selected period.</span></div>}
       </section>
+      <div className="sectionHeading"><div><small>D · INTELLIGENCE</small><h3>Advisory interpretation</h3></div><AuthorityBadge ai>AI ADVISORY</AuthorityBadge></div>
       <section className="card aiWatch">
         <header>
           <div>
@@ -1120,6 +1143,7 @@ function List({
   requesterView,
   paymentOnly=false,
   api,
+  financeView,
 }: {
   items: Item[];
   open: (id: string) => void;
@@ -1128,23 +1152,34 @@ function List({
   requesterView:boolean;
   paymentOnly?:boolean;
   api?:Api;
+  financeView?:FinanceView;
 }) {
   const [requesterFilters,setRequesterFilters]=useState({search:"",status:"",dateFrom:"",dateTo:""});
   const [requesterRows,setRequesterRows]=useState(items);
   useEffect(()=>{if(!requesterView||!api)return;let active=true;const base={pageSize:"100",...Object.fromEntries(Object.entries(requesterFilters).filter(([,value])=>value))};const paymentStatuses=requesterFilters.status?[requesterFilters.status]:["READY_FOR_PAYMENT","PAID"],work=paymentOnly?Promise.all(paymentStatuses.map(status=>api(`/requester/requests?${new URLSearchParams({...base,status}).toString()}`))).then(results=>results.flatMap(result=>(result as {items:Array<Record<string,unknown>>}).items)):api(`/requester/requests?${new URLSearchParams(base).toString()}`).then(result=>(result as {items:Array<Record<string,unknown>>}).items);void work.then(rows=>{if(active)setRequesterRows(rows.map(requesterListItem))}).catch(()=>undefined);return()=>{active=false}},[api,paymentOnly,requesterFilters,requesterView]);
   const visibleItems=requesterView?(paymentOnly?requesterRows.filter(item=>item.status==="READY_FOR_PAYMENT"||item.status==="PAID"):requesterRows):items;
+  const financeCopy=financeView?{
+    "work-queue":{eyebrow:"PRE-APPROVAL OPERATIONS",title:"Work Queue",description:"Finance work that still needs processing before Approval.",empty:"No Finance work pending"},
+    approvals:{eyebrow:"AUTHORIZED DECISIONS",title:"Approval Inbox",description:"Requests currently requiring your authorized approval.",empty:"No approvals require your action"},
+    "finance-control":{eyebrow:"FINAL GATE",title:"Finance Control",description:"Approved requests requiring final Finance verification.",empty:"No requests require Finance Control"},
+    "payment-queue":{eyebrow:"EXTERNAL PAYMENT RECORDING",title:"Payment Queue",description:"Approved and Finance-controlled requests ready for external payment recording.",empty:"No payments ready to record"},
+    "payment-history":{eyebrow:"PAYMENT RECORD",title:"Payment History",description:"Historical, read-only payment records.",empty:"No payments in the selected period"},
+    dashboard:{eyebrow:"FINANCE COMMAND CENTER",title:"Finance Dashboard",description:"Authoritative finance reporting.",empty:"No Finance data"},
+    ai:{eyebrow:"AI INTELLIGENCE",title:"Finance Watch & Ask AIMS",description:"Advisory interpretation of authorized evidence.",empty:"No AI insights generated"},
+  }[financeView]:null;
   return (
     <section className="card">
       <header>
         <div>
-          <small>{requesterView?(paymentOnly?"PAYMENT STATUS":"MY REQUESTS"):"AUTHORIZED WORK QUEUE"}</small>
-          <h2>{requesterView?(paymentOnly?"Ready and completed payments":"Payment requests"):"Current requests"}</h2>
+          <small>{requesterView?(paymentOnly?"PAYMENT STATUS":"MY REQUESTS"):(financeCopy?.eyebrow??"AUTHORIZED WORK QUEUE")}</small>
+          <h2>{requesterView?(paymentOnly?"Ready and completed payments":"Payment requests"):(financeCopy?.title??"Current requests")}</h2>
+          {!requesterView&&financeCopy&&<p className="queueDescription">{financeCopy.description}</p>}
         </div>
         <span>{visibleItems.length} records</span>
       </header>
       {requesterView&&<div className="requesterFilters" aria-label="Filter my requests"><label>Search<input value={requesterFilters.search} onChange={event=>setRequesterFilters(value=>({...value,search:event.target.value}))} placeholder="Ticket, payee or purpose"/></label><label>Status<select value={requesterFilters.status} onChange={event=>setRequesterFilters(value=>({...value,status:event.target.value}))}><option value="">All statuses</option>{Object.entries(requesterStatusPresentation).filter(([status])=>!paymentOnly||status==="READY_FOR_PAYMENT"||status==="PAID").map(([status,meta])=><option key={status} value={status}>{meta.label}</option>)}</select></label><label>From<input type="date" value={requesterFilters.dateFrom} onChange={event=>setRequesterFilters(value=>({...value,dateFrom:event.target.value}))}/></label><label>To<input type="date" value={requesterFilters.dateTo} onChange={event=>setRequesterFilters(value=>({...value,dateTo:event.target.value}))}/></label><button className="secondary" onClick={()=>setRequesterFilters({search:"",status:"",dateFrom:"",dateTo:""})}>Clear</button></div>}
       {visibleItems.length ? (
-        <div className={`table ${requesterView?"requesterRequestList":""}`}>
+        <div className={`table ${requesterView?"requesterRequestList":"financeQueueList"}`}>
           {visibleItems.map((x,index) => (
             <button className={requesterView&&requesterNeedsAction(x.status)?"requiresAction":""} key={`${x.id}-${index}`} onClick={() => open(x.id)}>
               <span className="ticket">
@@ -1153,19 +1188,20 @@ function List({
               <span>
                 <b>{x.payee ?? "Untitled request"}</b>
                 <small>{x.purpose ?? "Capture not completed"}</small>
+                {!requesterView&&<small>Due {formatDate(x.dueDate)} · Action: {financeNextAction(x.status).label}</small>}
                 {requesterView&&<small>{x.submittedAt?`Submitted ${formatDate(x.submittedAt)}`:"Not submitted to Finance"}</small>}
               </span>
               <span>{formatMoney(x.currency,x.amount)}</span>
               {x.humanFinalRisk && <span>Human risk: {x.humanFinalRisk}</span>}
               <span className="requestProgress"><StatusChip status={x.status}/>{requesterView&&<><small>Next owner: {requesterStatusPresentation[x.status].owner}</small><small>{requesterStatusPresentation[x.status].action}</small></>}</span>
               {requesterView&&<span>{formatDate(x.updatedAt)}<small>Updated</small></span>}
-              <strong>Open →</strong>
+              <strong>{requesterView?"Open":"Open Request"} →</strong>
             </button>
           ))}
         </div>
       ) : (
         <div className="empty">
-          <h3>{items.length?"No requests match these filters":paymentOnly?"No completed payments yet.":"You haven’t submitted any payment requests yet."}</h3>
+          <h3>{items.length?"No requests match these filters":requesterView?(paymentOnly?"No completed payments yet.":"You haven’t submitted any payment requests yet."):(financeCopy?.empty??"No Finance work pending")}</h3>
           <p>{items.length?"Clear or change the filters to see more requests.":paymentOnly?"Requests will appear here when they are ready for payment or paid.":"Create a request when you need Finance to process a payment."}</p>
           {canCreate && (
             <button className="primary" onClick={empty}>
@@ -1298,6 +1334,7 @@ function Editor({
     });
   }
   if(requesterView)return <RequesterRequestExperience item={item} form={form} field={field} fieldErrors={fieldErrors} busy={busy} notice={notice} submittedTicket={submittedTicket} confirming={confirming} setConfirming={setConfirming} save={save} reviewSubmission={reviewRequesterSubmission} confirmSubmission={confirmRequesterSubmission} upload={upload} remove={remove} api={api} changed={changed} back={back}/>;
+  const nextAction=financeNextAction(item.status);
   return (
     <section className="editor">
       <button className="back" onClick={back}>
@@ -1311,6 +1348,18 @@ function Editor({
         <StatusChip status={item.status}/>
       </header>
       {notice && <p className="notice">{notice}</p>}
+      <section className="financeRequestSummary" aria-label="Finance request summary">
+        <div><small>TICKET</small><b>{item.ticketNumber??"—"}</b></div><div><small>PAYEE</small><b>{item.payee??"—"}</b></div><div><small>AMOUNT</small><b>{formatMoney(item.currency,item.amount)}</b></div><div><small>DUE DATE</small><b>{formatDate(item.dueDate)}</b></div><div><small>CURRENT STATUS</small><StatusChip status={item.status}/></div>
+      </section>
+      <section className={`financeCurrentAction ${nextAction.tone}`} aria-labelledby="next-action-title">
+        <div><small>WHAT HAPPENS NEXT</small><h3 id="next-action-title">{nextAction.label}</h3><p>{nextAction.detail}</p></div><AuthorityBadge>{item.status==="PAID"?"PAYMENT RECORD":item.status==="FINANCE_HOLD"||item.status==="FINANCE_CHECK"?"FINANCE CONTROL":item.status==="PENDING_APPROVAL"?"APPROVER DECISION":"SYSTEM WORKFLOW"}</AuthorityBadge>
+      </section>
+      <section className="decisionContext" aria-label="Decision authority context">
+        <div><AuthorityBadge>SYSTEM CALCULATED</AuthorityBadge><b>Finance Context</b><span>Budget, actual, commitments, and projected position</span></div>
+        <div><AuthorityBadge ai>AI ADVISORY</AuthorityBadge><b>Specialist Analysis</b><span>Evidence-backed interpretation; never authoritative</span></div>
+        <div><AuthorityBadge>HUMAN DECISION</AuthorityBadge><b>Final Risk Assessment</b><span>{item.humanFinalRisk?`${item.humanFinalRisk} authoritative risk`:"Accountable human assessment"}</span></div>
+        <div><AuthorityBadge>POLICY DECISION</AuthorityBadge><b>Deterministic Policy</b><span>Rules and approval route remain system-controlled</span></div>
+      </section>
       {!requesterView&&item.status !== "DRAFT" && (
         <ValidationPanel item={item} user={user} api={api} changed={changed} />
       )}
@@ -1716,7 +1765,10 @@ function ValidationPanel({
         </div>
       )}
       {data.extractions?.map((value) => (
-        <pre key={value.id}>{JSON.stringify(value.extraction, null, 2)}</pre>
+        <section className="extractedFacts" key={value.id} aria-label="Extracted document information">
+          <small>EXTRACTED INFORMATION</small>
+          <dl>{Object.entries(value.extraction).slice(0,8).map(([key,fact])=><div key={key}><dt>{key.replaceAll("_"," ")}</dt><dd>{fact===null||fact===undefined?"Not found":typeof fact==="object"?"Structured evidence available":String(fact)}</dd></div>)}</dl>
+        </section>
       ))}
       {data.findings?.map((value) => (
         <article key={value.id}>
