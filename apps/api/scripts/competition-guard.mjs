@@ -3,9 +3,13 @@ import { spawnSync } from "node:child_process";
 
 export const COMPETITION_DB = process.env.COMPETITION_DATABASE_NAME ?? "aims_competition";
 
+export function isCompetitionEnvironment() {
+  return process.env.AIMS_ENVIRONMENT === "competition" || process.env.AIMS_DEMO_MODE === "true";
+}
+
 export function guardCompetition({ requireRuntimeUrls = false } = {}) {
   if (process.env.NODE_ENV === "production") throw new Error("Competition command refused: NODE_ENV is production.");
-  if (process.env.AIMS_DEMO_MODE !== "true") throw new Error("Competition command refused: AIMS_DEMO_MODE=true is required.");
+  if (!isCompetitionEnvironment()) throw new Error("Competition command refused: AIMS_ENVIRONMENT=competition is required.");
   if (COMPETITION_DB !== "aims_competition") throw new Error("Competition command refused: database name must be exactly aims_competition.");
   if (requireRuntimeUrls) {
     for (const name of ["DATABASE_URL", "FINANCE_DATABASE_URL", "PAYMENT_DATABASE_URL"]) {

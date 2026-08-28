@@ -28,10 +28,10 @@ Budget **MYR 500,000** − Actual **MYR 180,000** − Commitments **MYR 70,000**
 ## Pre-demo reset
 
 ```bash
-AIMS_DEMO_MODE=true npm run reset:competition
-AIMS_DEMO_MODE=true npm run seed:competition
-AIMS_DEMO_MODE=true npm run verify:competition-data
-AIMS_DEMO_MODE=true npm run dev:competition:api
+AIMS_ENVIRONMENT=competition npm run reset:competition
+AIMS_ENVIRONMENT=competition npm run seed:competition
+AIMS_ENVIRONMENT=competition npm run verify:competition-data
+AIMS_ENVIRONMENT=competition npm run dev:competition:api
 npm run dev
 ```
 

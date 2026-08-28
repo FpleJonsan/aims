@@ -21,7 +21,7 @@ try {
     (SELECT count(*) FROM finance_reporting_authorities WHERE user_id=$1) count`, ["c1000000-0000-4000-8000-000000000008"]);
   const required = new Map(states.rows.map((row)=>[row.status,row.count]));
   const failures=[];
-  if (identities.rows[0].count < 8) failures.push("required demo identities missing");
+  if (identities.rows[0].count < 8) failures.push("required competition identities missing");
   if (!required.get("PENDING_APPROVAL")) failures.push("pending approval scenario missing");
   if (!required.get("NEEDS_CLARIFICATION")) failures.push("clarification scenario missing");
   if (!required.get("READY_FOR_PAYMENT")) failures.push("ready for payment scenario missing");

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { defaultFinanceView, routeForSession, safeInternalPath, type SessionEntitlements } from "../app/lib/session-ux.ts";
 import { clarificationActionable, friendlyActivity, requesterActivityVisible, requesterNeedsAction, requesterStatusPresentation } from "../app/lib/requester-presentation.ts";
@@ -64,4 +65,12 @@ test("stale and superseded clarifications are non-actionable",()=>{
   assert.equal(clarificationActionable("OPEN"),true);
   assert.equal(clarificationActionable("RESPONDED"),false);
   assert.equal(clarificationActionable("SUPERSEDED"),false);
+});
+
+test("competition login uses product wording without demo or development presentation",async()=>{
+  const source=await readFile(new URL("../app/page.tsx",import.meta.url),"utf8");
+  assert.match(source,/COMPETITION ENVIRONMENT/);
+  assert.match(source,/Welcome to AIMS/);
+  assert.match(source,/Select your identity to continue\./);
+  assert.doesNotMatch(source,/DEMO LOGIN|Demo Mode|Demo System|Synthetic Login|LOCAL DEVELOPMENT|Local development only|approved demo identities/i);
 });

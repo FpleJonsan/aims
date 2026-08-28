@@ -8,29 +8,41 @@ const requester:Principal={id:"10000000-0000-4000-8000-000000000001",departmentI
 
 test("local login identities come from the backend and expose only safe context",async()=>{
   const previous=process.env.NODE_ENV;
+  const previousEnvironment=process.env.AIMS_ENVIRONMENT;
   process.env.NODE_ENV="development";
+  process.env.AIMS_ENVIRONMENT="competition";
+  let competitionFlag:unknown;
   try {
-    const controller=new LocalIdentityController({pool:{query:async()=>({rows:[{
+    const controller=new LocalIdentityController({pool:{query:async(_sql:string,values:unknown[])=>{competitionFlag=values[0];return({rows:[{
       subject:"demo.requester",display_name:"Demo Requester",department:"Operations",requester:true,
       finance_analysis:false,approval:false,finance_control:false,payment:false,reporting:false,
-    }]})}} as never);
+    }]})}}} as never);
     const result=await controller.list();
+    assert.equal(result.mode,"COMPETITION");
+    assert.equal(competitionFlag,true);
     assert.deepEqual(result.identities,[{subject:"demo.requester",displayName:"Demo Requester",department:"Operations",persona:"Requester",workspaces:["Requester"]}]);
     const raw=JSON.stringify(result);
     for(const restricted of ["authorityId","amountLimit","databaseRole","executorRole"]) assert.equal(raw.includes(restricted),false);
   } finally {
     if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+    if(previousEnvironment===undefined)delete process.env.AIMS_ENVIRONMENT;else process.env.AIMS_ENVIRONMENT=previousEnvironment;
   }
 });
 
 test("production does not expose the local identity catalogue",async()=>{
   const previous=process.env.NODE_ENV;
+  const previousEnvironment=process.env.AIMS_ENVIRONMENT;
+  const previousAlias=process.env.AIMS_DEMO_MODE;
   process.env.NODE_ENV="production";
+  process.env.AIMS_ENVIRONMENT="competition";
+  process.env.AIMS_DEMO_MODE="true";
   try {
     const controller=new LocalIdentityController({} as never);
     await assert.rejects(()=>controller.list(),/Not Found/);
   } finally {
     if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+    if(previousEnvironment===undefined)delete process.env.AIMS_ENVIRONMENT;else process.env.AIMS_ENVIRONMENT=previousEnvironment;
+    if(previousAlias===undefined)delete process.env.AIMS_DEMO_MODE;else process.env.AIMS_DEMO_MODE=previousAlias;
   }
 });
 

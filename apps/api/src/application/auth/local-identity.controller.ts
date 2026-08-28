@@ -23,7 +23,7 @@ export class LocalIdentityController {
       throw new NotFoundException();
     }
 
-    const competitionMode = process.env.AIMS_DEMO_MODE === "true";
+    const competitionMode = process.env.AIMS_ENVIRONMENT === "competition" || process.env.AIMS_DEMO_MODE === "true";
     const result = await this.database.pool.query<LocalIdentityRow>(`
       SELECT
         u.external_subject subject,
@@ -38,7 +38,8 @@ export class LocalIdentityController {
       FROM users u
       JOIN departments d ON d.id=u.department_id
       WHERE u.active AND (
-        u.external_subject IN ('demo.requester','demo.finance','demo.approver')
+        u.external_subject IN ('demo.requester','demo.finance')
+        OR (NOT $1 AND u.external_subject='demo.approver')
         OR ($1 AND u.external_subject LIKE 'competition.%')
       )
       ORDER BY CASE u.external_subject
@@ -47,7 +48,7 @@ export class LocalIdentityController {
     `, [competitionMode]);
 
     return {
-      mode: "LOCAL_DEMO" as const,
+      mode: competitionMode ? "COMPETITION" as const : "LOCAL" as const,
       identities: result.rows.map((row) => {
         const finance = row.finance_analysis || row.approval || row.finance_control || row.payment || row.reporting;
         const persona = row.requester && finance ? "Requester & Finance" : row.requester ? "Requester" : row.approval && !row.finance_analysis ? "Approver" : "Finance Manager";

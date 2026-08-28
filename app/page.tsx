@@ -1072,7 +1072,7 @@ function Login({ onLogin,local,message,onRetry }: { onLogin:(id:string)=>void;lo
     void fetch(`${API}/auth/local-identities`).then(async response=>{
       if(!response.ok)throw Error("Local identity service unavailable");
       return response.json() as Promise<{mode:string;identities:LocalIdentity[]}>;
-    }).then(result=>setIdentities(result.identities)).catch(()=>setIdentityError("Unable to load approved demo identities. Check that the AIMS API is running." )).finally(()=>setLoading(false));
+    }).then(result=>setIdentities(result.identities)).catch(()=>setIdentityError("Unable to load available identities. Check that the AIMS API is running." )).finally(()=>setLoading(false));
   },[local]);
   useEffect(()=>{void Promise.resolve().then(loadIdentities)},[loadIdentities]);
   return (
@@ -1098,19 +1098,19 @@ function Login({ onLogin,local,message,onRetry }: { onLogin:(id:string)=>void;lo
         <div className="loginCard">
           <header>
             <span className="loginLock" aria-hidden="true">A</span>
-            <div><small>{local?"LOCAL DEVELOPMENT / DEMO LOGIN":"ORGANIZATION SIGN-IN"}</small><h2>Sign in to AIMS</h2></div>
+            <div><small>{local?"COMPETITION ENVIRONMENT":"ORGANIZATION SIGN-IN"}</small><h2>{local?"Welcome to AIMS":"Sign in to AIMS"}</h2></div>
           </header>
-          <p>{local?"Choose a backend-approved synthetic identity. This selector is a local development adapter, not production authentication.":"AIMS uses your organization’s trusted identity provider. No local or fallback identity selector is available in production."}</p>
+          <p>{local?"Select your identity to continue.":"AIMS uses your organization’s trusted identity provider. No local or fallback identity selector is available in production."}</p>
           {message&&<p className="authMessage" role="status" aria-live="polite">{message}</p>}
           {local?<>
-            {loading?<div className="identityLoading" aria-live="polite">Loading approved demo identities…</div>:identityError?<div className="identityError" role="alert"><span>{identityError}</span><button onClick={loadIdentities}>Retry</button></div>:<div className="roleChoices" aria-label="Approved local demo identities">
+            {loading?<div className="identityLoading" aria-live="polite">Loading available identities…</div>:identityError?<div className="identityError" role="alert"><span>{identityError}</span><button onClick={loadIdentities}>Retry</button></div>:<div className="roleChoices" aria-label="Available competition identities">
               {identities.map(identity=><button key={identity.subject} onClick={()=>onLogin(identity.subject)}>
                 <span className="roleIcon" aria-hidden="true">{identity.persona.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase()}</span>
                 <span><b>{identity.persona}</b><small>{identity.displayName} · {identity.department}</small><small>{identity.workspaces.join(" + ")} workspace{identity.workspaces.length===1?"":"s"}</small></span>
                 <strong aria-hidden="true">→</strong>
               </button>)}
             </div>}
-            <div className="localAccessNote"><b>Local development only</b><span>Identity and authority are verified by the API. Frontend labels never grant access.</span></div>
+            <div className="localAccessNote"><b>Controlled competition access</b><span>Identity and authority are verified by AIMS. Displayed roles never grant access.</span></div>
           </>:<div className="productionAccess"><span>Secure identity proxy required</span><button className="primary" onClick={onRetry}>Check organization session</button></div>}
         </div>
         <footer>Authorized access only · Activity is auditable</footer>

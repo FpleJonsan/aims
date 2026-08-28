@@ -1,18 +1,18 @@
 # AIMS Competition Demo Data
 
-This dataset is an isolated, synthetic competition workspace. It uses the database `aims_competition`; the reset and seed commands refuse production and require `AIMS_DEMO_MODE=true`. It never resets the normal `aims` database.
+This dataset is an isolated competition workspace containing fictional records. It uses the database `aims_competition`; reset and seed refuse production and require `AIMS_ENVIRONMENT=competition`. It never resets the normal `aims` database.
 
 ## Rebuild
 
 PostgreSQL and Redis must already be running. From the repository root:
 
 ```bash
-AIMS_DEMO_MODE=true npm run reset:competition
-AIMS_DEMO_MODE=true npm run seed:competition
-AIMS_DEMO_MODE=true npm run verify:competition-data
+AIMS_ENVIRONMENT=competition npm run reset:competition
+AIMS_ENVIRONMENT=competition npm run seed:competition
+AIMS_ENVIRONMENT=competition npm run verify:competition-data
 ```
 
-Reset-before-seed is intentional. A second seed without reset is refused, preventing duplicate budgets, payments, ledger entries, commitments, and approvals. Start the guarded competition API with `AIMS_DEMO_MODE=true npm run dev:competition:api`. It reuses credentials from `.env` but forcibly targets `aims_competition`; the normal URLs in `.env` are not modified.
+Reset-before-seed is intentional. A second seed without reset is refused, preventing duplicate budgets, payments, ledger entries, commitments, and approvals. Start the guarded competition API with `AIMS_ENVIRONMENT=competition npm run dev:competition:api`. It reuses credentials from `.env` but forcibly targets `aims_competition`; the normal URLs in `.env` are not modified. `AIMS_DEMO_MODE=true` remains a deprecated local compatibility alias for this release.
 
 ## Demo identities
 
