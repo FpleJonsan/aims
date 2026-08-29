@@ -15,14 +15,30 @@ test("local login identities come from the backend and expose only safe context"
   try {
     const controller=new LocalIdentityController({pool:{query:async(_sql:string,values:unknown[])=>{competitionFlag=values[0];return({rows:[{
       subject:"demo.requester",display_name:"Demo Requester",department:"Operations",requester:true,
-      finance_analysis:false,approval:false,finance_control:false,payment:false,reporting:false,
+      finance_analysis:false,approval:false,finance_control:false,payment:false,reporting:false,policy_admin:false,
     }]})}}} as never);
     const result=await controller.list();
     assert.equal(result.mode,"COMPETITION");
     assert.equal(competitionFlag,true);
-    assert.deepEqual(result.identities,[{subject:"demo.requester",displayName:"Demo Requester",department:"Operations",persona:"Requester",workspaces:["Requester"]}]);
+    assert.deepEqual(result.identities,[{subject:"demo.requester",displayName:"Amelia Tan",department:"Operations",persona:"Requester",workspaces:["Requester"]}]);
     const raw=JSON.stringify(result);
     for(const restricted of ["authorityId","amountLimit","databaseRole","executorRole"]) assert.equal(raw.includes(restricted),false);
+  } finally {
+    if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+    if(previousEnvironment===undefined)delete process.env.AIMS_ENVIRONMENT;else process.env.AIMS_ENVIRONMENT=previousEnvironment;
+  }
+});
+
+test("Technical Administrator has a non-operational persona and no workspace or business authority",async()=>{
+  const previous=process.env.NODE_ENV, previousEnvironment=process.env.AIMS_ENVIRONMENT;
+  process.env.NODE_ENV="development";process.env.AIMS_ENVIRONMENT="competition";
+  try {
+    const controller=new LocalIdentityController({pool:{query:async()=>({rows:[{
+      subject:"competition.admin",display_name:"Technical Administrator",department:"Finance",requester:false,
+      finance_analysis:false,approval:false,finance_control:false,payment:false,reporting:false,policy_admin:true,
+    }]})}} as never);
+    const result=await controller.list();
+    assert.deepEqual(result.identities,[{subject:"competition.admin",displayName:"Technical Administrator",department:"Finance",persona:"Technical Administrator",workspaces:[]}]);
   } finally {
     if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
     if(previousEnvironment===undefined)delete process.env.AIMS_ENVIRONMENT;else process.env.AIMS_ENVIRONMENT=previousEnvironment;
@@ -100,6 +116,23 @@ test("workspace bootstrap derives capabilities from authoritative tables",async(
   assert.deepEqual(result.workspaces,{requester:true,finance:true});
   assert.equal(result.capabilities.approval,true);
   assert.equal(result.capabilities.reporting,true);
+});
+
+test("competition session presentation replaces legacy demo names without changing identity or authority",async()=>{
+  const previousEnvironment=process.env.AIMS_ENVIRONMENT;
+  process.env.AIMS_ENVIRONMENT="competition";
+  try {
+    const db={pool:{query:async(sql:string)=>sql.includes("FROM users u JOIN departments")
+      ?{rowCount:1,rows:[{external_subject:"demo.finance",email:"finance@aims.local",display_name:"Demo Finance",department_name:"Finance"}]}
+      :{rowCount:1,rows:[{finance_analysis:true,approval:false,finance_control:false,payment:false,reporting:false,policy_admin:false}]}}};
+    const result=await new PortalService(db as never).session({...requester,roles:["FINANCE"]});
+    assert.equal(result.user.subject,"demo.finance");
+    assert.equal(result.user.displayName,"Daniel Lim");
+    assert.deepEqual(result.workspaces,{requester:false,finance:true});
+    assert.equal(result.capabilities.approval,false);
+  } finally {
+    if(previousEnvironment===undefined)delete process.env.AIMS_ENVIRONMENT;else process.env.AIMS_ENVIRONMENT=previousEnvironment;
+  }
 });
 
 test("ADMIN-only identity does not receive requester or Finance workspace",async()=>{

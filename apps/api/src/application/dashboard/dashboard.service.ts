@@ -80,19 +80,28 @@ export class DashboardService {
       methods,
       vendors,
     ] = await Promise.all([
-      this.db.pool.query<{ budget: string; actual: string; committed: string }>(
-        `SELECT COALESCE(sum(bv.revised_amount_minor),0)::bigint budget,
-COALESCE((SELECT sum(le.amount_minor)FROM financial_ledger_entries le JOIN budgets lb ON lb.id=le.budget_id WHERE lb.status='ACTIVE' AND($1::uuid[] IS NULL OR lb.department_id=ANY($1))AND($2::text IS NULL OR lb.category=$2)),0)::bigint actual,
-COALESCE((SELECT sum(bc.amount_minor)FROM budget_commitments bc JOIN budgets cb ON cb.id=bc.budget_id WHERE bc.status='ACTIVE' AND cb.status='ACTIVE' AND($1::uuid[] IS NULL OR cb.department_id=ANY($1))AND($2::text IS NULL OR cb.category=$2)),0)::bigint committed
-FROM budgets b JOIN budget_versions bv ON bv.budget_id=b.id AND bv.status='ACTIVE' WHERE b.status='ACTIVE' AND($1::uuid[] IS NULL OR b.department_id=ANY($1))AND($2::text IS NULL OR b.category=$2)`,
+      this.db.pool.query<{ currency: string; budget: string; actual: string; committed: string }>(
+        `WITH components AS(
+          SELECT b.currency,bv.revised_amount_minor::bigint budget,0::bigint actual,0::bigint committed
+          FROM budgets b JOIN budget_versions bv ON bv.budget_id=b.id AND bv.status='ACTIVE'
+          WHERE b.status='ACTIVE' AND($1::uuid[] IS NULL OR b.department_id=ANY($1))AND($2::text IS NULL OR b.category=$2)
+          UNION ALL
+          SELECT le.currency,0::bigint,le.amount_minor::bigint,0::bigint
+          FROM financial_ledger_entries le JOIN budgets b ON b.id=le.budget_id
+          WHERE b.status='ACTIVE' AND($1::uuid[] IS NULL OR b.department_id=ANY($1))AND($2::text IS NULL OR b.category=$2)
+          UNION ALL
+          SELECT bc.currency,0::bigint,0::bigint,bc.amount_minor::bigint
+          FROM budget_commitments bc JOIN budgets b ON b.id=bc.budget_id
+          WHERE bc.status='ACTIVE' AND b.status='ACTIVE' AND($1::uuid[] IS NULL OR b.department_id=ANY($1))AND($2::text IS NULL OR b.category=$2)
+        )SELECT currency,sum(budget)::bigint budget,sum(actual)::bigint actual,sum(committed)::bigint committed FROM components GROUP BY currency ORDER BY currency`,
         [ds, category],
       ),
       this.db.pool.query<Row>(
-        `SELECT count(*)::int total_paid,COALESCE(sum(amount_minor),0)::bigint paid_amount,count(*)FILTER(WHERE payment_date>=date_trunc('month',current_date))::int paid_this_month,COALESCE(sum(amount_minor)FILTER(WHERE payment_date>=date_trunc('month',current_date)),0)::bigint paid_amount_this_month FROM payments WHERE($1::uuid[] IS NULL OR department_id=ANY($1))AND($2::text IS NULL OR category=$2)AND($3::date IS NULL OR payment_date>=$3)AND($4::date IS NULL OR payment_date<=$4)`,
+        `SELECT currency,count(*)::int total_paid,COALESCE(sum(amount_minor),0)::bigint paid_amount,count(*)FILTER(WHERE payment_date>=date_trunc('month',current_date))::int paid_this_month,COALESCE(sum(amount_minor)FILTER(WHERE payment_date>=date_trunc('month',current_date)),0)::bigint paid_amount_this_month FROM payments WHERE($1::uuid[] IS NULL OR department_id=ANY($1))AND($2::text IS NULL OR category=$2)AND($3::date IS NULL OR payment_date>=$3)AND($4::date IS NULL OR payment_date<=$4)GROUP BY currency ORDER BY currency`,
         [ds, category, from, to],
       ),
-      this.db.pool.query<{ status: string; count: number; amount: string }>(
-        `SELECT status,count(*)::int count,COALESCE(sum((amount*100)::bigint),0)::bigint amount FROM payment_requests WHERE($1::uuid[] IS NULL OR department_id=ANY($1))AND($2::text IS NULL OR category=$2)AND($3::date IS NULL OR submitted_at::date>=$3)AND($4::date IS NULL OR submitted_at::date<=$4)GROUP BY status`,
+      this.db.pool.query<{ status: string; currency: string; count: number; amount: string }>(
+        `SELECT status,currency,count(*)::int count,COALESCE(sum((amount*100)::bigint),0)::bigint amount FROM payment_requests WHERE($1::uuid[] IS NULL OR department_id=ANY($1))AND($2::text IS NULL OR category=$2)AND($3::date IS NULL OR submitted_at::date>=$3)AND($4::date IS NULL OR submitted_at::date<=$4)GROUP BY status,currency ORDER BY status,currency`,
         [ds, category, from, to],
       ),
       this.db.pool.query<{ final_risk: string; count: number }>(
@@ -108,19 +117,23 @@ FROM budgets b JOIN budget_versions bv ON bv.budget_id=b.id AND bv.status='ACTIV
         [ds, category],
       ),
       this.db.pool.query<Row>(
-        `SELECT payment_method,count(*)::int count,sum(amount_minor)::bigint amount FROM payments WHERE($1::uuid[] IS NULL OR department_id=ANY($1))AND($2::text IS NULL OR category=$2)AND($3::date IS NULL OR payment_date>=$3)AND($4::date IS NULL OR payment_date<=$4)GROUP BY payment_method ORDER BY amount DESC`,
+        `SELECT payment_method,currency,count(*)::int count,sum(amount_minor)::bigint amount FROM payments WHERE($1::uuid[] IS NULL OR department_id=ANY($1))AND($2::text IS NULL OR category=$2)AND($3::date IS NULL OR payment_date>=$3)AND($4::date IS NULL OR payment_date<=$4)GROUP BY payment_method,currency ORDER BY currency,amount DESC`,
         [ds, category, from, to],
       ),
       this.db.pool.query<Row>(
-        `SELECT payee,count(*)::int payment_count,sum(amount_minor)::bigint amount FROM payments WHERE($1::uuid[] IS NULL OR department_id=ANY($1))AND($2::text IS NULL OR category=$2)AND($3::date IS NULL OR payment_date>=$3)AND($4::date IS NULL OR payment_date<=$4)GROUP BY payee ORDER BY amount DESC LIMIT 20`,
+        `SELECT payee,currency,count(*)::int payment_count,sum(amount_minor)::bigint amount FROM payments WHERE($1::uuid[] IS NULL OR department_id=ANY($1))AND($2::text IS NULL OR category=$2)AND($3::date IS NULL OR payment_date>=$3)AND($4::date IS NULL OR payment_date<=$4)GROUP BY payee,currency ORDER BY currency,amount DESC,payee LIMIT 100`,
         [ds, category, from, to],
       ),
     ]);
-    const f = financial.rows[0],
-      budget = BigInt(f.budget),
-      actual = BigInt(f.actual),
-      committed = BigInt(f.committed),
-      available = budget - actual - committed;
+    const financialPositions = financial.rows.map((f) => {
+      const budget = BigInt(f.budget), actual = BigInt(f.actual), committed = BigInt(f.committed), available = budget - actual - committed;
+      return {currency:f.currency,budget:money(budget),actual:money(actual),committed:money(committed),available:money(available),utilisationBasisPoints:budget>0n?Number(((budget-available)*10000n)/budget):null};
+    });
+    const requestSummary:Record<string,{count:number;amounts:Array<{currency:string;amount:string}>}>={};
+    for(const row of requests.rows){
+      const entry=requestSummary[row.status]??={count:0,amounts:[]};
+      entry.count+=row.count;entry.amounts.push({currency:row.currency,amount:money(row.amount)});
+    }
     return {
       analyticsVersion: FINANCE_ANALYTICS_VERSION,
       dataSnapshotAsOf: new Date().toISOString(),
@@ -139,28 +152,15 @@ FROM budgets b JOIN budget_versions bv ON bv.budget_id=b.id AND bv.status='ACTIV
             "live current operational state; not restricted by selected historical date range",
         },
       },
-      financial: {
-        budget: money(budget),
-        actual: money(actual),
-        committed: money(committed),
-        available: money(available),
-        utilisationBasisPoints:
-          budget > 0n ? Number(((budget - available) * 10000n) / budget) : null,
-      },
+      financialPositions,
       payments: {
-        total_paid: Number(payments.rows[0].total_paid),
-        paid_this_month: Number(payments.rows[0].paid_this_month),
-        paid_amount: money(payments.rows[0].paid_amount!),
-        paid_amount_this_month: money(payments.rows[0].paid_amount_this_month!),
+        total_paid: payments.rows.reduce((total,row)=>total+Number(row.total_paid),0),
+        paid_this_month: payments.rows.reduce((total,row)=>total+Number(row.paid_this_month),0),
+        amounts: payments.rows.map(row=>({currency:String(row.currency),paidAmount:money(row.paid_amount!),paidAmountThisMonth:money(row.paid_amount_this_month!)})),
         methods: methods.rows.map(amountRow),
       },
       vendors: vendors.rows.map(amountRow),
-      requests: Object.fromEntries(
-        requests.rows.map((x) => [
-          x.status,
-          { count: x.count, amount: money(x.amount) },
-        ]),
-      ),
+      requests: requestSummary,
       risk: Object.fromEntries(risk.rows.map((x) => [x.final_risk, x.count])),
       approval: approval.rows[0],
       financeControl: control.rows[0],
@@ -170,7 +170,7 @@ FROM budgets b JOIN budget_versions bv ON bv.budget_id=b.id AND bv.status='ACTIV
     const s = await this.scope(actor, input.departmentId),
       [from, to] = this.range(input);
     const q = await this.db.pool.query<Row>(
-      `WITH actuals AS(SELECT budget_id,sum(amount_minor)::bigint amount FROM financial_ledger_entries GROUP BY budget_id),commitments AS(SELECT budget_id,sum(amount_minor)::bigint amount FROM budget_commitments WHERE status='ACTIVE' GROUP BY budget_id),payment_stats AS(SELECT department_id,category,count(*)::int payment_count,sum(amount_minor)::bigint paid_amount FROM payments WHERE($3::date IS NULL OR payment_date>=$3)AND($4::date IS NULL OR payment_date<=$4)GROUP BY department_id,category)SELECT b.department_id,d.name department,b.category,b.cost_centre,b.currency,bv.revised_amount_minor budget,COALESCE(a.amount,0)::bigint actual,COALESCE(c.amount,0)::bigint committed,COALESCE(ps.payment_count,0)::int payment_count,COALESCE(ps.paid_amount,0)::bigint paid_amount FROM budgets b JOIN departments d ON d.id=b.department_id JOIN budget_versions bv ON bv.budget_id=b.id AND bv.status='ACTIVE' LEFT JOIN actuals a ON a.budget_id=b.id LEFT JOIN commitments c ON c.budget_id=b.id LEFT JOIN payment_stats ps ON ps.department_id=b.department_id AND ps.category=b.category WHERE b.status='ACTIVE' AND($1::uuid[] IS NULL OR b.department_id=ANY($1))AND($2::text IS NULL OR b.category=$2)ORDER BY d.name,b.category LIMIT 100`,
+      `WITH actuals AS(SELECT budget_id,currency,sum(amount_minor)::bigint amount FROM financial_ledger_entries GROUP BY budget_id,currency),commitments AS(SELECT budget_id,currency,sum(amount_minor)::bigint amount FROM budget_commitments WHERE status='ACTIVE' GROUP BY budget_id,currency),payment_stats AS(SELECT department_id,category,currency,count(*)::int payment_count,sum(amount_minor)::bigint paid_amount FROM payments WHERE($3::date IS NULL OR payment_date>=$3)AND($4::date IS NULL OR payment_date<=$4)GROUP BY department_id,category,currency)SELECT b.department_id,d.name department,b.category,b.cost_centre,b.currency,bv.revised_amount_minor budget,COALESCE(a.amount,0)::bigint actual,COALESCE(c.amount,0)::bigint committed,COALESCE(ps.payment_count,0)::int payment_count,COALESCE(ps.paid_amount,0)::bigint paid_amount FROM budgets b JOIN departments d ON d.id=b.department_id JOIN budget_versions bv ON bv.budget_id=b.id AND bv.status='ACTIVE' LEFT JOIN actuals a ON a.budget_id=b.id AND a.currency=b.currency LEFT JOIN commitments c ON c.budget_id=b.id AND c.currency=b.currency LEFT JOIN payment_stats ps ON ps.department_id=b.department_id AND ps.category=b.category AND ps.currency=b.currency WHERE b.status='ACTIVE' AND($1::uuid[] IS NULL OR b.department_id=ANY($1))AND($2::text IS NULL OR b.category=$2)ORDER BY d.name,b.category,b.currency LIMIT 100`,
       [s.departmentIds, input.category ?? null, from, to],
     );
     return {
@@ -203,14 +203,16 @@ FROM budgets b JOIN budget_versions bv ON bv.budget_id=b.id AND bv.status='ACTIV
       [f, t] = this.range(input);
     const q = await this.db.pool.query<{
       period_month: string;
+      currency: string;
       amount: string;
     }>(
-      `SELECT to_char(date_trunc('month',le.posted_at),'YYYY-MM')period_month,sum(le.amount_minor)::bigint amount FROM financial_ledger_entries le JOIN budgets b ON b.id=le.budget_id WHERE($1::uuid[] IS NULL OR b.department_id=ANY($1))AND($2::text IS NULL OR b.category=$2)AND($3::date IS NULL OR le.posted_at::date>=$3)AND($4::date IS NULL OR le.posted_at::date<=$4)GROUP BY 1 ORDER BY 1 LIMIT 120`,
+      `SELECT to_char(date_trunc('month',le.posted_at),'YYYY-MM')period_month,le.currency,sum(le.amount_minor)::bigint amount FROM financial_ledger_entries le JOIN budgets b ON b.id=le.budget_id WHERE($1::uuid[] IS NULL OR b.department_id=ANY($1))AND($2::text IS NULL OR b.category=$2)AND($3::date IS NULL OR le.posted_at::date>=$3)AND($4::date IS NULL OR le.posted_at::date<=$4)GROUP BY 1,le.currency ORDER BY le.currency,1 LIMIT 240`,
       [s.departmentIds, input.category ?? null, f, t],
     );
     return {
       items: q.rows.map((x) => ({
         month: x.period_month,
+        currency: x.currency,
         amount: money(x.amount),
       })),
     };
@@ -228,7 +230,7 @@ FROM budgets b JOIN budget_versions bv ON bv.budget_id=b.id AND bv.status='ACTIV
     const s = await this.scope(actor, input.departmentId),
       [f, t] = this.range(input);
     const q = await this.db.pool.query<Row>(
-      `SELECT id,ticket_number,payee,amount_minor,currency,payment_date FROM payments WHERE($1::uuid[] IS NULL OR department_id=ANY($1))AND($2::text IS NULL OR category=$2)AND($3::date IS NULL OR payment_date>=$3)AND($4::date IS NULL OR payment_date<=$4)ORDER BY amount_minor DESC,id LIMIT 20`,
+      `SELECT id,ticket_number,payee,amount_minor,currency,payment_date FROM payments WHERE($1::uuid[] IS NULL OR department_id=ANY($1))AND($2::text IS NULL OR category=$2)AND($3::date IS NULL OR payment_date>=$3)AND($4::date IS NULL OR payment_date<=$4)ORDER BY currency,amount_minor DESC,id LIMIT 100`,
       [s.departmentIds, input.category ?? null, f, t],
     );
     return q.rows.map((x) => ({

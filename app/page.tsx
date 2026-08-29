@@ -134,7 +134,8 @@ export default function Home() {
     [requesterPaymentOnly,setRequesterPaymentOnly]=useState(false),
     [approvalPage, setApprovalPage] = useState(1),
     [approvalPagination, setApprovalPagination] = useState<Pagination|null>(null),
-    [dashboardDrill, setDashboardDrill] = useState<DashboardDrill|null>(null);
+    [dashboardDrill, setDashboardDrill] = useState<DashboardDrill|null>(null),
+    [mobileNavOpen,setMobileNavOpen]=useState(false);
   const authorizationRefresh=useRef(false);
   const clearProtectedState=useCallback(()=>{
     setItems([]);setSelected(null);setApprovalPagination(null);setDashboardDrill(null);
@@ -353,14 +354,17 @@ export default function Home() {
   const pageTitle = workspace==="requester"?(requesterHome?"Requester Dashboard":requesterPaymentOnly?"Payment Status":"My Requests"):financeTitles[financeView];
   const currentStage = selected ? statusStage[selected.status] : -1;
   const profile = {initials:session.user.displayName.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase(),name:session.user.displayName,department:session.user.department};
-  const goRequester=(home:boolean,paymentOnly=false)=>{setNotice("");setSelected(null);setRequesterHome(home);setRequesterPaymentOnly(paymentOnly);window.history.pushState({},"",home?"/requester":paymentOnly?"/requester/payment-status":"/requester/requests")};
-  const goFinance=(view:FinanceView)=>{if(!allowedFinanceView(session,view))return;setNotice("");setSelected(null);setDashboardDrill(null);setFinanceView(view);setShowDashboard(view==="dashboard");setShowPaymentHistory(view==="payment-history");window.history.pushState({},"",`/finance/${view}`)};
+  const goRequester=(home:boolean,paymentOnly=false)=>{setMobileNavOpen(false);setNotice("");setSelected(null);setRequesterHome(home);setRequesterPaymentOnly(paymentOnly);window.history.pushState({},"",home?"/requester":paymentOnly?"/requester/payment-status":"/requester/requests")};
+  const goFinance=(view:FinanceView)=>{if(!allowedFinanceView(session,view))return;setMobileNavOpen(false);setNotice("");setSelected(null);setDashboardDrill(null);setFinanceView(view);setShowDashboard(view==="dashboard");setShowPaymentHistory(view==="payment-history");window.history.pushState({},"",`/finance/${view}`)};
   const switchWorkspace=(next:Workspace)=>{if(!session.workspaces[next])return;window.localStorage.setItem("aims.workspace",next);setWorkspace(next);setSelected(null);setItems([]);setDashboardDrill(null);if(next==="requester"){setRequesterHome(true);setShowDashboard(false);setShowPaymentHistory(false);window.history.pushState({},"","/requester")}else{const view=defaultFinanceView(session);if(view)goFinance(view)}};
   return (
     <main className="appShell">
       <aside className="sideNav">
         <Brand />
-        <nav aria-label="Primary navigation" className="primaryNav">
+        <button className="mobileNavToggle" aria-controls="aims-primary-navigation" aria-expanded={mobileNavOpen} onClick={()=>setMobileNavOpen(open=>!open)}>
+          <span aria-hidden="true">{mobileNavOpen?"×":"☰"}</span><span>{mobileNavOpen?"Close menu":pageTitle}</span>
+        </button>
+        <nav id="aims-primary-navigation" aria-label="Primary navigation" className={`primaryNav${mobileNavOpen?" mobileOpen":""}`}>
           {workspace==="requester"?<>
             <button className={requesterHome&&!selected?"active":""} onClick={()=>goRequester(true)}><span>▦</span>Dashboard</button>
             <button className={!requesterHome&&!requesterPaymentOnly&&!selected?"active":""} onClick={()=>goRequester(false)}><span>☷</span>My Requests</button>
@@ -488,7 +492,6 @@ function RequesterDashboard({api,open,newRequest,viewAll}:{api:Api;open:(id:stri
   useEffect(()=>{let active=true;void Promise.all([api("/requester/dashboard"),api("/requester/requests?pageSize=5"),api("/requester/requests?pageSize=5&status=NEEDS_CLARIFICATION"),api("/requester/requests?pageSize=5&status=DRAFT")]).then(([s,r,clarifications,drafts])=>{if(active){setSummary(s as typeof summary);setRecent((r as {items:Array<Record<string,unknown>>}).items.map(requesterListItem));setAttention([...(clarifications as {items:Array<Record<string,unknown>>}).items,...(drafts as {items:Array<Record<string,unknown>>}).items].map(requesterListItem))}}).catch(e=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api]);
   if(!summary)return <section className="card"><p>{notice||"Loading your requests…"}</p></section>;
   return <section className="requesterDashboard">
-    <div className="requesterWelcome"><div><small>REQUESTER WORKSPACE</small><h2>My Requests</h2><p>Track payment requests and actions requiring your attention.</p></div><button className="primary" onClick={newRequest}>＋ New Request</button></div>
     <section className="attentionSection" aria-labelledby="attention-title"><div className="sectionHeading"><div><small>ACTION REQUIRED</small><h3 id="attention-title">Needs My Attention</h3></div><span>{summary.needsClarification+summary.drafts} open</span></div>{attention.length?<div className="attentionList">{attention.map(item=>{const clarification=item.status==="NEEDS_CLARIFICATION";return <article key={item.id}><span className="attentionIcon">!</span><div><StatusChip status={item.status}/><h4>{item.ticketNumber||"Draft request"} · {item.payee||"Payee not added"}</h4><p>{clarification?"Finance needs additional information before this request can continue.":"This draft has not been submitted to Finance."}</p><small>{clarification?"Open the request to review what Finance needs.":`Last updated ${formatDate(item.updatedAt)}`}</small></div><button className="primary" onClick={()=>void open(item.id)}>{clarification?"Respond":"Continue Request"}</button></article>})}</div>:<div className="quietEmpty"><b>You’re all caught up.</b><span>No requests currently need your action.</span></div>}</section>
     <section aria-label="Request summary"><div className="sectionHeading"><div><small>REQUEST SUMMARY</small><h3>Your requests at a glance</h3></div></div><div className="requesterMetrics">
       <KpiCard icon="☷" label="Total Requests" value={String(summary.myRequests)} detail="Requests you created"/>
@@ -592,11 +595,11 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
         <p>{notice || "Loading authoritative finance data…"}</p>
       </section>
     );
-  const utilisation = summary.financial.utilisationBasisPoints === null ? null : summary.financial.utilisationBasisPoints / 100,
-    availableNegative = String(summary.financial.available).startsWith("-"),
-    numericAmount = (value: unknown) => Number(String(value).replace(/[^0-9.-]/g, "")) || 0,
-    trendMaximum = Math.max(0, ...trend.map((entry: any) => numericAmount(entry.amount))),
-    vendorMaximum = Math.max(0, ...summary.vendors.map((entry: any) => numericAmount(entry.amount)));
+  const numericAmount = (value: unknown) => Number(String(value).replace(/[^0-9.-]/g, "")) || 0,
+    trendMaximum = new Map<string,number>(),
+    vendorsByCurrency = Object.groupBy(summary.vendors as any[],(entry:any)=>String(entry.currency)),
+    trendByCurrency = Object.groupBy(trend as any[],(entry:any)=>String(entry.currency));
+  for(const entry of trend as any[]) trendMaximum.set(String(entry.currency),Math.max(trendMaximum.get(String(entry.currency))??0,numericAmount(entry.amount)));
   const drill = (view:DashboardDrill["view"],reportView?:"PENDING_APPROVAL"|"RISK_ATTENTION") => onDrill(view==="REPORTING_REQUESTS"?{view,reportView:reportView!,filters}:view==="PAYMENT_HISTORY"?{view,filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),status:"PAID"}}:view==="FINANCE_CONTROL"?{view,status:"FINANCE_HOLD",filters}:{view,status:"READY_FOR_PAYMENT",filters});
   return (
     <section className="dashboard">
@@ -628,13 +631,16 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
           Finance Control: current queue — live operational status, not date filtered.
         </p>
       )}
-      <div className="sectionHeading"><div><small>A · FINANCIAL POSITION</small><h3>Live budget position</h3></div><AuthorityBadge>SYSTEM CALCULATED</AuthorityBadge></div>
-      <div className="kpiGrid financialKpis">
-        <KpiCard icon="▤" label="Active budget" value={summary.financial.budget} detail="System calculated · live approved budget" tone="info" />
-        <KpiCard icon="↘" label="Actual spending" value={summary.financial.actual} detail="System calculated · authoritative ledger" />
-        <KpiCard icon="◇" label="Active committed" value={summary.financial.committed} detail="System calculated · active reservations" tone="warning" />
-        <KpiCard icon="◎" label="Available budget" value={summary.financial.available} detail={`System calculated · ${availableNegative?"over committed":"available to commit"}`} tone={availableNegative?"danger":"success"} />
-      </div>
+      <div className="sectionHeading"><div><small>A · FINANCIAL POSITION</small><h3>Live budget position by currency</h3><span>Original-currency positions · no FX conversion</span></div><AuthorityBadge>SYSTEM CALCULATED</AuthorityBadge></div>
+      {summary.financialPositions.length ? summary.financialPositions.map((position:any)=>{
+        const availableNegative=String(position.available).startsWith("-");
+        return <section className="currencyPosition" key={position.currency} aria-label={`${position.currency} financial position`}><h4>{position.currency}</h4><div className="kpiGrid financialKpis">
+          <KpiCard icon="▤" label="Active budget" value={formatMoney(position.currency,position.budget)} detail="System calculated · live approved budget" tone="info" />
+          <KpiCard icon="↘" label="Actual spending" value={formatMoney(position.currency,position.actual)} detail="System calculated · authoritative ledger" />
+          <KpiCard icon="◇" label="Active committed" value={formatMoney(position.currency,position.committed)} detail="System calculated · active reservations" tone="warning" />
+          <KpiCard icon="◎" label="Available budget" value={formatMoney(position.currency,position.available)} detail={`System calculated · ${availableNegative?"over committed":"available to commit"}`} tone={availableNegative?"danger":"success"} />
+        </div></section>;
+      }):<div className="emptyState"><b>No financial position available</b><span>No active budget or authoritative posting exists in this scope.</span></div>}
       <div className="sectionHeading"><div><small>B · NEEDS ATTENTION</small><h3>Priorities requiring action</h3></div><span>Live operational state</span></div>
       <div className="kpiGrid attentionKpis">
         <KpiCard icon="▲" label="High / critical risk" value={String((summary.risk.HIGH??0)+(summary.risk.CRITICAL??0))} detail="Human final assessment · review risk" tone="danger" onClick={()=>drill("REPORTING_REQUESTS","RISK_ATTENTION")} />
@@ -644,18 +650,18 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
       </div>
       <div className="sectionHeading"><div><small>C · OPERATIONS</small><h3>Current Finance activity</h3></div><span>Controlled workflow</span></div>
       <div className="kpiGrid operationsSummary">
-        <KpiCard icon="✓" label="Paid this period" value={summary.payments.paid_amount} detail={`${summary.payments.total_paid} immutable payment records`} tone="success" onClick={()=>drill("PAYMENT_HISTORY")} />
+        {summary.payments.amounts.length ? summary.payments.amounts.map((amount:any)=><KpiCard key={amount.currency} icon="✓" label={`Paid this period · ${amount.currency}`} value={formatMoney(amount.currency,amount.paidAmount)} detail="Immutable payment records · original currency" tone="success" onClick={()=>drill("PAYMENT_HISTORY")} />):<KpiCard icon="✓" label="Paid this period" value="—" detail="No payment records in this period" tone="success" onClick={()=>drill("PAYMENT_HISTORY")} />}
         <KpiCard icon="☷" label="Requests processed" value={String(workflow.processed)} detail="Completed operational workload" tone="info" />
         <KpiCard icon="◉" label="Average request to paid" value={workflow.avg_request_to_paid_seconds?`${Math.round(Number(workflow.avg_request_to_paid_seconds)/3600)} h`:"—"} detail="Measured processing time" />
       </div>
       <div className="dashboardGrid">
-        <section className="card utilizationCard">
+        {summary.financialPositions.map((position:any)=>{const utilisation=position.utilisationBasisPoints===null?null:position.utilisationBasisPoints/100,availableNegative=String(position.available).startsWith("-");return <section className="card utilizationCard" key={position.currency}>
           <header><div><small>BUDGET UTILISATION</small><h3>Authoritative position</h3></div><AuthorityBadge>SYSTEM CALCULATED</AuthorityBadge></header>
           <div className="utilizationBody">
-            <div className={`utilizationRing ${availableNegative?"overBudget":""}`} style={{"--utilization":Math.max(0,Math.min(utilisation??0,100))} as CSSProperties}><span><b>{utilisation===null?"—":`${utilisation.toFixed(1)}%`}</b><small>of budget used</small></span></div>
-            <div className="metricLegend"><p><i className="actualDot"/>Actual spending <b>{summary.financial.actual}</b></p><p><i className="commitDot"/>Active committed <b>{summary.financial.committed}</b></p><p><i className="availableDot"/>Available budget <b>{summary.financial.available}</b></p>{availableNegative&&<strong>Budget is over committed</strong>}</div>
+            <div className={`utilizationRing ${availableNegative?"overBudget":""}`} style={{"--utilization":Math.max(0,Math.min(utilisation??0,100))} as CSSProperties}><span><b>{utilisation===null?"—":`${utilisation.toFixed(1)}%`}</b><small>{position.currency} budget used</small></span></div>
+            <div className="metricLegend"><p><i className="actualDot"/>Actual spending <b>{formatMoney(position.currency,position.actual)}</b></p><p><i className="commitDot"/>Active committed <b>{formatMoney(position.currency,position.committed)}</b></p><p><i className="availableDot"/>Available budget <b>{formatMoney(position.currency,position.available)}</b></p>{availableNegative&&<strong>Budget is over committed</strong>}</div>
           </div>
-        </section>
+        </section>})}
         <section className="card">
           <header>
             <div>
@@ -672,9 +678,9 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
                     <small>{x.category}</small>
                   </span>
                   <span>
-                    {x.currency} {x.actual} actual
+                    {formatMoney(x.currency,x.actual)} actual
                   </span>
-                  <span>{x.available} available</span>
+                  <span>{formatMoney(x.currency,x.available)} available</span>
                   <strong
                     className={
                       x.utilisationBasisPoints >= 9000 ? "pressure" : ""
@@ -698,14 +704,14 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
               <h3>Spending trend</h3>
             </div>
           </header>
-          {trend.length ? (
-            <div className="trendChart">{trend.map((x: any) => (
-              <div className="trendRow" key={x.month}>
+          {trend.length ? Object.entries(trendByCurrency).map(([currency,entries])=>(
+            <div className="currencySeries" key={currency}><h4>{currency}</h4><div className="trendChart">{(entries??[]).map((x: any) => (
+              <div className="trendRow" key={`${currency}-${x.month}`}>
                 <b>{x.month}</b>
-                <i style={{width:`${Math.max(3, trendMaximum ? (numericAmount(x.amount)/trendMaximum)*100 : 0)}%`}}/><span>{x.amount}</span>
+                <i style={{width:`${Math.max(3, trendMaximum.get(currency) ? (numericAmount(x.amount)/(trendMaximum.get(currency)??1))*100 : 0)}%`}}/><span>{formatMoney(currency,x.amount)}</span>
               </div>
-            ))}</div>
-          ) : (
+            ))}</div></div>
+          )) : (
             <p>NO PAYMENTS IN PERIOD</p>
           )}
           <small>Values come from Actual ledger posting dates.</small>
@@ -759,7 +765,7 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
         </section>
       </div>
       <section className="card topPayees"><header><div><small>TOP PAYEES</small><h3>Paid concentration</h3></div><button className="textButton" onClick={()=>drill("PAYMENT_HISTORY")}>View all →</button></header>
-        {summary.vendors.length ? summary.vendors.slice(0,6).map((x:any,index:number)=><button className="payeeDrill" key={x.payee} onClick={()=>onDrill({view:"PAYMENT_HISTORY",filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),search:x.payee,status:"PAID"}})}><span className="rank">{String(index+1).padStart(2,"0")}</span><span><b title={x.payee}>{x.payee}</b><i style={{width:`${Math.max(3, vendorMaximum ? (numericAmount(x.amount)/vendorMaximum)*100 : 0)}%`}}/></span><strong>{x.amount}<small>{x.payment_count} payments</small></strong></button>):<div className="emptyState"><b>No payment records</b><span>No paid transactions exist in the selected period.</span></div>}
+        {summary.vendors.length ? Object.entries(vendorsByCurrency).map(([currency,entries])=>{const currencyEntries=entries??[],maximum=Math.max(0,...currencyEntries.map((entry:any)=>numericAmount(entry.amount)));return <div className="currencyPayeeGroup" key={currency}><h4>{currency}</h4>{currencyEntries.slice(0,6).map((x:any,index:number)=><button className="payeeDrill" key={`${currency}-${x.payee}`} onClick={()=>onDrill({view:"PAYMENT_HISTORY",filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),search:x.payee,status:"PAID"}})}><span className="rank">{String(index+1).padStart(2,"0")}</span><span><b title={x.payee}>{x.payee}</b><i style={{width:`${Math.max(3,maximum?(numericAmount(x.amount)/maximum)*100:0)}%`}}/></span><strong>{formatMoney(currency,x.amount)}<small>{x.payment_count} payments</small></strong></button>)}</div>}):<div className="emptyState"><b>No payment records</b><span>No paid transactions exist in the selected period.</span></div>}
       </section>
       <div className="sectionHeading"><div><small>D · INTELLIGENCE</small><h3>Advisory interpretation</h3></div><AuthorityBadge ai>AI ADVISORY</AuthorityBadge></div>
       <section className="card aiWatch">
@@ -1106,7 +1112,7 @@ function Login({ onLogin,local,message,onRetry }: { onLogin:(id:string)=>void;lo
             {loading?<div className="identityLoading" aria-live="polite">Loading available identities…</div>:identityError?<div className="identityError" role="alert"><span>{identityError}</span><button onClick={loadIdentities}>Retry</button></div>:<div className="roleChoices" aria-label="Available competition identities">
               {identities.map(identity=><button key={identity.subject} onClick={()=>onLogin(identity.subject)}>
                 <span className="roleIcon" aria-hidden="true">{identity.persona.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase()}</span>
-                <span><b>{identity.persona}</b><small>{identity.displayName} · {identity.department}</small><small>{identity.workspaces.join(" + ")} workspace{identity.workspaces.length===1?"":"s"}</small></span>
+                <span><b>{identity.persona}</b><small>{identity.displayName} · {identity.department}</small><small>{identity.workspaces.length?`${identity.workspaces.join(" + ")} workspace${identity.workspaces.length===1?"":"s"}`:"No operational workspace"}</small></span>
                 <strong aria-hidden="true">→</strong>
               </button>)}
             </div>}

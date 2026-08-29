@@ -71,24 +71,25 @@ export class FinanceIntelligenceService {
     workflow: Awaited<ReturnType<DashboardService["workflow"]>>,
   ) {
     const items: InsightEvidence[] = [];
-    for (const [k, v] of Object.entries(summary.financial))
-      if (k !== "utilisationBasisPoints" || v !== null)
-        items.push({
-          metric: `financial.${k}`,
-          reference: "FINANCIAL_POSITION:AUTHORIZED_SCOPE",
-          value: String(v),
-        });
+    for (const position of summary.financialPositions)
+      for (const [k, v] of Object.entries(position))
+        if (k !== "currency" && (k !== "utilisationBasisPoints" || v !== null))
+          items.push({
+            metric: `financial.${k}`,
+            reference: `FINANCIAL_POSITION:${position.currency}:AUTHORIZED_SCOPE`,
+            value: k === "utilisationBasisPoints" ? String(v) : `${position.currency} ${String(v)}`,
+          });
     for (const x of budget.items.slice(0, 20))
       items.push({
         metric: "department.utilisationBasisPoints",
-        reference: `DEPARTMENT:${String(x.department_id)}`,
+        reference: `DEPARTMENT:${String(x.department_id)}:${String(x.currency)}`,
         value: x.utilisationBasisPoints ?? "NO_DATA",
       });
     for (const x of trend.items.slice(0, 12))
       items.push({
         metric: "monthly.actual",
-        reference: `MONTH:${String(x.month)}`,
-        value: x.amount,
+        reference: `MONTH:${String(x.month)}:${x.currency}`,
+        value: `${x.currency} ${x.amount}`,
       });
     for (const [k, v] of Object.entries(workflow))
       items.push({
@@ -97,7 +98,7 @@ export class FinanceIntelligenceService {
         value: String(v),
       });
     for (const x of budget.items.slice(0, 20)) {
-      const reference = `CATEGORY:${String(x.department_id)}:${safeKey(String(x.category))}`;
+      const reference = `CATEGORY:${String(x.department_id)}:${safeKey(String(x.category))}:${String(x.currency)}`;
       for (const metric of [
         "budget",
         "actual",
@@ -110,20 +111,25 @@ export class FinanceIntelligenceService {
         items.push({
           metric: `category.${metric}`,
           reference,
-          value: String(x[metric] ?? "NO_DATA"),
+          value: metric === "utilisationBasisPoints" || metric === "paymentCount"
+            ? String(x[metric] ?? "NO_DATA")
+            : `${String(x.currency)} ${String(x[metric] ?? "NO_DATA")}`,
         });
     }
-    const totalPaid = summary.vendors.reduce(
-      (n, x) => n + decimalToMinor(String(x.amount)),
-      0n,
-    );
+    const totalPaidByCurrency = new Map<string, bigint>();
+    for (const x of summary.vendors) {
+      const currency = String(x.currency);
+      totalPaidByCurrency.set(currency, (totalPaidByCurrency.get(currency) ?? 0n) + decimalToMinor(String(x.amount)));
+    }
     for (const x of summary.vendors.slice(0, 20)) {
       const amount = decimalToMinor(String(x.amount));
-      const reference = payeeEvidenceReference(String(x.payee));
+      const currency = String(x.currency);
+      const totalPaid = totalPaidByCurrency.get(currency) ?? 0n;
+      const reference = `${payeeEvidenceReference(String(x.payee))}:${currency}`;
       items.push({
         metric: "payee.paidAmount",
         reference,
-        value: String(x.amount),
+        value: `${currency} ${String(x.amount)}`,
       });
       items.push({
         metric: "payee.paymentCount",
@@ -374,7 +380,7 @@ export class FinanceIntelligenceService {
       for (const x of budget.items.slice(0, 20))
         evidenceCatalog.push({
           metric: "category.utilisationBasisPoints",
-          reference: `CATEGORY:${String(x.department_id)}:${safeKey(String(x.category))}`,
+          reference: `CATEGORY:${String(x.department_id)}:${safeKey(String(x.category))}:${String(x.currency)}`,
           value: x.utilisationBasisPoints ?? "NO_DATA",
         });
     }
@@ -396,8 +402,8 @@ export class FinanceIntelligenceService {
       for (const x of summary.vendors.slice(0, 20))
         evidenceCatalog.push({
           metric: "vendor.paidAmount",
-          reference: payeeEvidenceReference(String(x.payee)),
-          value: x.amount,
+          reference: `${payeeEvidenceReference(String(x.payee))}:${String(x.currency)}`,
+          value: `${String(x.currency)} ${String(x.amount)}`,
         });
     }
     if (["WORKFLOW_BOTTLENECK", "GENERAL"].includes(classification)) {

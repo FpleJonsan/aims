@@ -1,5 +1,6 @@
 import { Controller, Get, NotFoundException } from "@nestjs/common";
 import { Postgres } from "../../infrastructure/database/postgres.js";
+import { competitionIdentityDisplayName } from "./competition-identity-presentation.js";
 
 type LocalIdentityRow = {
   subject: string;
@@ -11,6 +12,7 @@ type LocalIdentityRow = {
   finance_control: boolean;
   payment: boolean;
   reporting: boolean;
+  policy_admin: boolean;
 };
 
 @Controller("auth")
@@ -34,7 +36,8 @@ export class LocalIdentityController {
         EXISTS(SELECT 1 FROM approval_authorities aa WHERE aa.user_id=u.id AND aa.active) approval,
         EXISTS(SELECT 1 FROM finance_control_authorities fa WHERE fa.user_id=u.id AND fa.active) finance_control,
         EXISTS(SELECT 1 FROM payment_authorities pa WHERE pa.user_id=u.id AND pa.active) payment,
-        EXISTS(SELECT 1 FROM finance_reporting_authorities ra WHERE ra.user_id=u.id AND ra.active) reporting
+        EXISTS(SELECT 1 FROM finance_reporting_authorities ra WHERE ra.user_id=u.id AND ra.active) reporting,
+        EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id=u.id AND ur.role='ADMIN') policy_admin
       FROM users u
       JOIN departments d ON d.id=u.department_id
       WHERE u.active AND (
@@ -51,10 +54,18 @@ export class LocalIdentityController {
       mode: competitionMode ? "COMPETITION" as const : "LOCAL" as const,
       identities: result.rows.map((row) => {
         const finance = row.finance_analysis || row.approval || row.finance_control || row.payment || row.reporting;
-        const persona = row.requester && finance ? "Requester & Finance" : row.requester ? "Requester" : row.approval && !row.finance_analysis ? "Approver" : "Finance Manager";
+        const persona = row.requester && finance ? "Requester & Finance"
+          : row.requester ? "Requester"
+          : row.approval && !row.finance_analysis && !row.finance_control && !row.payment && !row.reporting ? "Approver"
+          : row.finance_control && !row.finance_analysis && !row.payment && !row.reporting ? "Finance Controller"
+          : row.payment && !row.finance_analysis && !row.reporting ? "Payment Operator"
+          : row.reporting && !row.finance_analysis ? "Reporting Manager"
+          : row.finance_analysis ? "Finance Analyst"
+          : row.policy_admin ? "Technical Administrator"
+          : "Authorized User";
         return {
           subject: row.subject,
-          displayName: row.display_name,
+          displayName: competitionIdentityDisplayName(row.subject, row.display_name),
           department: row.department,
           persona,
           workspaces: [row.requester ? "Requester" : null, finance ? "Finance" : null].filter(Boolean),

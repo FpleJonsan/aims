@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/commo
 import type { Principal } from "../../domain/payment-request.js";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import type { RequesterListDto } from "./portal.dto.js";
+import { competitionIdentityDisplayName } from "../auth/competition-identity-presentation.js";
 
 type Capability = "financeAnalysis"|"approval"|"financeControl"|"payment"|"reporting"|"policyAdmin";
 
@@ -38,7 +39,7 @@ export class PortalService {
     const finance = capabilities.financeAnalysis || capabilities.approval ||
       capabilities.financeControl || capabilities.payment || capabilities.reporting;
     return {
-      user: { id:actor.id, subject:user.rows[0].external_subject, email:user.rows[0].email, displayName:user.rows[0].display_name, department:user.rows[0].department_name },
+      user: { id:actor.id, subject:user.rows[0].external_subject, email:user.rows[0].email, displayName:competitionIdentityDisplayName(user.rows[0].external_subject,user.rows[0].display_name), department:user.rows[0].department_name },
       workspaces: { requester, finance }, capabilities,
     };
   }
