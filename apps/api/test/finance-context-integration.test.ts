@@ -41,12 +41,12 @@ async function validated(
   );
   const request = await requests.submit(draft.id, requester, "d3-submit");
   await db.pool.query(
-    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,version,uploaded_by) VALUES($1,$2,$3,'synthetic.pdf',$4,'application/pdf',20,$5,1,$6)`,
+    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference) VALUES($1,$2,$3,'synthetic.pdf',$4,'application/pdf',20,$5,1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
     [
       randomUUID(),
       draft.id,
       randomUUID(),
-      `quarantine/tests/${randomUUID()}`,
+      `active/tests/${randomUUID()}`,
       "0".repeat(64),
       requester.id,
     ],

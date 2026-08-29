@@ -82,7 +82,7 @@ export class PolicyService {
       const f = factsResult.rows[0];
       const docs = await c.query<any>(
         `SELECT id,logical_document_id,version,document_type,sha256 FROM payment_documents
-         WHERE payment_request_id=$1 AND removed_at IS NULL
+         WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN'
          ORDER BY logical_document_id,version,id`,
         [id],
       );
@@ -349,7 +349,7 @@ export class PolicyService {
       throw new NotFoundException("Policy decision not found");
     const activeEvidence = await this.db.pool.query<any>(
       `SELECT id,logical_document_id,version,document_type,sha256 FROM payment_documents
-       WHERE payment_request_id=$1 AND removed_at IS NULL ORDER BY logical_document_id,version,id`,
+       WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' ORDER BY logical_document_id,version,id`,
       [id],
     );
     const currentFingerprint = fingerprintEvidence(activeEvidence.rows);

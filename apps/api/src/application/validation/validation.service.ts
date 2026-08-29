@@ -102,7 +102,7 @@ export class ValidationService {
       [requestId],
     );
     const docs = await this.db.pool.query<any>(
-      "SELECT id,version,original_filename,mime_type,storage_object_key,sha256 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL",
+      "SELECT id,version,original_filename,mime_type,storage_object_key,sha256 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN'",
       [requestId],
     );
     try {
@@ -113,7 +113,7 @@ export class ValidationService {
           version: d.version,
           filename: d.original_filename,
           mimeType: d.mime_type,
-          data: await this.storage.readQuarantined(
+          data: await this.storage.read(
             d.storage_object_key,
             d.sha256,
           ),
@@ -223,7 +223,7 @@ export class ValidationService {
       );
       if (!run.rowCount)
         throw new NotFoundException("Current validation not found");
-      const activeDocuments = await client.query("SELECT 1 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL LIMIT 1", [id]);
+      const activeDocuments = await client.query("SELECT 1 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' LIMIT 1", [id]);
       if (input.overallResult === "PASS" && !activeDocuments.rowCount)
         throw new BadRequestException("Validation cannot PASS without a supporting document");
       if (input.overallResult === "PASS" && input.findings.some(finding => finding.status === "FAIL" || finding.status === "UNKNOWN"))

@@ -134,8 +134,8 @@ async function approved(
   );
   const request = await requests.submit(draft.id, requester, "d7-submit");
   await db.pool.query(
-    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by)
-    VALUES($1,$2,$3,'invoice.pdf',$4,'application/pdf',20,$5,'INVOICE',1,$6)`,
+    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference)
+    VALUES($1,$2,$3,'invoice.pdf',$4,'application/pdf',20,$5,'INVOICE',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
     [
       randomUUID(),
       request.id,
@@ -220,8 +220,8 @@ async function confirmRequired(
 }
 async function addEvidence(db: Postgres, id: string) {
   await db.pool.query(
-    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by)
- VALUES($1,$2,$3,'changed.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6)`,
+    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference)
+ VALUES($1,$2,$3,'changed.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
     [
       randomUUID(),
       id,
@@ -251,8 +251,8 @@ async function draftWithEvidence(db: Postgres, hash: string) {
     "duplicate-draft-update",
   );
   await db.pool.query(
-    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by)
-     VALUES($1,$2,$3,'duplicate.pdf',$4,'application/pdf',20,$5,'INVOICE',1,$6)`,
+    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference)
+     VALUES($1,$2,$3,'duplicate.pdf',$4,'application/pdf',20,$5,'INVOICE',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
     [
       randomUUID(),
       draft.id,
@@ -305,19 +305,7 @@ async function readyPayment(db: Postgres, label: string) {
     finance,
     `${label}-ready`,
   );
-  const slipId = randomUUID();
-  await db.paymentTransaction(finance.id, `${label}-slip`, (c) =>
-    c.query(
-      "SELECT attach_payment_slip($1,$2,$3,'payment.pdf',$4,'application/pdf',20,$5)",
-      [
-        fixture.request.id,
-        slipId,
-        randomUUID(),
-        `quarantine/tests/${randomUUID()}`,
-        randomUUID().replaceAll("-", "").repeat(2),
-      ],
-    ),
-  );
+  const slipId = await attachCleanPaymentSlip(db,fixture.request.id,finance,label,"payment.pdf");
   return {
     fixture,
     run,
@@ -333,6 +321,22 @@ async function readyPayment(db: Postgres, label: string) {
       confirmPossibleDuplicate: false,
     },
   };
+}
+
+async function attachCleanPaymentSlip(db:Postgres,requestId:string,actor:Principal,label:string,filename:string){
+  const slipId=randomUUID(),sha=randomUUID().replaceAll("-","").repeat(2);
+  await db.paymentTransaction(actor.id,`${label}-slip`,c=>c.query(
+    "SELECT attach_payment_slip($1,$2,$3,$4,$5,'application/pdf',20,$6)",
+    [requestId,slipId,randomUUID(),filename,`quarantine/tests/${randomUUID()}`,sha],
+  ));
+  const started=await db.paymentTransaction(actor.id,`${label}-scan-start`,c=>c.query<{begin_payment_slip_security_scan:number}>(
+    "SELECT begin_payment_slip_security_scan($1,$2,1,$3)",[requestId,slipId,sha],
+  ));
+  await db.paymentTransaction(actor.id,`${label}-scan-clean`,c=>c.query(
+    "SELECT complete_payment_slip_security_scan($1,$2,1,$3,$4,'CLEAN','deterministic-local',$5,NULL)",
+    [requestId,slipId,sha,Number(started.rows[0].begin_payment_slip_security_scan),`${label}-clean`],
+  ));
+  return slipId;
 }
 
 async function assertFailedPaymentClean(db: Postgres, requestId: string) {
@@ -1579,19 +1583,7 @@ test("Day 8 records external payment atomically, idempotently, and immutably", a
       finance,
       "d8-ready",
     );
-    const slipId = randomUUID();
-    await db.paymentTransaction(finance.id, "d8-slip", (c) =>
-      c.query(
-        "SELECT attach_payment_slip($1,$2,$3,'payment.pdf',$4,'application/pdf',20,$5)",
-        [
-          fixture.request.id,
-          slipId,
-          randomUUID(),
-          `quarantine/tests/${randomUUID()}`,
-          randomUUID().replaceAll("-", "").repeat(2),
-        ],
-      ),
-    );
+    const slipId = await attachCleanPaymentSlip(db,fixture.request.id,finance,"d8","payment.pdf");
     const service = new PaymentService(db, fixture.requests, {} as never),
       commandKey = randomUUID(),
       bankReference = `D8-${randomUUID()}`;
@@ -2104,19 +2096,7 @@ test("PAYMENT_RACE_A_SAME_REQUEST_TWO_OPERATORS produces one record and one ledg
       finance,
       "d8-race-ready",
     );
-    const slipId = randomUUID();
-    await db.paymentTransaction(finance.id, "d8-race-slip", (c) =>
-      c.query(
-        "SELECT attach_payment_slip($1,$2,$3,'race.pdf',$4,'application/pdf',20,$5)",
-        [
-          fixture.request.id,
-          slipId,
-          randomUUID(),
-          `quarantine/tests/${randomUUID()}`,
-          randomUUID().replaceAll("-", "").repeat(2),
-        ],
-      ),
-    );
+    const slipId = await attachCleanPaymentSlip(db,fixture.request.id,finance,"d8-race","race.pdf");
     const service = new PaymentService(db, fixture.requests, {} as never),
       base = {
         paymentDate: new Date().toISOString().slice(0, 10),

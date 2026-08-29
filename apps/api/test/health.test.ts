@@ -5,9 +5,10 @@ import { HealthService } from "../src/application/health/health.service.js";
 test("AI OFF is reported disabled and does not make readiness fail", async () => {
   const previous = { ...process.env };
   process.env.STORAGE_DRIVER = "local";
+  process.env.MALWARE_SCANNER_DRIVER = "deterministic-local";
   process.env.TELEGRAM_APPROVAL_ENABLED = "false";
   delete process.env.OPENAI_API_KEY;
-  const pool = { query: async (query: string) => query.includes("ai_feature_configuration") ? { rows: [{ enabled: false }] } : query.includes("aims_schema_version") ? { rows: [{ version: 54, migration_id: "054_p1l_local_identity_sessions" }] } : { rows: [{ "?column?": 1 }] } };
+  const pool = { query: async (query: string) => query.includes("ai_feature_configuration") ? { rows: [{ enabled: false }] } : query.includes("aims_schema_version") ? { rows: [{ version: 56, migration_id: "056_payment_slip_trust_transition" }] } : { rows: [{ "?column?": 1 }] } };
   try {
     const result = await new HealthService({ pool, financePool: pool, paymentPool: pool } as never).readiness();
     assert.equal(result.status, "ready");
@@ -18,8 +19,8 @@ test("AI OFF is reported disabled and does not make readiness fail", async () =>
 
 test("AI ON with a configured provider and current schema is ready", async () => {
   const previous = { ...process.env };
-  process.env.STORAGE_DRIVER = "local"; process.env.OPENAI_API_KEY = "configured"; process.env.TELEGRAM_APPROVAL_ENABLED = "false";
-  const pool = { query: async (query: string) => query.includes("ai_feature_configuration") ? { rows: [{ enabled: true }] } : query.includes("aims_schema_version") ? { rows: [{ version: 54 }] } : { rows: [{}] } };
+  process.env.STORAGE_DRIVER = "local"; process.env.MALWARE_SCANNER_DRIVER = "deterministic-local"; process.env.OPENAI_API_KEY = "configured"; process.env.TELEGRAM_APPROVAL_ENABLED = "false";
+  const pool = { query: async (query: string) => query.includes("ai_feature_configuration") ? { rows: [{ enabled: true }] } : query.includes("aims_schema_version") ? { rows: [{ version: 56 }] } : { rows: [{}] } };
   try { assert.equal((await new HealthService({ pool, financePool: pool, paymentPool: pool } as never).readiness()).status, "ready"); }
   finally { process.env = previous; }
 });
@@ -28,9 +29,9 @@ for (const [label, failure] of [
   ["missing AI configuration table", "ai"],
   ["permission failure reading AI configuration", "ai"],
 ] as const) test(`${label} is not interpreted as AI OFF`, async () => {
-  const previous = { ...process.env }; process.env.STORAGE_DRIVER = "local"; process.env.TELEGRAM_APPROVAL_ENABLED = "false";
+  const previous = { ...process.env }; process.env.STORAGE_DRIVER = "local"; process.env.MALWARE_SCANNER_DRIVER = "deterministic-local"; process.env.TELEGRAM_APPROVAL_ENABLED = "false";
   const pool = { query: async (query: string) => {
-    if (query.includes("aims_schema_version")) return { rows: [{ version: 54 }] };
+    if (query.includes("aims_schema_version")) return { rows: [{ version: 56 }] };
     if (query.includes("ai_feature_configuration")) throw new Error(failure);
     return { rows: [{}] };
   } };
@@ -41,16 +42,16 @@ for (const [label, failure] of [
 });
 
 test("a database behind the required migration version is not ready", async () => {
-  const previous = { ...process.env }; process.env.STORAGE_DRIVER = "local"; process.env.TELEGRAM_APPROVAL_ENABLED = "false";
+  const previous = { ...process.env }; process.env.STORAGE_DRIVER = "local"; process.env.MALWARE_SCANNER_DRIVER = "deterministic-local"; process.env.TELEGRAM_APPROVAL_ENABLED = "false";
   const pool = { query: async (query: string) => query.includes("aims_schema_version") ? { rows: [{ version: 52 }] } : query.includes("ai_feature_configuration") ? { rows: [{ enabled: false }] } : { rows: [{}] } };
   try {
     const result = await new HealthService({ pool, financePool: pool, paymentPool: pool } as never).readiness();
-    assert.equal(result.status, "not_ready"); assert.match(String(result.checks.schema.detail), /expected 54/);
+    assert.equal(result.status, "not_ready"); assert.match(String(result.checks.schema.detail), /expected 56/);
   } finally { process.env = previous; }
 });
 
 test("a missing schema version table is not ready", async () => {
-  const previous = { ...process.env }; process.env.STORAGE_DRIVER = "local"; process.env.TELEGRAM_APPROVAL_ENABLED = "false";
+  const previous = { ...process.env }; process.env.STORAGE_DRIVER = "local"; process.env.MALWARE_SCANNER_DRIVER = "deterministic-local"; process.env.TELEGRAM_APPROVAL_ENABLED = "false";
   const pool = { query: async (query: string) => { if (query.includes("aims_schema_version")) throw new Error("missing"); if (query.includes("ai_feature_configuration")) return { rows: [{ enabled: false }] }; return { rows: [{}] }; } };
   try { assert.equal((await new HealthService({ pool, financePool: pool, paymentPool: pool } as never).readiness()).status, "not_ready"); }
   finally { process.env = previous; }
@@ -59,6 +60,7 @@ test("a missing schema version table is not ready", async () => {
 test("required database and enabled optional dependency failures make readiness fail", async () => {
   const previous = { ...process.env };
   process.env.STORAGE_DRIVER = "local";
+  process.env.MALWARE_SCANNER_DRIVER = "deterministic-local";
   process.env.TELEGRAM_APPROVAL_ENABLED = "true";
   delete process.env.TELEGRAM_BOT_TOKEN;
   const failed = { query: async () => { throw new Error("offline"); } };

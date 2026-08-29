@@ -60,6 +60,7 @@ type Item = {
     version: number;
     document_type?: string;
     uploaded_at?: string;
+    security_status?: "QUARANTINED"|"SCANNING"|"CLEAN"|"REJECTED"|"SCAN_FAILED";
   }>;
   audit?: Array<{ id: string; action: string; occurred_at: string }>;
 };
@@ -1319,13 +1320,15 @@ function Editor({
     e.preventDefault();
     const target = e.currentTarget;
     await act(async () => {
-      await api(`/payment-requests/${item.id}/documents`, {
+      const document=await api(`/payment-requests/${item.id}/documents`, {
         method: "POST",
         body: new FormData(target),
-      });
+      }) as {id:string};
+      setNotice("Document uploaded securely. AIMS is checking it before it can be used as evidence.");
+      const scan=await api(`/payment-requests/${item.id}/documents/${document.id}/scan`,{method:"POST",body:"{}"}) as {securityStatus:string};
       await changed();
       target.reset();
-      setNotice("Document attached.");
+      setNotice(scan.securityStatus==="CLEAN"?"Document ready. Its security check completed successfully.":scan.securityStatus==="REJECTED"?"Document rejected. It cannot be used as supporting evidence.":"Document security check failed. It remains unavailable as evidence and may be retried.");
     });
   }
   async function remove(id: string) {
@@ -1563,6 +1566,7 @@ function Editor({
                   <small>
                     v{d.version} · {Math.ceil(Number(d.size_bytes) / 1024)} KB
                   </small>
+                  <DocumentSecurityStatus status={d.security_status}/>
                 </p>
                 {draft && <button type="button" aria-label={`Remove ${d.original_filename}`} onClick={() => remove(d.id)}>×</button>}
               </div>
@@ -1622,7 +1626,12 @@ function RequesterRequestExperience({item,form,field,fieldErrors,busy,notice,sub
 }
 
 function RequesterDocuments({item,editable,upload,remove,busy}:{item:Item;editable:boolean;upload:(event:FormEvent<HTMLFormElement>)=>Promise<void>;remove?:(id:string)=>Promise<void>;busy:boolean}){
-  return <section className="requesterDocuments" id="supporting-documents"><header><span>3</span><div><small>SUPPORTING DOCUMENTS</small><h3>Invoices and supporting files</h3><p>Upload invoices, quotations, contracts, or other relevant supporting documents.</p></div></header>{editable&&<form className="upload" onSubmit={upload}><label>Choose document<input name="file" type="file" accept="application/pdf,image/jpeg,image/png" required/></label><label>Document type <small>Optional</small><input name="documentType" placeholder="Invoice, quotation, contract…"/></label><button disabled={busy}>Upload Document</button><small>PDF, JPG or PNG · maximum 10 MB</small></form>}<div className="requesterDocumentList">{item.documents?.map(document=><article key={document.id}><span>DOC</span><div><b>{document.original_filename}</b><small>{document.document_type||"Supporting document"} · {Math.ceil(Number(document.size_bytes)/1024)} KB{document.uploaded_at?` · ${formatDate(document.uploaded_at)}`:""}</small></div>{editable&&remove&&<button aria-label={`Remove ${document.original_filename}`} onClick={()=>void remove(document.id)}>Remove</button>}</article>)}</div>{!item.documents?.length&&<div className="emptyState"><b>No documents attached</b><span>Add the files Finance needs to review this payment.</span></div>}{!editable&&<p className="documentLock">Documents are locked after submission unless Finance requests a replacement.</p>}</section>;
+  return <section className="requesterDocuments" id="supporting-documents"><header><span>3</span><div><small>SUPPORTING DOCUMENTS</small><h3>Invoices and supporting files</h3><p>Uploaded files are checked before AIMS accepts them as supporting evidence.</p></div></header>{editable&&<form className="upload" onSubmit={upload}><label>Choose document<input name="file" type="file" accept="application/pdf,image/jpeg,image/png" required/></label><label>Document type <small>Optional</small><input name="documentType" placeholder="Invoice, quotation, contract…"/></label><button disabled={busy}>{busy?"Checking document…":"Upload Document"}</button><small>PDF, JPG or PNG · maximum 10 MB · private security check required</small></form>}<div className="requesterDocumentList">{item.documents?.map(document=><article key={document.id}><span>DOC</span><div><b>{document.original_filename}</b><small>{document.document_type||"Supporting document"} · {Math.ceil(Number(document.size_bytes)/1024)} KB{document.uploaded_at?` · ${formatDate(document.uploaded_at)}`:""}</small><DocumentSecurityStatus status={document.security_status}/></div>{editable&&remove&&<button aria-label={`Remove ${document.original_filename}`} onClick={()=>void remove(document.id)}>Remove</button>}</article>)}</div>{!item.documents?.length&&<div className="emptyState"><b>No documents attached</b><span>Add the files Finance needs to review this payment.</span></div>}{!editable&&<p className="documentLock">Only documents marked Ready are trusted supporting evidence. Documents are locked after submission unless Finance requests a replacement.</p>}</section>;
+}
+
+function DocumentSecurityStatus({status}:{status?:"QUARANTINED"|"SCANNING"|"CLEAN"|"REJECTED"|"SCAN_FAILED"}){
+  const value=status??"QUARANTINED",label=value==="CLEAN"?"Document ready":value==="REJECTED"?"Document rejected":value==="SCAN_FAILED"?"Security check failed":value==="SCANNING"?"Checking document":"Awaiting security check";
+  return <small className={`documentSecurity status-${value.toLowerCase()}`} role="status">{label}</small>;
 }
 
 function RequesterSubmittedDetail({item,api,changed,upload,busy}:{item:Item;api:Api;changed:()=>Promise<void>;upload:(event:FormEvent<HTMLFormElement>)=>Promise<void>;busy:boolean}){
@@ -2943,8 +2952,18 @@ function PaymentPanel({
         method: "POST",
         body: new FormData(e.currentTarget),
       })) as { id: string };
-      setSlipId(result.id);
-      setNotice("Payment slip secured and ready for recording.");
+      setNotice("Payment slip uploaded securely. AIMS is checking it before it can be used.");
+      const scan = await api(`/payment-requests/${item.id}/documents/${result.id}/scan`, {
+        method: "POST",
+        body: "{}",
+      }) as {securityStatus:string};
+      if(scan.securityStatus === "CLEAN"){
+        setSlipId(result.id);
+        setNotice("Payment slip ready. Its security check completed successfully.");
+      }else{
+        setSlipId("");
+        setNotice(scan.securityStatus === "REJECTED" ? "Payment slip rejected. Choose a different file." : "Payment slip security check failed. Retry the check or upload the file again.");
+      }
     } catch (error) {
       setNotice(msg(error));
     } finally {
@@ -3032,7 +3051,7 @@ function PaymentPanel({
                 required
               />
             </label>
-            <button disabled={busy}>Secure slip</button>
+            <button disabled={busy}>{busy?"Checking slip…":"Upload and check slip"}</button>
           </form>
           <div className="paymentForm">
             <label>
@@ -3088,7 +3107,7 @@ function requesterListItem(x:Record<string,unknown>):Item{
 }
 function requesterDetailItem(safe:{request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>;clarifications?:Array<Record<string,unknown>>;payment?:Record<string,unknown>|null}):Item{
   const x=safe.request;
-  return {...requesterListItem(x),category:x.category?String(x.category):null,departmentId:String(x.department_id),paymentMethod:x.payment_method?String(x.payment_method):null,paymentDetails:x.payment_details?String(x.payment_details):null,remark:x.remark?String(x.remark):null,documents:safe.documents.map(d=>({id:String(d.id),original_filename:String(d.original_filename),size_bytes:String(d.size_bytes),version:Number(d.version),document_type:d.document_type?String(d.document_type):undefined,uploaded_at:d.uploaded_at?String(d.uploaded_at):undefined})),audit:safe.activity.map(a=>({id:`${String(a.occurred_at)}-${String(a.action)}`,action:String(a.action),occurred_at:String(a.occurred_at)})),clarifications:(safe.clarifications??[]).map(c=>({id:String(c.id),type:String(c.clarification_type),question:String(c.question),status:String(c.status),requestedAt:String(c.requested_at),response:c.response?String(c.response):null,respondedAt:c.responded_at?String(c.responded_at):null})),paymentSummary:safe.payment?{paymentDate:String(safe.payment.payment_date).slice(0,10),status:String(safe.payment.status),amountMinor:String(safe.payment.amount_minor),currency:String(safe.payment.currency),paymentMethod:String(safe.payment.payment_method),recordedAt:String(safe.payment.recorded_at)}:null};
+  return {...requesterListItem(x),category:x.category?String(x.category):null,departmentId:String(x.department_id),paymentMethod:x.payment_method?String(x.payment_method):null,paymentDetails:x.payment_details?String(x.payment_details):null,remark:x.remark?String(x.remark):null,documents:safe.documents.map(d=>({id:String(d.id),original_filename:String(d.original_filename),size_bytes:String(d.size_bytes),version:Number(d.version),document_type:d.document_type?String(d.document_type):undefined,uploaded_at:d.uploaded_at?String(d.uploaded_at):undefined,security_status:d.security_status?String(d.security_status) as "QUARANTINED"|"SCANNING"|"CLEAN"|"REJECTED"|"SCAN_FAILED":undefined})),audit:safe.activity.map(a=>({id:`${String(a.occurred_at)}-${String(a.action)}`,action:String(a.action),occurred_at:String(a.occurred_at)})),clarifications:(safe.clarifications??[]).map(c=>({id:String(c.id),type:String(c.clarification_type),question:String(c.question),status:String(c.status),requestedAt:String(c.requested_at),response:c.response?String(c.response):null,respondedAt:c.responded_at?String(c.responded_at):null})),paymentSummary:safe.payment?{paymentDate:String(safe.payment.payment_date).slice(0,10),status:String(safe.payment.status),amountMinor:String(safe.payment.amount_minor),currency:String(safe.payment.currency),paymentMethod:String(safe.payment.payment_method),recordedAt:String(safe.payment.recorded_at)}:null};
 }
 
 function paymentQueueItem(x: Record<string, unknown>): Item {

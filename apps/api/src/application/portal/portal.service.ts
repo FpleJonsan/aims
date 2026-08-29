@@ -91,7 +91,7 @@ export class PortalService {
        FROM payment_requests WHERE id=$1 AND created_by=$2 AND department_id=$3`,[id,actor.id,actor.departmentId]);
     if(!request.rowCount) throw new NotFoundException("Payment request not found");
     const [documents,clarifications,activity,payment]=await Promise.all([
-      this.db.pool.query(`SELECT id,original_filename,mime_type,size_bytes,document_type,version,uploaded_at FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL ORDER BY uploaded_at`,[id]),
+      this.db.pool.query(`SELECT id,original_filename,mime_type,size_bytes,document_type,version,uploaded_at,security_status FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL ORDER BY uploaded_at`,[id]),
       this.db.pool.query(`SELECT * FROM (
         SELECT id,clarification_type,COALESCE(required_response,reason) question,status,requested_at,response,responded_at FROM validation_clarifications WHERE payment_request_id=$1
         UNION ALL SELECT id,clarification_type,required_response question,status,requested_at,response,responded_at FROM approval_clarifications WHERE payment_request_id=$1

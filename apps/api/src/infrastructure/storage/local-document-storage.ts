@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { link, lstat, mkdir, open, readFile, realpath, rm } from 'node:fs/promises';
+import { link, lstat, mkdir, open, readFile, realpath, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import type {
@@ -165,14 +165,29 @@ export class LocalDocumentStorage implements DocumentStorage {
     if (!/^[a-f0-9]{64}$/i.test(expectedSha256)) {
       throw new Error('Expected SHA-256 must contain exactly 64 hexadecimal characters');
     }
-    const targetPath = this.#resolveKey(key);
-    await this.#assertNoSymlinkComponents(targetPath);
-    const data = await readFile(targetPath);
-    const actualSha256 = createHash('sha256').update(data).digest('hex');
-    if (actualSha256 !== expectedSha256.toLowerCase()) {
-      throw new Error('Document integrity verification failed');
-    }
+    return this.read(key,expectedSha256);
+  }
+
+  async read(key:string,expectedSha256:string):Promise<Uint8Array>{
+    if(!key.startsWith('quarantine/')&&!key.startsWith('active/'))throw new Error('Document key is outside a private storage zone');
+    if (!/^[a-f0-9]{64}$/i.test(expectedSha256)) throw new Error('Expected SHA-256 must contain exactly 64 hexadecimal characters');
+    const targetPath=this.#resolveKey(key);await this.#assertNoSymlinkComponents(targetPath);
+    const data=await readFile(targetPath),actual=createHash('sha256').update(data).digest('hex');
+    if(actual!==expectedSha256.toLowerCase())throw new Error('Document integrity verification failed');
     return data;
+  }
+
+  async delete(key:string):Promise<void>{const target=this.#resolveKey(key);await this.#assertNoSymlinkComponents(target);await rm(target,{force:true});}
+  async exists(key:string):Promise<boolean>{try{await this.metadata(key);return true;}catch(error){if(isMissingPathError(error))return false;throw error;}}
+  async metadata(key:string):Promise<{sizeBytes:number;sha256:string}>{
+    const target=this.#resolveKey(key);await this.#assertNoSymlinkComponents(target);const data=await readFile(target);
+    return{sizeBytes:data.byteLength,sha256:createHash('sha256').update(data).digest('hex')};
+  }
+  async listKeys():Promise<string[]>{
+    const result:string[]=[];for(const zone of ['quarantine','active']){
+      const base=this.#resolveKey(`${zone}/placeholder`);const root=path.dirname(base);
+      await walk(root,zone,result).catch(error=>{if(!isMissingPathError(error))throw error;});
+    }return result.sort();
   }
 
   async promoteQuarantined(input: PromoteDocumentInput): Promise<StoredDocument> {
@@ -318,4 +333,12 @@ async function writeAll(
 
 function isMissingPathError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+
+async function walk(directory:string,prefix:string,result:string[]):Promise<void>{
+  for(const entry of await readdir(directory,{withFileTypes:true})){
+    if(entry.isSymbolicLink())throw new Error('Symbolic links are not permitted in document storage paths');
+    const next=path.join(directory,entry.name),key=`${prefix}/${entry.name}`;
+    if(entry.isDirectory())await walk(next,key,result);else if(entry.isFile())result.push(key);
+  }
 }

@@ -116,7 +116,7 @@ async function eligible(
   );
   const r = await requests.submit(d.id, requester, "d5-s");
   await db.pool.query(
-    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by)VALUES($1,$2,$3,'x.pdf',$4,'application/pdf',20,$5,'INVOICE',1,$6)`,
+    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference)VALUES($1,$2,$3,'x.pdf',$4,'application/pdf',20,$5,'INVOICE',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
     [
       randomUUID(),
       r.id,
@@ -245,7 +245,7 @@ test("active evidence changes supersede the decision while historical evidence i
     const addedId = randomUUID(),
       addedLogicalId = randomUUID();
     await db.pool.query(
-      `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by) VALUES($1,$2,$3,'new.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6)`,
+      `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference) VALUES($1,$2,$3,'new.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
       [
         addedId,
         r.id,
@@ -276,9 +276,11 @@ test("active evidence changes supersede the decision while historical evidence i
       finance,
       "d51-after-remove",
     );
-    await db.pool.query(
-      "UPDATE payment_documents SET document_type='HISTORICAL_ONLY' WHERE id=$1",
-      [addedId],
+    await assert.rejects(() =>
+      db.pool.query(
+        "UPDATE payment_documents SET document_type='HISTORICAL_ONLY' WHERE id=$1",
+        [addedId],
+      ),
     );
     assert.equal((await service.get(r.id, finance, false)).id, afterRemoval.id);
     const active = await db.pool.query<{
@@ -296,7 +298,7 @@ test("active evidence changes supersede the decision while historical evidence i
         [active.rows[0].id],
       );
       await c.query(
-        `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by) VALUES($1,$2,$3,'replacement.pdf',$4,'application/pdf',20,$5,$6,$7,$8)`,
+        `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference) VALUES($1,$2,$3,'replacement.pdf',$4,'application/pdf',20,$5,$6,$7,$8,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
         [
           randomUUID(),
           r.id,
@@ -340,7 +342,7 @@ test("evidence revision versus evaluation serializes on the request lock", async
     let mutationFinished = false;
     const mutation = db.pool
       .query(
-        `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by) VALUES($1,$2,$3,'race.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6)`,
+        `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference) VALUES($1,$2,$3,'race.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
         [
           randomUUID(),
           r.id,

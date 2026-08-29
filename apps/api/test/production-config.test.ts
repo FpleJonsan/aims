@@ -7,6 +7,7 @@ const local = {
   NODE_ENV: "development",
   DATABASE_URL: "postgresql://aims_app:local@localhost:5432/aims",
   STORAGE_DRIVER: "local",
+  MALWARE_SCANNER_DRIVER: "deterministic-local",
 };
 
 test("development accepts explicit local storage and optional integrations disabled", () => {
@@ -16,8 +17,9 @@ test("development accepts explicit local storage and optional integrations disab
 });
 
 test("production fails closed without an approved corporate authentication adapter", () => {
-  assert.throws(() => validateProductionConfig({ ...local, NODE_ENV: "production" }), /approved corporate adapter/);
-  assert.throws(() => validateProductionConfig({ ...local, AIMS_ENVIRONMENT: "production" }), /approved corporate adapter/);
+  const configured={...local,STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider",FINANCE_DATABASE_URL:local.DATABASE_URL,PAYMENT_DATABASE_URL:local.DATABASE_URL};
+  assert.throws(() => validateProductionConfig({ ...configured, NODE_ENV: "production" }), /approved corporate adapter/);
+  assert.throws(() => validateProductionConfig({ ...configured, AIMS_ENVIRONMENT: "production" }), /approved corporate adapter/);
 });
 
 test("production rejects local document storage", () => {
@@ -27,7 +29,14 @@ test("production rejects local document storage", () => {
     AUTH_TRUSTED_PROXY: "true",
     FINANCE_DATABASE_URL: local.DATABASE_URL,
     PAYMENT_DATABASE_URL: local.DATABASE_URL,
-  }), /approved corporate adapter/);
+  }), /private object-storage adapter/);
+});
+
+test("production rejects missing object storage, missing scanner, and deterministic local scanner",()=>{
+  const base={...local,NODE_ENV:"production",FINANCE_DATABASE_URL:local.DATABASE_URL,PAYMENT_DATABASE_URL:local.DATABASE_URL};
+  assert.throws(()=>validateProductionConfig({...base,STORAGE_DRIVER:""}),/private object-storage adapter/);
+  assert.throws(()=>validateProductionConfig({...base,STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:""}),/malware-scanner provider/);
+  assert.throws(()=>validateProductionConfig({...base,STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"deterministic-local"}),/malware-scanner provider/);
 });
 
 test("AI OFF has no OpenAI credential dependency", () => {

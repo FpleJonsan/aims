@@ -22,4 +22,9 @@ export interface DocumentStorage {
   storeQuarantined(input: StoreDocumentInput): Promise<StoredDocument>;
   readQuarantined(key: string, expectedSha256: string): Promise<Uint8Array>;
   promoteQuarantined(input: PromoteDocumentInput): Promise<StoredDocument>;
+  read(key: string, expectedSha256: string): Promise<Uint8Array>;
+  delete(key: string): Promise<void>;
+  exists(key: string): Promise<boolean>;
+  metadata(key: string): Promise<{ sizeBytes: number; sha256: string }>;
+  listKeys(): Promise<string[]>;
 }

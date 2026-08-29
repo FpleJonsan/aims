@@ -12,6 +12,8 @@ import {
   DocumentQuarantineService,
   type DocumentMalwareScanner,
 } from '../src/application/documents/document-quarantine-service.js';
+import { assertAllowedDocumentExtension } from '../src/application/documents/payment-document.service.js';
+import { DeterministicLocalMalwareScanner } from '../src/infrastructure/security/deterministic-local-malware-scanner.js';
 
 const PDF_BYTES = new TextEncoder().encode('%PDF-1.7\nsynthetic fixture\n%%EOF\n');
 
@@ -93,6 +95,24 @@ test('rejects content whose signature does not match its declared type', async (
   } finally {
     await rm(rootPath, { recursive: true, force: true });
   }
+});
+
+test('requires an allowed filename extension that matches declared MIME',()=>{
+  assert.doesNotThrow(()=>assertAllowedDocumentExtension('invoice.pdf','application/pdf'));
+  assert.doesNotThrow(()=>assertAllowedDocumentExtension('receipt.JPEG','image/jpeg'));
+  assert.throws(()=>assertAllowedDocumentExtension('invoice.exe','application/pdf'),/extension/);
+  assert.throws(()=>assertAllowedDocumentExtension('invoice.png','application/pdf'),/extension/);
+  assert.throws(()=>assertAllowedDocumentExtension('invoice','application/pdf'),/extension/);
+});
+
+test('deterministic local scanner proves clean, rejected, and failure outcomes and rejects Production',async()=>{
+  const scanner=new DeterministicLocalMalwareScanner();
+  const request=(data:string)=>({key:'quarantine/test.pdf',sha256:'0'.repeat(64),contentType:'application/pdf',data:new TextEncoder().encode(data)});
+  assert.equal((await scanner.scan(request('harmless'))).verdict,'CLEAN');
+  assert.equal((await scanner.scan(request('AIMS_LOCAL_SCAN_REJECT'))).verdict,'INFECTED');
+  assert.equal((await scanner.scan(request('AIMS_LOCAL_SCAN_FAIL'))).verdict,'ERROR');
+  const prior=process.env.AIMS_ENVIRONMENT;process.env.AIMS_ENVIRONMENT='production';
+  try{assert.throws(()=>new DeterministicLocalMalwareScanner(),/forbidden in production/);}finally{if(prior===undefined)delete process.env.AIMS_ENVIRONMENT;else process.env.AIMS_ENVIRONMENT=prior;}
 });
 
 test('detects document modification during read', async () => {

@@ -33,7 +33,7 @@ async function submitted(requests: PaymentRequestService, db: Postgres) {
     "d2-update",
   );
   const submittedRequest = await requests.submit(d.id, requester, "d2-submit");
-  await db.pool.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,version,uploaded_by) VALUES($1,$2,$3,'synthetic.pdf',$4,'application/pdf',20,$5,1,$6)`, [randomUUID(), d.id, randomUUID(), `quarantine/tests/${randomUUID()}`, "0".repeat(64), requester.id]);
+  await db.pool.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference) VALUES($1,$2,$3,'synthetic.pdf',$4,'application/pdf',20,$5,1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`, [randomUUID(), d.id, randomUUID(), `active/tests/${randomUUID()}`, "0".repeat(64), requester.id]);
   return submittedRequest;
 }
 test("manual validation is first-class, duplicate start is protected, and PASS stops before Finance Context", async () => {

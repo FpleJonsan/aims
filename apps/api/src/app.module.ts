@@ -3,7 +3,7 @@ import path from "node:path";
 import { AuthGuard } from "./application/auth/auth.guard.js";
 import { LocalIdentityController } from "./application/auth/local-identity.controller.js";
 import { PaymentDocumentService } from "./application/documents/payment-document.service.js";
-import { DOCUMENT_STORAGE } from "./application/documents/tokens.js";
+import { DOCUMENT_MALWARE_SCANNER,DOCUMENT_STORAGE } from "./application/documents/tokens.js";
 import { PaymentRequestController } from "./application/payment-requests/payment-request.controller.js";
 import { PaymentRequestService } from "./application/payment-requests/payment-request.service.js";
 import { FinanceContextController } from "./application/finance-context/finance-context.controller.js";
@@ -48,6 +48,7 @@ import { HealthService } from "./application/health/health.service.js";
 import { PortalController } from "./application/portal/portal.controller.js";
 import { PortalService } from "./application/portal/portal.service.js";
 import { SessionService } from "./application/auth/session.service.js";
+import { DeterministicLocalMalwareScanner } from "./infrastructure/security/deterministic-local-malware-scanner.js";
 
 @Module({
   controllers: [
@@ -116,6 +117,10 @@ import { SessionService } from "./application/auth/session.service.js";
         );
       },
     },
+    {provide:DOCUMENT_MALWARE_SCANNER,useFactory:()=>{
+      if(process.env.MALWARE_SCANNER_DRIVER!=="deterministic-local")throw new Error("No approved malware scanner adapter is configured");
+      return new DeterministicLocalMalwareScanner();
+    }},
   ],
 })
 export class AppModule implements NestModule {

@@ -115,7 +115,7 @@ async function runScenario(db: Postgres, scenario: Scenario) {
   const control = new FinanceControlService(db,requests), run = await control.start(request.id,finance,`${scenario.label}-control`) as any;
   for (const code of confirmations) await control.confirm(run.run.id,{code,confirmed:true},finance,`${scenario.label}-${code}`);
   await control.finalize(run.run.id,{commandKey:randomUUID()},finance,`${scenario.label}-ready`);
-  const slipId=randomUUID(); await db.paymentTransaction(finance.id,`${scenario.label}-slip`,(client)=>client.query("SELECT attach_payment_slip($1,$2,$3,'uat-payment.pdf',$4,'application/pdf',20,$5)",[request.id,slipId,randomUUID(),`quarantine/uat/${randomUUID()}`,randomUUID().replaceAll("-","").repeat(2)]));
+  const slipId=await attachCleanPaymentSlip(db,request.id,scenario.label);
   const paymentService = new PaymentService(db,requests,{} as never);
   const payment = await paymentService.record(request.id,{commandKey:randomUUID(),paymentDate:new Date().toISOString().slice(0,10),amount:scenario.amount??"10.00",currency:"MYR",bankReference:`UAT-${scenario.label}-${randomUUID()}`,slipDocumentId:slipId,confirmPossibleDuplicate:false},finance,`${scenario.label}-payment`) as any;
   const afterSummary=await dashboard.summary(finance,{page:1,pageSize:25}), history=await paymentService.list(finance,{page:1,pageSize:100,status:"PAID"}), proof=(await db.pool.query(`SELECT pr.ticket_number,pr.status,p.id payment_id,p.ledger_entry_id,(SELECT count(*)::int FROM audit_events WHERE entity_id=pr.id) audit_count,(SELECT array_agg(action ORDER BY occurred_at) FROM audit_events WHERE entity_id=pr.id) actions FROM payment_requests pr JOIN payments p ON p.payment_request_id=pr.id WHERE pr.id=$1`,[request.id])).rows[0];
@@ -124,7 +124,23 @@ async function runScenario(db: Postgres, scenario: Scenario) {
   console.log(JSON.stringify({scenario:scenario.label,ticket:proof.ticket_number,aiMode:scenario.aiOff?"OFF":scenario.aiAssisted?"ON":"MANUAL",finalState:proof.status,paymentId:proof.payment_id,ledgerId:proof.ledger_entry_id,auditCount:proof.audit_count,staleIds,initialApprovalId:firstApproval.case.id,result:"PASS"}));
 }
 
-async function addDocument(db:Postgres,requestId:string,name:string){await db.pool.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by)VALUES($1,$2,$3,$4,$5,'application/pdf',20,$6,'INVOICE',1,$7)`,[randomUUID(),requestId,randomUUID(),name,`quarantine/uat/${randomUUID()}`,randomUUID().replaceAll("-","").repeat(2),requester.id]);}
+async function attachCleanPaymentSlip(db:Postgres,requestId:string,label:string){
+  const slipId=randomUUID(),sha=randomUUID().replaceAll("-","").repeat(2);
+  await db.paymentTransaction(finance.id,`${label}-slip`,client=>client.query(
+    "SELECT attach_payment_slip($1,$2,$3,'uat-payment.pdf',$4,'application/pdf',20,$5)",
+    [requestId,slipId,randomUUID(),`quarantine/uat/${randomUUID()}`,sha],
+  ));
+  const started=await db.paymentTransaction(finance.id,`${label}-scan-start`,client=>client.query<{begin_payment_slip_security_scan:number}>(
+    "SELECT begin_payment_slip_security_scan($1,$2,1,$3)",[requestId,slipId,sha],
+  ));
+  await db.paymentTransaction(finance.id,`${label}-scan-clean`,client=>client.query(
+    "SELECT complete_payment_slip_security_scan($1,$2,1,$3,$4,'CLEAN','deterministic-local',$5,NULL)",
+    [requestId,slipId,sha,Number(started.rows[0].begin_payment_slip_security_scan),`${label}-clean`],
+  ));
+  return slipId;
+}
+
+async function addDocument(db:Postgres,requestId:string,name:string){await db.pool.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference)VALUES($1,$2,$3,$4,$5,'application/pdf',20,$6,'INVOICE',1,$7,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,[randomUUID(),requestId,randomUUID(),name,`active/uat/${randomUUID()}`,randomUUID().replaceAll("-","").repeat(2),requester.id]);}
 
 function withAiEnabled(db: Postgres): Postgres {
   const analysisDb = Object.create(db) as Postgres;

@@ -249,7 +249,7 @@ export class PaymentRequestService {
         ["PAYMENT_REQUEST", id],
       ),
       this.database.pool.query(
-        "SELECT id, original_filename, mime_type, size_bytes, sha256, document_type, version, uploaded_by, uploaded_at FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL ORDER BY uploaded_at",
+        "SELECT id, original_filename, mime_type, size_bytes, sha256, document_type, version, uploaded_by, uploaded_at,security_status FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL ORDER BY uploaded_at",
         [id],
       ),
     ]);

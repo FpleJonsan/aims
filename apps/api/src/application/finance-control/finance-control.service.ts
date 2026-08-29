@@ -561,7 +561,7 @@ export class FinanceControlService {
   private async fingerprint(c: any, id: string) {
     const docs = (
       await c.query(
-        "SELECT id,logical_document_id,version,document_type,sha256 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL ORDER BY logical_document_id,version,id",
+        "SELECT id,logical_document_id,version,document_type,sha256 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' ORDER BY logical_document_id,version,id",
         [id],
       )
     ).rows;
@@ -572,8 +572,8 @@ export class FinanceControlService {
   }
   private async duplicateStatus(c: any, id: string, r: any) {
     const hash = await c.query(
-      `SELECT 1 FROM payment_documents d JOIN payment_documents other ON other.sha256=d.sha256 AND other.payment_request_id<>d.payment_request_id AND other.removed_at IS NULL
-    JOIN payment_requests pr ON pr.id=other.payment_request_id AND pr.status NOT IN('DRAFT','REJECTED','CANCELLED') WHERE d.payment_request_id=$1 AND d.removed_at IS NULL LIMIT 1`,
+      `SELECT 1 FROM payment_documents d JOIN payment_documents other ON other.sha256=d.sha256 AND other.payment_request_id<>d.payment_request_id AND other.removed_at IS NULL AND other.security_status='CLEAN'
+    JOIN payment_requests pr ON pr.id=other.payment_request_id AND pr.status NOT IN('DRAFT','REJECTED','CANCELLED') WHERE d.payment_request_id=$1 AND d.removed_at IS NULL AND d.security_status='CLEAN' LIMIT 1`,
       [id],
     );
     if (hash.rowCount) return "CONFIRMED_DUPLICATE";
@@ -703,7 +703,7 @@ export class FinanceControlService {
       types = new Set(
         (
           await c.query(
-            "SELECT document_type FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL",
+            "SELECT document_type FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN'",
             [request.id],
           )
         ).rows.map((x: any) => x.document_type),

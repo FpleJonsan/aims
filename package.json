@@ -17,6 +17,7 @@
     "test": "npm run test:auth-ux && npm test --workspace @aims/api",
     "test:auth-ux": "node --experimental-strip-types --test test/session-ux.test.ts",
     "test:storage": "npm run test:storage --workspace @aims/api",
+    "test:document-security:integration": "npm run test:document-security:integration --workspace @aims/api",
     "test:ai:live": "npm run test:ai:live --workspace @aims/api",
     "test:ai:financial-live": "npm run test:ai:financial-live --workspace @aims/api",
     "test:ai:finance-intelligence-live": "npm run test:ai:finance-intelligence-live --workspace @aims/api",

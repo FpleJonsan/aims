@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 
-export const EXPECTED_SCHEMA_VERSION = 54;
+export const EXPECTED_SCHEMA_VERSION = 56;
 
 @Injectable()
 export class HealthService {
@@ -22,6 +22,9 @@ export class HealthService {
     checks.storage = process.env.STORAGE_DRIVER
       ? { status: "ready", detail: process.env.STORAGE_DRIVER }
       : { status: "not_ready", detail: "STORAGE_DRIVER is not configured" };
+    checks.malwareScanner = process.env.MALWARE_SCANNER_DRIVER
+      ? {status:"ready",detail:process.env.MALWARE_SCANNER_DRIVER}
+      : {status:"not_ready",detail:"MALWARE_SCANNER_DRIVER is not configured"};
 
     const ai = await this.aiState();
     checks.ai = ai.error
@@ -37,7 +40,7 @@ export class HealthService {
         : { status: "not_ready", detail: "enabled but configuration is incomplete" }
       : { status: "disabled", detail: "Telegram approval is disabled" };
 
-    const required = [checks.postgresql, checks.schema, checks.financeExecutor, checks.paymentExecutor, checks.storage, checks.ai, checks.telegram];
+    const required = [checks.postgresql, checks.schema, checks.financeExecutor, checks.paymentExecutor, checks.storage,checks.malwareScanner, checks.ai, checks.telegram];
     return { status: required.some((x) => x.status === "not_ready") ? "not_ready" as const : "ready" as const, checks };
   }
 

@@ -1,7 +1,8 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
+import type { Response } from 'express';
 import { AuthGuard } from '../auth/auth.guard.js';
 import { PaymentDocumentService } from '../documents/payment-document.service.js';
 import { CapturePaymentRequestDto, ListPaymentRequestsDto } from './payment-request.dto.js';
@@ -52,4 +53,18 @@ export class PaymentRequestController {
     await this.documents.remove(id, documentId, request.principal, request.correlationId);
     return { removed: true };
   }
+
+  @Post(':id/documents/:documentId/scan')
+  scan(@Req() request:Request,@Param('id',ParseUUIDPipe) id:string,@Param('documentId',ParseUUIDPipe) documentId:string){
+    return this.documents.scan(id,documentId,request.principal,request.correlationId);
+  }
+
+  @Get(':id/documents/:documentId/download')
+  async download(@Req() request:Request,@Res() response:Response,@Param('id',ParseUUIDPipe) id:string,@Param('documentId',ParseUUIDPipe) documentId:string){
+    const file=await this.documents.download(id,documentId,request.principal,request.correlationId);
+    response.setHeader('content-type',file.mimeType);response.setHeader('x-content-type-options','nosniff');
+    response.setHeader('content-disposition',safeAttachment(file.filename));response.send(Buffer.from(file.data));
+  }
 }
+
+function safeAttachment(filename:string){return `attachment; filename="document"; filename*=UTF-8''${encodeURIComponent(filename).replace(/[!'()*]/g,character=>`%${character.charCodeAt(0).toString(16).toUpperCase()}`)}`;}

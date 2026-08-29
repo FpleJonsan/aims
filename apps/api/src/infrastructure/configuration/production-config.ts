@@ -6,6 +6,7 @@ export interface ConfigurationSummary {
   mode: ConfigurationMode;
   identity: "LOCAL_SESSION" | "COMPETITION_HEADER";
   storage: string;
+  malwareScanner:string;
   aiProviderConfigured: boolean;
   telegramEnabled: boolean;
 }
@@ -19,20 +20,22 @@ export function validateProductionConfig(
   if(!["development","local","competition","staging","production"].includes(aimsEnvironment))
     throw new Error("AIMS_ENVIRONMENT must be development, local, competition, staging, or production");
   const production = mode === "production"||aimsEnvironment==="production";
-  if(production)throw new Error("Production authentication is not configured; an approved corporate adapter is required");
-  if(aimsEnvironment==="staging")throw new Error("Staging authentication is not configured; an approved test IdP adapter is required");
   const telegramEnabled = environment.TELEGRAM_APPROVAL_ENABLED === "true";
   const storage = environment.STORAGE_DRIVER ?? "";
+  const malwareScanner=environment.MALWARE_SCANNER_DRIVER??"";
 
   requireUrl(environment.DATABASE_URL, "DATABASE_URL", ["postgres:", "postgresql:"]);
   if (production) {
     requireUrl(environment.FINANCE_DATABASE_URL, "FINANCE_DATABASE_URL", ["postgres:", "postgresql:"]);
     requireUrl(environment.PAYMENT_DATABASE_URL, "PAYMENT_DATABASE_URL", ["postgres:", "postgresql:"]);
-    if (storage === "local") {
-      throw new Error("Local document storage is forbidden in production; configure the production S3 adapter before deployment");
-    }
-    if (!storage) throw new Error("STORAGE_DRIVER is required in production");
+    if (storage !== "object") throw new Error("Production requires an approved private object-storage adapter; local or missing storage is forbidden");
+    if(malwareScanner!=="provider")throw new Error("Production requires an approved malware-scanner provider; deterministic local or missing scanning is forbidden");
+  }else{
+    if(storage!=="local")throw new Error("This foundation currently supports only explicit LOCAL document storage outside Production");
+    if(malwareScanner!=="deterministic-local")throw new Error("Local document security requires MALWARE_SCANNER_DRIVER=deterministic-local");
   }
+  if(production)throw new Error("Production authentication is not configured; an approved corporate adapter is required");
+  if(aimsEnvironment==="staging")throw new Error("Staging authentication is not configured; an approved test IdP adapter is required");
 
   if (telegramEnabled) {
     requireSecret(environment.TELEGRAM_BOT_TOKEN, "TELEGRAM_BOT_TOKEN", production);
@@ -51,6 +54,7 @@ export function validateProductionConfig(
     mode,
     identity: aimsEnvironment === "competition" || environment.AIMS_DEMO_MODE === "true" ? "COMPETITION_HEADER" : "LOCAL_SESSION",
     storage,
+    malwareScanner,
     aiProviderConfigured: Boolean(environment.OPENAI_API_KEY),
     telegramEnabled,
   };

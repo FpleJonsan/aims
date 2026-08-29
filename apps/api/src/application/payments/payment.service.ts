@@ -17,6 +17,7 @@ import { Postgres } from "../../infrastructure/database/postgres.js";
 import type { DocumentStorage } from "../../infrastructure/storage/document-storage.js";
 import { DOCUMENT_STORAGE } from "../documents/tokens.js";
 import { PaymentRequestService } from "../payment-requests/payment-request.service.js";
+import { assertAllowedDocumentExtension } from "../documents/payment-document.service.js";
 import type { PaymentListDto, RecordPaymentDto } from "./payment.dto.js";
 
 @Injectable()
@@ -92,6 +93,7 @@ export class PaymentService {
     const id = randomUUID(),
       logicalId = randomUUID(),
       filename = sanitize(file.originalname);
+    assertAllowedDocumentExtension(filename,file.mimetype);
     const stored = await this.storage.storeQuarantined({
       key: `payment-requests/${requestId}/payment-slips/${id}`,
       declaredContentType: file.mimetype,
@@ -121,6 +123,7 @@ export class PaymentService {
       throw this.controlled(error);
     }
   }
+
 
   async record(
     requestId: string,
@@ -215,12 +218,12 @@ export class PaymentService {
   async downloadSlip(id: string, actor: Principal, correlationId: string) {
     await this.get(id, actor);
     const q = await this.db.pool.query<any>(
-      "SELECT d.storage_object_key,d.sha256,d.mime_type,d.original_filename,p.payment_request_id FROM payments p JOIN payment_documents d ON d.id=p.slip_document_id WHERE p.id=$1",
+      "SELECT d.storage_object_key,d.sha256,d.mime_type,d.original_filename,p.payment_request_id FROM payments p JOIN payment_documents d ON d.id=p.slip_document_id WHERE p.id=$1 AND d.security_status='CLEAN' AND d.removed_at IS NULL",
       [id],
     );
     if (!q.rowCount) throw new NotFoundException("Payment slip not found");
     const row = q.rows[0],
-      data = await this.storage.readQuarantined(
+      data = await this.storage.read(
         row.storage_object_key,
         row.sha256,
       );
