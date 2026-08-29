@@ -1,6 +1,6 @@
 # AIMS Migration Inventory
 
-The Day 10.1 clean-database test applies all 53 SQL files below in lexical order with `ON_ERROR_STOP=1`. Historical migrations are immutable; local/demo fixture migrations are explicitly identified by name, `052` removes Day 9 reconciliation fixtures so reporting is not polluted, and `053` records the application-compatible schema version used by readiness.
+The clean-database lifecycle applies all 54 SQL files below in lexical order with `ON_ERROR_STOP=1`. Historical migrations are immutable; local/demo fixture migrations are explicitly identified by name, `052` removes Day 9 reconciliation fixtures so reporting is not polluted, `053` introduced the readiness marker, and `054` advances it for the local production-identity session foundation.
 
 | Range | Purpose |
 | --- | --- |
@@ -14,6 +14,7 @@ The Day 10.1 clean-database test applies all 53 SQL files below in lexical order
 | 036–047 | Payment, local authority, idempotency/atomicity/payment-slip hardening |
 | 048–052 | Dashboard/Finance Intelligence, failure history, local reporting fixtures and cleanup |
 | 053 | Required schema-version readiness marker |
+| 054 | P1-L external identity mapping, opaque server sessions, and authentication audit attribution |
 
 Exact files:
 
@@ -71,6 +72,7 @@ Exact files:
 051_day9_1_local_reconciliation_fixture.sql
 052_day9_2_remove_reconciliation_fixtures.sql
 053_day10_1_schema_readiness.sql
+054_p1l_local_identity_sessions.sql
 ```
 
 For a future production release, evaluate a checksum manifest and an optional baseline migration for deployment ergonomics. Preserve the full historical chain for audit and never destructively squash an already-used production database.

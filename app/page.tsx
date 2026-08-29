@@ -77,7 +77,9 @@ type PortalSession = {
   capabilities:{financeAnalysis:boolean;approval:boolean;financeControl:boolean;payment:boolean;reporting:boolean;policyAdmin:boolean};
 };
 type AuthPhase = "login"|"checking"|"ready"|"no-access"|"error";
+type IdentityMode = "LOCAL"|"COMPETITION";
 type LocalIdentity = {subject:string;displayName:string;department:string;persona:string;workspaces:string[]};
+function readCookie(name:string){if(typeof document==="undefined")return "";const prefix=`${encodeURIComponent(name)}=`;const value=document.cookie.split(";").map(part=>part.trim()).find(part=>part.startsWith(prefix));return value?decodeURIComponent(value.slice(prefix.length)):"";}
 
 const statusStage: Record<Item["status"], number> = {
   DRAFT: 1, SUBMITTED: 2, VALIDATING: 3, NEEDS_CLARIFICATION: 3,
@@ -120,7 +122,8 @@ function financeNextAction(status:Item["status"]){
 export default function Home() {
   const localLogin=process.env.NODE_ENV!=="production";
   const [user, setUser] = useState<string | null>(null),
-    [authPhase,setAuthPhase]=useState<AuthPhase>(localLogin?"login":"checking"),
+    [identityMode,setIdentityMode]=useState<IdentityMode>("LOCAL"),
+    [authPhase,setAuthPhase]=useState<AuthPhase>("checking"),
     [authMessage,setAuthMessage]=useState(""),
     [items, setItems] = useState<Item[]>([]),
     [selected, setSelected] = useState<Item | null>(null),
@@ -143,14 +146,15 @@ export default function Home() {
   },[]);
   const api = useCallback(
     async (path: string, init?: RequestInit): Promise<unknown> => {
-      if (localLogin&&!user) throw Error("Sign in required");
       const response = await fetch(`${API}${path}`, {
         ...init,
+        credentials:"include",
         headers: {
-          ...(user?{"x-aims-user":user}:{}),
+          ...(!["GET","HEAD","OPTIONS"].includes((init?.method??"GET").toUpperCase())?{"x-aims-csrf":readCookie("aims_csrf")} : {}),
           ...(init?.body instanceof FormData
             ? {}
             : { "content-type": "application/json" }),
+          ...(identityMode==="COMPETITION"&&user?{"x-aims-user":user}:{}),
           ...init?.headers,
         },
       });
@@ -161,10 +165,10 @@ export default function Home() {
       if(response.status===401)window.dispatchEvent(new CustomEvent("aims:unauthenticated",{detail:{message}}));
       if(response.status===403&&path!=="/session")window.dispatchEvent(new CustomEvent("aims:forbidden",{detail:{path}}));
       if (!response.ok)
-        throw Error(message);
+        throw Object.assign(Error(message),{status:response.status});
       return data;
     },
-    [localLogin,user],
+    [identityMode,user],
   );
   const applySession=useCallback((next:PortalSession,requestedPath:string,message="")=>{
     setSession(next);
@@ -190,7 +194,10 @@ export default function Home() {
       applySession(next,savedRedirect??requestedPath);
     } catch(error) {
       const message=msg(error);
-      if(message==="Authentication required"||message.includes("Unknown or inactive")||message.includes("Production identity proxy"))return;
+      if((error as {status?:number}).status===401||message==="Authentication required"||message.includes("Unknown or inactive")||message.includes("Production identity proxy")){
+        setSession(null);setWorkspace(null);setAuthPhase("login");
+        return;
+      }
       setSession(null);setWorkspace(null);setAuthMessage("Unable to verify your AIMS session. Try again.");setAuthPhase("error");
     }
   },[api,applySession,clearProtectedState]);
@@ -263,9 +270,8 @@ export default function Home() {
     };
   }, [refresh, authPhase, session, workspace, approvalPage]);
   useEffect(()=>{
-    if(localLogin&&!user)return;
     void Promise.resolve().then(()=>bootstrapSession(window.location.pathname+window.location.search));
-  },[bootstrapSession,localLogin,user]);
+  },[bootstrapSession]);
   useEffect(()=>{
     const unauthenticated=(event:Event)=>{
       const detail=(event as CustomEvent<{message?:string}>).detail;
@@ -278,7 +284,7 @@ export default function Home() {
     const forbidden=()=>{
       if(authorizationRefresh.current)return;
       authorizationRefresh.current=true;clearProtectedState();setAuthPhase("checking");setNotice("Your access changed. AIMS is refreshing your authorized workspace.");
-      void fetch(`${API}/session`,{headers:{...(user?{"x-aims-user":user}:{})}}).then(async response=>{
+      void fetch(`${API}/session`,{credentials:"include"}).then(async response=>{
         if(response.status===401){window.dispatchEvent(new CustomEvent("aims:unauthenticated"));return null;}
         if(!response.ok)throw Error("session-refresh-failed");
         return response.json() as Promise<PortalSession>;
@@ -331,17 +337,24 @@ export default function Home() {
       setNotice("Sign out must be completed through your organization identity provider. No provider logout URL is configured.");
       return;
     }
-    clearProtectedState();window.localStorage.removeItem("aims.workspace");window.sessionStorage.removeItem("aims.redirect");
-    setSession(null);setWorkspace(null);setUser(null);setAuthMessage("You have signed out of the local AIMS demo.");setAuthPhase("login");
-    window.history.replaceState({},"","/login");
+    void fetch(`${API}/auth/logout`,{method:"POST",credentials:"include",headers:{"x-aims-csrf":readCookie("aims_csrf")}}).finally(()=>{
+      clearProtectedState();window.localStorage.removeItem("aims.workspace");window.sessionStorage.removeItem("aims.redirect");
+      setSession(null);setWorkspace(null);setUser(null);setAuthMessage("You have signed out of AIMS.");setAuthPhase("login");
+      window.history.replaceState({},"","/login");
+    });
   };
   if (authPhase==="login")
     return (
       <Login
         local={localLogin}
         message={authMessage}
+        onMode={setIdentityMode}
         onLogin={(identity) => {
-          setNotice("");setAuthMessage("");setAuthPhase("checking");setUser(identity);
+          setNotice("");setAuthMessage("");setAuthPhase("checking");
+          if(identityMode==="COMPETITION"){setUser(identity);return;}
+          void fetch(`${API}/auth/local-login`,{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify({subject:identity})})
+            .then(async response=>{const data=await response.json().catch(()=>({})) as {message?:string};if(!response.ok)throw Error(data.message??"Unable to sign in");setUser(identity);})
+            .catch(error=>{setAuthMessage(msg(error));setAuthPhase("login")});
         }}
         onRetry={()=>void bootstrapSession("/")}
       />
@@ -449,7 +462,7 @@ export default function Home() {
             setShowPaymentHistory(drill.view === "PAYMENT_HISTORY");
           }} />
         ) : showPaymentHistory && workspace === "finance" && (session.capabilities.payment||session.capabilities.reporting) ? (
-          <PaymentHistory api={api} user={session.user.subject} initialFilters={dashboardDrill?.view === "PAYMENT_HISTORY" ? dashboardDrill.filters : {}} />
+          <PaymentHistory api={api} initialFilters={dashboardDrill?.view === "PAYMENT_HISTORY" ? dashboardDrill.filters : {}} />
         ) : dashboardDrill?.view === "REPORTING_REQUESTS" ? (
           <ReportingRequestDrill api={api} drill={dashboardDrill} back={()=>setDashboardDrill(null)} />
         ) : dashboardDrill?.view === "FINANCE_CONTROL" || dashboardDrill?.view === "PAYMENT_QUEUE" ? (
@@ -857,7 +870,7 @@ type PaymentRow = {
   ledgerEntryId?: string;
 };
 
-function PaymentHistory({ api, user, initialFilters = {} }: { api: Api; user: string; initialFilters?: Record<string,string> }) {
+function PaymentHistory({ api, initialFilters = {} }: { api: Api; initialFilters?: Record<string,string> }) {
   const [filters, setFilters] = useState({
     search: "",
     departmentId: "",
@@ -899,7 +912,7 @@ function PaymentHistory({ api, user, initialFilters = {} }: { api: Api; user: st
   }
   async function exportCsv() {
     const response = await fetch(`${API}/payments/export?${query}`, {
-      headers: { "x-aims-user": user },
+      credentials:"include",
     });
     if (!response.ok) {
       setNotice("Payment export was denied.");
@@ -943,7 +956,7 @@ function PaymentHistory({ api, user, initialFilters = {} }: { api: Api; user: st
             onClick={(e) => {
               e.preventDefault();
               void fetch(`${API}/payments/${detail.id}/slip`, {
-                headers: { "x-aims-user": user },
+                credentials:"include",
               }).then(async (r) => {
                 if (!r.ok) throw Error("Slip access denied");
                 const u = URL.createObjectURL(await r.blob());
@@ -1068,18 +1081,19 @@ function PaymentHistory({ api, user, initialFilters = {} }: { api: Api; user: st
   );
 }
 
-function Login({ onLogin,local,message,onRetry }: { onLogin:(id:string)=>void;local:boolean;message:string;onRetry:()=>void }) {
+function Login({ onLogin,onMode,local,message,onRetry }: { onLogin:(id:string)=>void;onMode:(mode:IdentityMode)=>void;local:boolean;message:string;onRetry:()=>void }) {
   const [identities,setIdentities]=useState<LocalIdentity[]>([]);
+  const [identityMode,setIdentityMode]=useState<"LOCAL"|"COMPETITION">("LOCAL");
   const [loading,setLoading]=useState(local);
   const [identityError,setIdentityError]=useState("");
   const loadIdentities=useCallback(()=>{
     if(!local)return;
     setLoading(true);setIdentityError("");
-    void fetch(`${API}/auth/local-identities`).then(async response=>{
+    void fetch(`${API}/auth/local-identities`,{credentials:"include"}).then(async response=>{
       if(!response.ok)throw Error("Local identity service unavailable");
       return response.json() as Promise<{mode:string;identities:LocalIdentity[]}>;
-    }).then(result=>setIdentities(result.identities)).catch(()=>setIdentityError("Unable to load available identities. Check that the AIMS API is running." )).finally(()=>setLoading(false));
-  },[local]);
+    }).then(result=>{const mode=result.mode==="COMPETITION"?"COMPETITION":"LOCAL";setIdentityMode(mode);onMode(mode);setIdentities(result.identities)}).catch(()=>setIdentityError("Unable to load available identities. Check that the AIMS API is running." )).finally(()=>setLoading(false));
+  },[local,onMode]);
   useEffect(()=>{void Promise.resolve().then(loadIdentities)},[loadIdentities]);
   return (
     <main className="login">
@@ -1104,19 +1118,19 @@ function Login({ onLogin,local,message,onRetry }: { onLogin:(id:string)=>void;lo
         <div className="loginCard">
           <header>
             <span className="loginLock" aria-hidden="true">A</span>
-            <div><small>{local?"COMPETITION ENVIRONMENT":"ORGANIZATION SIGN-IN"}</small><h2>{local?"Welcome to AIMS":"Sign in to AIMS"}</h2></div>
+            <div><small>{local?(identityMode==="COMPETITION"?"COMPETITION ENVIRONMENT":"LOCAL ENVIRONMENT"):"ORGANIZATION SIGN-IN"}</small><h2>{local?"Welcome to AIMS":"Sign in to AIMS"}</h2></div>
           </header>
           <p>{local?"Select your identity to continue.":"AIMS uses your organization’s trusted identity provider. No local or fallback identity selector is available in production."}</p>
           {message&&<p className="authMessage" role="status" aria-live="polite">{message}</p>}
           {local?<>
-            {loading?<div className="identityLoading" aria-live="polite">Loading available identities…</div>:identityError?<div className="identityError" role="alert"><span>{identityError}</span><button onClick={loadIdentities}>Retry</button></div>:<div className="roleChoices" aria-label="Available competition identities">
+            {loading?<div className="identityLoading" aria-live="polite">Loading available identities…</div>:identityError?<div className="identityError" role="alert"><span>{identityError}</span><button onClick={loadIdentities}>Retry</button></div>:<div className="roleChoices" aria-label="Available local identities">
               {identities.map(identity=><button key={identity.subject} onClick={()=>onLogin(identity.subject)}>
                 <span className="roleIcon" aria-hidden="true">{identity.persona.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase()}</span>
                 <span><b>{identity.persona}</b><small>{identity.displayName} · {identity.department}</small><small>{identity.workspaces.length?`${identity.workspaces.join(" + ")} workspace${identity.workspaces.length===1?"":"s"}`:"No operational workspace"}</small></span>
                 <strong aria-hidden="true">→</strong>
               </button>)}
             </div>}
-            <div className="localAccessNote"><b>Controlled competition access</b><span>Identity and authority are verified by AIMS. Displayed roles never grant access.</span></div>
+            <div className="localAccessNote"><b>{identityMode==="COMPETITION"?"Controlled competition access":"Local authenticated access"}</b><span>{identityMode==="COMPETITION"?"Identity and authority are verified by AIMS. Displayed roles never grant access.":"Identity is established through a server session. Finance authority remains in AIMS."}</span></div>
           </>:<div className="productionAccess"><span>Secure identity proxy required</span><button className="primary" onClick={onRetry}>Check organization session</button></div>}
         </div>
         <footer>Authorized access only · Activity is auditable</footer>

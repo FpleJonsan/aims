@@ -59,7 +59,11 @@ docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psq
 
 Continue through the latest numbered file; [the migration inventory](MIGRATION-INVENTORY.md) is authoritative. A shell loop may be used only after reviewing its resolved file list and confirming the target database. Never run local/demo seed migrations against production.
 
-The seed contains synthetic local identities only: `demo.requester` and `demo.finance`. The API accepts `x-aims-user` only as the explicit local identity adapter. When `NODE_ENV=production`, requests are rejected unless `AUTH_TRUSTED_PROXY=true` and the deployment supplies this header through a trusted, stripping identity proxy.
+The seed contains synthetic local identities only. Migration 054 maps permitted local identities under the explicit `(provider=local, issuer=aims-local, subject)` namespace. The browser selects an identity only at `POST /auth/local-login`; AIMS then creates a server-side session and sends an opaque HttpOnly cookie. Protected local requests do not accept `x-aims-user`. Finance authority is not stored in the session and continues to be checked from current PostgreSQL records.
+
+Competition remains a separate, guarded compatibility environment and may temporarily use its existing header adapter. Staging and Production have no local fallback. Until Company IT supplies and approves a real identity adapter, either environment fails during startup.
+
+Local sessions default to eight hours through `LOCAL_SESSION_LIFETIME_SECONDS=28800`. This is a development default, not an approved Production policy. Keep `LOCAL_COOKIE_SECURE=false` only for local HTTP; an HTTPS environment must use secure cookies.
 
 Run the local API and web application in separate terminals:
 
@@ -67,6 +71,8 @@ Run the local API and web application in separate terminals:
 npm run dev --workspace @aims/api
 npm run dev
 ```
+
+Open `http://localhost:3000/login`, select a mapped local identity, and continue. Logout revokes the server record and clears both cookies. The configured `WEB_ORIGIN` is the only credentialed CORS and mutation origin; do not use a wildcard.
 
 The local API listens on `API_HOST`/`API_PORT` (defaults `127.0.0.1:3001`) and exposes OpenAPI at `/openapi` outside production. Use `/health/live` for process liveness and `/health/ready` for dependency/configuration readiness. Optional AI or Telegram being disabled is healthy; enabling either without its required configuration is not.
 

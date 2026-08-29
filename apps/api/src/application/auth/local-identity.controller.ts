@@ -1,6 +1,12 @@
-import { Controller, Get, NotFoundException } from "@nestjs/common";
+import { Body, Controller, Get, NotFoundException, Post, Req, Res } from "@nestjs/common";
+import { IsString, MaxLength, MinLength } from "class-validator";
+import type { Request,Response } from "express";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import { competitionIdentityDisplayName } from "./competition-identity-presentation.js";
+import { aimsEnvironment } from "./auth-environment.js";
+import { SessionService } from "./session.service.js";
+
+class LocalLoginDto { @IsString() @MinLength(1) @MaxLength(255) subject!:string; }
 
 type LocalIdentityRow = {
   subject: string;
@@ -17,15 +23,16 @@ type LocalIdentityRow = {
 
 @Controller("auth")
 export class LocalIdentityController {
-  constructor(private readonly database: Postgres) {}
+  constructor(private readonly database: Postgres,private readonly sessions:SessionService) {}
 
   @Get("local-identities")
   async list() {
-    if (process.env.NODE_ENV === "production") {
+    const environment=aimsEnvironment();
+    if (environment === "production"||environment==="staging") {
       throw new NotFoundException();
     }
 
-    const competitionMode = process.env.AIMS_ENVIRONMENT === "competition" || process.env.AIMS_DEMO_MODE === "true";
+    const competitionMode = environment === "competition";
     const result = await this.database.pool.query<LocalIdentityRow>(`
       SELECT
         u.external_subject subject,
@@ -40,11 +47,10 @@ export class LocalIdentityController {
         EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id=u.id AND ur.role='ADMIN') policy_admin
       FROM users u
       JOIN departments d ON d.id=u.department_id
-      WHERE u.active AND (
-        u.external_subject IN ('demo.requester','demo.finance')
-        OR (NOT $1 AND u.external_subject='demo.approver')
-        OR ($1 AND u.external_subject LIKE 'competition.%')
-      )
+      WHERE u.active AND (CASE WHEN $1 THEN
+        u.external_subject IN ('demo.requester','demo.finance') OR u.external_subject LIKE 'competition.%'
+        ELSE u.external_subject IN ('demo.requester','demo.finance','demo.approver','demo.admin')
+          AND EXISTS(SELECT 1 FROM user_external_identities x WHERE x.user_id=u.id AND x.provider='local' AND x.issuer='aims-local') END)
       ORDER BY CASE u.external_subject
         WHEN 'demo.requester' THEN 1 WHEN 'demo.finance' THEN 2 WHEN 'demo.approver' THEN 3 ELSE 4 END,
         u.display_name
@@ -73,4 +79,13 @@ export class LocalIdentityController {
       }),
     };
   }
+
+  @Post("local-login")
+  async login(@Body() body:LocalLoginDto,@Req() request:Request,@Res({passthrough:true}) response:Response){
+    const principal=await this.sessions.localLogin(body.subject,request,response);
+    return {authenticated:true,userId:principal.id};
+  }
+
+  @Post("logout")
+  async logout(@Req() request:Request,@Res({passthrough:true}) response:Response){await this.sessions.logout(request,response);return {authenticated:false};}
 }

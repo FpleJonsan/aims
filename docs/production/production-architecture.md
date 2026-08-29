@@ -24,7 +24,7 @@ The following invariants are frozen:
 | Database | PostgreSQL via `pg`. Normal pool max 10; Finance and Payment pools max 5 each; 10-second statement timeout; bounded serialization retry. PostgreSQL is authoritative for workflow, audit, policy, commitments, payment, ledger, and reporting. |
 | Database roles | Separate normal application, Finance runtime/executor, Payment runtime/executor, and migration/admin concepts. Restricted executor functions and triggers enforce terminal mutations. |
 | Migrations | Fifty-three immutable lexical SQL migrations. Schema readiness expects version 53. No automated production migration runner or checksum manifest exists. Several historical migrations contain local/competition fixtures and must not be applied blindly as production bootstrap data. |
-| Authentication | Non-production uses the local `x-aims-user` adapter. Production accepts the same header only when `AUTH_TRUSTED_PROXY=true`; no OIDC client, signed proxy assertion, session cookie, token validation, expiry, or production logout flow is implemented. |
+| Authentication | LOCAL uses the P1-L namespaced identity adapter and hashed opaque server-side session. COMPETITION retains its guarded compatibility header. STAGING/PRODUCTION fail closed until an approved corporate adapter is implemented; no OIDC client or trusted proxy assertion is implemented. |
 | Authorization | Backend resolves active user, department, technical roles, and independent business-authority tables on each request. `/session` returns safe user/workspace/capability projections. |
 | Documents | Node filesystem adapter only. It streams to quarantine, validates size/type/signature/container ending, stores SHA-256, blocks traversal/symlinks, and supports scanner-gated promotion in code. Local storage refuses production. No production object-storage adapter or malware engine is wired. |
 | AI | Optional OpenAI-compatible provider with strict structured schemas, evidence validation, safe provider errors, feature flags, usage records, and AI OFF behavior. Calls are currently in request paths; no production circuit breaker, central rate/cost budget, privacy approval, or provider SLA is configured. |
@@ -41,7 +41,7 @@ The following invariants are frozen:
 
 ```text
 Non-production identity selector
-  -> x-aims-user header
+  -> LOCAL login adapter and opaque session cookie (Competition compatibility uses x-aims-user)
   -> NestJS AuthGuard
   -> active users + technical roles in PostgreSQL
   -> independent business-authority tables
@@ -51,7 +51,7 @@ Non-production identity selector
 
 The production header boundary is incomplete. A network deployment must never allow a client to supply or overwrite the trusted identity header.
 
-P1 verified that `AUTH_TRUSTED_PROXY=true` is only a configuration assertion: the API does not currently verify the proxy/source, validate a signed assertion, or prevent direct-header spoofing if it is reachable. Production identity implementation is therefore blocked until the IdP and validation/edge contract are approved. See [production-identity-architecture.md](production-identity-architecture.md).
+P1-L removed the raw header from LOCAL protected requests and established the provider-independent server-session boundary. Production identity implementation remains blocked until the IdP and validation/edge contract are approved; Production and Staging currently refuse startup rather than fall back. See [production-identity-architecture.md](production-identity-architecture.md).
 
 ## Target logical architecture
 

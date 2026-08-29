@@ -13,7 +13,8 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | Production identity architecture | PASS | [P1 identity architecture](production-identity-architecture.md) defines trust, mapping, claim, session, lifecycle, threat and test contracts. |
 | Corporate identity / SSO | BLOCKED | Approved IdP, issuer/audience validation, secure session/logout, lifecycle and spoofing tests. |
 | Identity-to-authority administration | BLOCKED | Approved mapping and joiner/mover/leaver process; ADMIN remains non-operational. |
-| Authorization regression | NOT STARTED | Production auth plus IDOR, SoD, amount/scope, revocation and session tests. |
+| Local identity/session foundation | PASS | P1-L namespaced mapping, hashed opaque session, CSRF/origin control, revocation, logout and fail-closed environment tests. |
+| Authorization regression | PARTIAL | Local session preserves current PostgreSQL authority evaluation; real IdP/staging identity and full Production regression remain blocked. |
 | Private object storage | BLOCKED | Encrypted private quarantine/clean storage, authorized reads, version/hash reconciliation. |
 | Malware protection | BLOCKED | Real scanner, durable verdict, retry/error handling and promotion-only-after-CLEAN proof. |
 | Secret management | BLOCKED | Selected store, runtime injection, environment isolation, independent rotation and audit. |

@@ -15,7 +15,7 @@ export class ApiError extends Error {
 }
 
 export interface ApiClientConfig {
-  user: string;
+  user?: string;
   onUnauthenticated?: () => void;
   onForbidden?: () => void;
 }
@@ -26,7 +26,7 @@ export class ApiClient {
   private onForbidden?: () => void;
 
   constructor(config: ApiClientConfig) {
-    this.user = config.user;
+    this.user = config.user??"session";
     this.onUnauthenticated = config.onUnauthenticated;
     this.onForbidden = config.onForbidden;
   }
@@ -41,8 +41,9 @@ export class ApiClient {
 
     const response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
+      credentials:"include",
       headers: {
-        "x-aims-user": this.user,
+        ...(!["GET","HEAD","OPTIONS"].includes((init?.method??"GET").toUpperCase())?{"x-aims-csrf":readCookie("aims_csrf")} : {}),
         ...(init?.body instanceof FormData
           ? {}
           : { "content-type": "application/json" }),
@@ -101,6 +102,13 @@ export class ApiClient {
   setUser(user: string) {
     this.user = user;
   }
+}
+
+function readCookie(name:string):string{
+  if(typeof document==="undefined")return "";
+  const prefix=`${encodeURIComponent(name)}=`;
+  const value=document.cookie.split(";").map(part=>part.trim()).find(part=>part.startsWith(prefix));
+  return value?decodeURIComponent(value.slice(prefix.length)):"";
 }
 
 export function createApiClient(config: ApiClientConfig): ApiClient {

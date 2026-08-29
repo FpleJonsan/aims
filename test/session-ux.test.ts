@@ -42,6 +42,16 @@ test("Requester-only login never lands in Finance",()=>{
   assert.equal(result.path,"/requester");
 });
 
+test("valid Requester and Finance sessions preserve authorized deep links",()=>{
+  assert.deepEqual(routeForSession(session({}, {requester:true,finance:false}),"/requester/requests/123",null),{workspace:"requester",path:"/requester/requests/123",financeView:null});
+  assert.deepEqual(routeForSession(session({payment:true}, {requester:false,finance:true}),"/finance/payment-queue",null),{workspace:"finance",path:"/finance/payment-queue",financeView:"payment-queue"});
+});
+
+test("current session authority replaces stale Finance route assumptions",()=>{
+  assert.deepEqual(routeForSession(session({approval:true}, {requester:false,finance:true}),"/finance/payment-queue",null),{workspace:"finance",path:"/finance/approvals",financeView:"approvals"});
+  assert.deepEqual(routeForSession(session({policyAdmin:true}, {requester:false,finance:false}),"/finance/dashboard",null),{workspace:null,path:"/no-access",financeView:null});
+});
+
 test("requester statuses consistently expose a human label, next owner, and next action",()=>{
   assert.deepEqual(requesterStatusPresentation.PENDING_APPROVAL,{label:"Waiting for Approval",tone:"warning",owner:"Approver",action:"Waiting for required approval"});
   assert.equal(requesterStatusPresentation.READY_FOR_PAYMENT.label,"Ready for Payment");
@@ -73,4 +83,18 @@ test("competition login uses product wording without demo or development present
   assert.match(source,/Welcome to AIMS/);
   assert.match(source,/Select your identity to continue\./);
   assert.doesNotMatch(source,/DEMO LOGIN|Demo Mode|Demo System|Synthetic Login|LOCAL DEVELOPMENT|Local development only|approved demo identities/i);
+});
+
+test("frontend bootstraps from the authoritative server session before showing login",async()=>{
+  const source=await readFile(new URL("../app/page.tsx",import.meta.url),"utf8");
+  assert.match(source,/useState<AuthPhase>\("checking"\)/);
+  assert.match(source,/await api\("\/session"\)/);
+  assert.match(source,/credentials:"include"/);
+  assert.doesNotMatch(source,/if\s*\(localLogin&&!user\)\s*(?:throw|return)/);
+});
+
+test("legacy identity header is isolated to Competition and never used for LOCAL session bootstrap",async()=>{
+  const source=await readFile(new URL("../app/page.tsx",import.meta.url),"utf8");
+  assert.match(source,/identityMode==="COMPETITION"&&user\?\{"x-aims-user":user\}:\{\}/);
+  assert.doesNotMatch(source,/"x-aims-user":user(?!\}:\{\})/);
 });

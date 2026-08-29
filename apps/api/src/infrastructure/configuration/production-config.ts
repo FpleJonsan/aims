@@ -4,7 +4,7 @@ export type ConfigurationMode = "development" | "test" | "production";
 
 export interface ConfigurationSummary {
   mode: ConfigurationMode;
-  identity: "LOCAL_HEADER" | "TRUSTED_PROXY";
+  identity: "LOCAL_SESSION" | "COMPETITION_HEADER";
   storage: string;
   aiProviderConfigured: boolean;
   telegramEnabled: boolean;
@@ -15,7 +15,12 @@ export function validateProductionConfig(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): ConfigurationSummary {
   const mode = normalizeMode(environment.NODE_ENV);
-  const production = mode === "production";
+  const aimsEnvironment=environment.AIMS_ENVIRONMENT??"development";
+  if(!["development","local","competition","staging","production"].includes(aimsEnvironment))
+    throw new Error("AIMS_ENVIRONMENT must be development, local, competition, staging, or production");
+  const production = mode === "production"||aimsEnvironment==="production";
+  if(production)throw new Error("Production authentication is not configured; an approved corporate adapter is required");
+  if(aimsEnvironment==="staging")throw new Error("Staging authentication is not configured; an approved test IdP adapter is required");
   const telegramEnabled = environment.TELEGRAM_APPROVAL_ENABLED === "true";
   const storage = environment.STORAGE_DRIVER ?? "";
 
@@ -23,9 +28,6 @@ export function validateProductionConfig(
   if (production) {
     requireUrl(environment.FINANCE_DATABASE_URL, "FINANCE_DATABASE_URL", ["postgres:", "postgresql:"]);
     requireUrl(environment.PAYMENT_DATABASE_URL, "PAYMENT_DATABASE_URL", ["postgres:", "postgresql:"]);
-    if (environment.AUTH_TRUSTED_PROXY !== "true") {
-      throw new Error("AUTH_TRUSTED_PROXY=true is required in production");
-    }
     if (storage === "local") {
       throw new Error("Local document storage is forbidden in production; configure the production S3 adapter before deployment");
     }
@@ -47,7 +49,7 @@ export function validateProductionConfig(
 
   return {
     mode,
-    identity: production ? "TRUSTED_PROXY" : "LOCAL_HEADER",
+    identity: aimsEnvironment === "competition" || environment.AIMS_DEMO_MODE === "true" ? "COMPETITION_HEADER" : "LOCAL_SESSION",
     storage,
     aiProviderConfigured: Boolean(environment.OPENAI_API_KEY),
     telegramEnabled,

@@ -7,7 +7,7 @@ test("AI OFF is reported disabled and does not make readiness fail", async () =>
   process.env.STORAGE_DRIVER = "local";
   process.env.TELEGRAM_APPROVAL_ENABLED = "false";
   delete process.env.OPENAI_API_KEY;
-  const pool = { query: async (query: string) => query.includes("ai_feature_configuration") ? { rows: [{ enabled: false }] } : query.includes("aims_schema_version") ? { rows: [{ version: 53, migration_id: "053_day10_1_schema_readiness" }] } : { rows: [{ "?column?": 1 }] } };
+  const pool = { query: async (query: string) => query.includes("ai_feature_configuration") ? { rows: [{ enabled: false }] } : query.includes("aims_schema_version") ? { rows: [{ version: 54, migration_id: "054_p1l_local_identity_sessions" }] } : { rows: [{ "?column?": 1 }] } };
   try {
     const result = await new HealthService({ pool, financePool: pool, paymentPool: pool } as never).readiness();
     assert.equal(result.status, "ready");
@@ -19,7 +19,7 @@ test("AI OFF is reported disabled and does not make readiness fail", async () =>
 test("AI ON with a configured provider and current schema is ready", async () => {
   const previous = { ...process.env };
   process.env.STORAGE_DRIVER = "local"; process.env.OPENAI_API_KEY = "configured"; process.env.TELEGRAM_APPROVAL_ENABLED = "false";
-  const pool = { query: async (query: string) => query.includes("ai_feature_configuration") ? { rows: [{ enabled: true }] } : query.includes("aims_schema_version") ? { rows: [{ version: 53 }] } : { rows: [{}] } };
+  const pool = { query: async (query: string) => query.includes("ai_feature_configuration") ? { rows: [{ enabled: true }] } : query.includes("aims_schema_version") ? { rows: [{ version: 54 }] } : { rows: [{}] } };
   try { assert.equal((await new HealthService({ pool, financePool: pool, paymentPool: pool } as never).readiness()).status, "ready"); }
   finally { process.env = previous; }
 });
@@ -30,7 +30,7 @@ for (const [label, failure] of [
 ] as const) test(`${label} is not interpreted as AI OFF`, async () => {
   const previous = { ...process.env }; process.env.STORAGE_DRIVER = "local"; process.env.TELEGRAM_APPROVAL_ENABLED = "false";
   const pool = { query: async (query: string) => {
-    if (query.includes("aims_schema_version")) return { rows: [{ version: 53 }] };
+    if (query.includes("aims_schema_version")) return { rows: [{ version: 54 }] };
     if (query.includes("ai_feature_configuration")) throw new Error(failure);
     return { rows: [{}] };
   } };
@@ -45,7 +45,7 @@ test("a database behind the required migration version is not ready", async () =
   const pool = { query: async (query: string) => query.includes("aims_schema_version") ? { rows: [{ version: 52 }] } : query.includes("ai_feature_configuration") ? { rows: [{ enabled: false }] } : { rows: [{}] } };
   try {
     const result = await new HealthService({ pool, financePool: pool, paymentPool: pool } as never).readiness();
-    assert.equal(result.status, "not_ready"); assert.match(String(result.checks.schema.detail), /expected 53/);
+    assert.equal(result.status, "not_ready"); assert.match(String(result.checks.schema.detail), /expected 54/);
   } finally { process.env = previous; }
 });
 

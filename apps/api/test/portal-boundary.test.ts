@@ -16,7 +16,7 @@ test("local login identities come from the backend and expose only safe context"
     const controller=new LocalIdentityController({pool:{query:async(_sql:string,values:unknown[])=>{competitionFlag=values[0];return({rows:[{
       subject:"demo.requester",display_name:"Demo Requester",department:"Operations",requester:true,
       finance_analysis:false,approval:false,finance_control:false,payment:false,reporting:false,policy_admin:false,
-    }]})}}} as never);
+    }]})}}} as never,{} as never);
     const result=await controller.list();
     assert.equal(result.mode,"COMPETITION");
     assert.equal(competitionFlag,true);
@@ -36,7 +36,7 @@ test("Technical Administrator has a non-operational persona and no workspace or 
     const controller=new LocalIdentityController({pool:{query:async()=>({rows:[{
       subject:"competition.admin",display_name:"Technical Administrator",department:"Finance",requester:false,
       finance_analysis:false,approval:false,finance_control:false,payment:false,reporting:false,policy_admin:true,
-    }]})}} as never);
+    }]})}} as never,{} as never);
     const result=await controller.list();
     assert.deepEqual(result.identities,[{subject:"competition.admin",displayName:"Technical Administrator",department:"Finance",persona:"Technical Administrator",workspaces:[]}]);
   } finally {
@@ -53,7 +53,7 @@ test("production does not expose the local identity catalogue",async()=>{
   process.env.AIMS_ENVIRONMENT="competition";
   process.env.AIMS_DEMO_MODE="true";
   try {
-    const controller=new LocalIdentityController({} as never);
+    const controller=new LocalIdentityController({} as never,{} as never);
     await assert.rejects(()=>controller.list(),/Not Found/);
   } finally {
     if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;

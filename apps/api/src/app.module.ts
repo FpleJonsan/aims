@@ -47,6 +47,7 @@ import { HealthController } from "./application/health/health.controller.js";
 import { HealthService } from "./application/health/health.service.js";
 import { PortalController } from "./application/portal/portal.controller.js";
 import { PortalService } from "./application/portal/portal.service.js";
+import { SessionService } from "./application/auth/session.service.js";
 
 @Module({
   controllers: [
@@ -68,6 +69,7 @@ import { PortalService } from "./application/portal/portal.service.js";
   providers: [
     Postgres,
     AuthGuard,
+    SessionService,
     PaymentRequestService,
     PaymentDocumentService,
     ValidationService,

@@ -1,6 +1,6 @@
 # AIMS Production Identity Architecture and P1 Readiness
 
-Status: P1 decision architecture. This document defines the production identity trust boundary and implementation prerequisites. It does not implement OIDC, select a vendor, authorize deployment, or change AIMS business authority.
+Status: P1 decision architecture plus P1-L local runtime foundation. P1-L implements provider-independent identity mapping and server-side sessions for LOCAL only. It does not implement OIDC, select a vendor, authorize deployment, or change AIMS business authority.
 
 ## Non-negotiable boundary
 
@@ -27,6 +27,28 @@ External groups, job titles, departments, tenant membership, or role claims neve
 
 ## Current authentication architecture
 
+### P1-L local runtime (implemented)
+
+```text
+LOCAL identity catalogue
+  -> POST /auth/local-login (exact allowed Origin)
+  -> (provider=local, issuer=aims-local, subject) mapping
+  -> active users.id
+  -> hashed opaque server-side session + hashed CSRF token
+  -> HttpOnly session cookie + double-submit CSRF cookie
+  -> protected request resolves session and active user
+  -> current roles and current business-authority tables
+  -> /session and authorized workspace
+```
+
+The session contains identity only; Finance capabilities are never serialized into it. Protected LOCAL requests reject `x-aims-user` as authentication. Logout revokes the server session and clears cookies. Expired, revoked, or inactive-user sessions return `401`. Multiple local sessions are supported naturally; Company policy for concurrent Production sessions remains unresolved.
+
+COMPETITION retains its separately gated legacy selector/header adapter for release compatibility. STAGING and PRODUCTION fail startup because no approved identity adapter is configured; neither can fall back to a local session, competition catalogue, compatibility alias, or browser identity header.
+
+The section below records the pre-P1-L baseline retained for audit history.
+
+### Pre-P1-L baseline (superseded, retained for audit history)
+
 ```text
 Local/competition browser selector
   -> browser sends x-aims-user on every API request
@@ -46,9 +68,9 @@ Local/competition browser selector
 - Logout: local logout clears client state. Production can redirect to `NEXT_PUBLIC_AIMS_LOGOUT_URL`, but there is no AIMS session to revoke and no approved IdP logout contract.
 - Authorization: PostgreSQL remains authoritative. Requester ownership and operation-specific business-authority checks occur on the backend; frontend visibility is presentation only.
 
-### Current production assessment
+### Pre-P1-L production assessment (superseded)
 
-Production authentication is **unsafe if the API is reachable by an untrusted client**. `AUTH_TRUSTED_PROXY=true` is only a configuration assertion and does not establish a network trust boundary. The current implementation must not be deployed for real users until P2 implements one approved validation pattern and verifies proxy-bypass prevention.
+The former raw-header implementation was unsafe if the API was reachable by an untrusted client. P1-L removes that fallback and now prevents Production startup. AIMS still must not be deployed for real users until P2 implements one approved Corporate IdP validation pattern and verifies proxy-bypass prevention.
 
 ## Target authentication architecture
 
@@ -162,6 +184,10 @@ Recommended, pending platform approval:
 - `/session` returns only the active AIMS identity projection and current capabilities; no raw token, provider token, refresh token, unnecessary claims, or raw groups.
 
 If the approved platform instead mandates a trusted proxy session, equivalent expiry, rotation, logout, CSRF, and replay properties must be documented and tested.
+
+### P1-L authentication audit contract
+
+P1-L closes `P1-LOW-001` with append-only `authentication_audit_events`. Authentication success/failure, logout, explicit revocation, and inactive-user rejection may record the stable AIMS `users.id`, external identity mapping identifier, authentication method, source channel, event type, timestamp, and correlation ID. The audit path must never record a session token or hash, cookie, authorization or identity header, password, client secret, or present/future OIDC access, refresh, or ID token. Existing Finance business audits continue to identify the acting AIMS user and their operation-specific authority context without treating the human session as a database executor credential.
 
 ## 401 and 403 contract
 

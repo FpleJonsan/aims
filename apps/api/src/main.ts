@@ -10,7 +10,7 @@ async function bootstrap(): Promise<void> {
   validateProductionConfig();
   const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
   app.getHttpAdapter().getInstance().disable('x-powered-by');
-  app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000', credentials: false });
+  app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000', credentials: true });
   app.use((_request: unknown, response: { setHeader(name: string, value: string): void }, next: () => void) => {
     response.setHeader('x-content-type-options', 'nosniff');
     response.setHeader('x-frame-options', 'DENY');
@@ -21,7 +21,7 @@ async function bootstrap(): Promise<void> {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalFilters(new OperationalExceptionFilter());
   if (process.env.NODE_ENV !== 'production') {
-    const openApi = new DocumentBuilder().setTitle('AIMS API').setVersion('1.0').addApiKey({ type: 'apiKey', in: 'header', name: 'x-aims-user' }).build();
+    const openApi = new DocumentBuilder().setTitle('AIMS API').setVersion('1.0').addCookieAuth('aims_session').build();
     SwaggerModule.setup('openapi', app, SwaggerModule.createDocument(app, openApi));
   }
   await app.listen(Number(process.env.API_PORT ?? 3001), process.env.API_HOST ?? '127.0.0.1');
