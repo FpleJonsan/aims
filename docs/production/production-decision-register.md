@@ -4,7 +4,7 @@ Status values are `DECISION REQUIRED`, `POLICY DECISION REQUIRED`, or `CONFIRMED
 
 | ID | Decision | Status | Options / constraints | Required input | Owner | Blocking phase |
 | --- | --- | --- | --- | --- | --- | --- |
-| D-001 | Corporate identity provider and integration pattern | DECISION REQUIRED | Entra ID, Google Workspace, Okta, Auth0, Keycloak, other corporate IdP; direct OIDC versus trusted proxy | Existing corporate identity platform, tenant/test access, claim policy, logout/revocation requirements | Company IT / Security | P1 |
+| D-001 | Corporate identity provider and integration pattern | DECISION REQUIRED | Vendor-neutral P1 contract complete; direct OIDC/BFF is recommended where supported, or a fully controlled identity-aware proxy | Existing corporate platform, test tenant, issuer/audience/claims, registration, edge topology, session/MFA/logout policy and owners | Company IT / Security | P1 implementation / P2 |
 | D-002 | Hosting platform and network ownership | DECISION REQUIRED | Suitable managed platform or company standard; must support private dependencies and controlled edge | Cloud/on-prem standard, regions, network topology, support model | Platform / IT | P3, P5, P6, P13 |
 | D-003 | Production object storage | DECISION REQUIRED | Private S3-compatible or platform-native equivalent; blocked public access, encryption, lifecycle, versioning | Hosting decision, residency, retention, access and cost constraints | Platform / Security / Finance data owner | P3 |
 | D-004 | Malware scanning service | DECISION REQUIRED | Managed scanner, approved engine/service, or isolated scanning worker | Allowed file types, SLA, privacy/residency, operations ownership | Security / Platform | P4 |
@@ -33,3 +33,6 @@ Status values are `DECISION REQUIRED`, `POLICY DECISION REQUIRED`, or `CONFIRMED
 | C-004 | AI remains optional and advisory | CONFIRMED | AI OFF UAT and frozen authority rules. |
 | C-005 | Competition release remains independently recoverable | CONFIRMED | Tags `v1.0.0-competition` and `v1.0.0-competition.1` remain unchanged. |
 | C-006 | Credential-bearing Git remote URLs are prohibited | CONFIRMED | Prior local PAT incident was remediated; use credential helper, CLI, SSH, or approved workload identity. |
+| C-007 | External identity proves who the user is; AIMS PostgreSQL decides Finance authority | CONFIRMED | [P1 identity architecture](production-identity-architecture.md) and frozen authorization model. External groups, roles, titles and departments grant no operational authority. |
+| C-008 | Production identity uses an issuer-bound stable subject mapping | CONFIRMED ARCHITECTURE | Preferred stable key is `(issuer, subject)`; exact provider claims and forward-only schema implementation wait for Company IT input. |
+| C-009 | Production local/competition authentication fallback is prohibited | CONFIRMED | Production must reject the catalogue, synthetic selector/header adapter, competition aliases and guarded data commands. |

@@ -10,6 +10,7 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | Financial equation/invariants | PASS | PostgreSQL integration, concurrency and reconciliation suites remain green. |
 | Payment execution boundary | PASS | AIMS records external payment and never transfers money. |
 | AI OFF | PASS | Complete deterministic/manual workflow and UAT pass without provider. |
+| Production identity architecture | PASS | [P1 identity architecture](production-identity-architecture.md) defines trust, mapping, claim, session, lifecycle, threat and test contracts. |
 | Corporate identity / SSO | BLOCKED | Approved IdP, issuer/audience validation, secure session/logout, lifecycle and spoofing tests. |
 | Identity-to-authority administration | BLOCKED | Approved mapping and joiner/mover/leaver process; ADMIN remains non-operational. |
 | Authorization regression | NOT STARTED | Production auth plus IDOR, SoD, amount/scope, revocation and session tests. |

@@ -1,11 +1,11 @@
 # AIMS Production Roadmap
 
-The proposed schedule is a sequencing framework, not a calendar commitment. Twenty delivery checkpoints are plausible only with timely company decisions, parallel platform/security work, dedicated Finance UAT participants, and access to staging infrastructure. P0 does not authorize P1.
+The proposed schedule is a sequencing framework, not a calendar commitment. Twenty delivery checkpoints are plausible only with timely company decisions, parallel platform/security work, dedicated Finance UAT participants, and access to staging infrastructure. P1 identity architecture is documented, but implementation remains blocked on Company IT/Security inputs.
 
 | Phase | Objective and scope | Dependencies | Exit gate | Verification |
 | --- | --- | --- | --- | --- |
 | P0 | Baseline, gap analysis, target architecture, decisions, scope and roadmap | Frozen competition release | Five required P0 documents reviewed; no business behavior change | Unit/lint/type/build; senior review |
-| P1 | Identity foundation: select IdP/integration, staging environment contract, identity mapping schema/design | D-001, D-002 | Approved threat model and identity contract | Design review; negative trust-boundary tests planned |
+| P1 | Identity decision architecture: current-flow discovery, trust boundary, claim/session/mapping contract, staging requirements and threat/test plans | D-001, D-002 | Architecture/security review passes; unresolved company inputs explicit | [Identity architecture](production-identity-architecture.md); read-only security review |
 | P2 | Implement OIDC/SSO or trusted proxy, secure session/logout, lifecycle and authority mapping | P1, test tenant | Production catalogue absent; spoofing/replay/session tests pass | Auth integration, inactive/revoked user, workspace/SoD regression |
 | P3 | Private object-storage adapter, encryption, versioning/lifecycle, authorized reads and staging configuration | D-003, D-013, P5 interface | Local adapter impossible in staging/prod; object reconciliation defined | Upload/read/IDOR/hash/version failure tests |
 | P4 | Malware quarantine/scan/release worker and durable scan evidence | P3, D-004, P7 worker contract | Only CLEAN versions can become evidence; error/infected remain unavailable | Scanner outage, poison file, retry, staleness and authorization tests |

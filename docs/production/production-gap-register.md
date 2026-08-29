@@ -4,8 +4,8 @@ Severity describes risk to a future real-data deployment. `Production blocker` d
 
 | ID | Area | Current state | Production requirement | Risk | Severity | Production blocker | Planned phase | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| PG-001 | Identity | Trusted-header contract exists, but no OIDC/proxy integration, signed assertion, expiry, secure session, or production logout | Corporate IdP integration with header-spoofing prevention and lifecycle controls | Identity impersonation or stale access if deployed as-is | HIGH | YES | P1-P2 | OPEN |
-| PG-002 | Authorization provisioning | Runtime enforcement is strong; production user/department/authority administration process is undefined | Approved identity mapping and authority joiner/mover/leaver workflow | Incorrect real-world business authority | HIGH | YES | P1-P2, P16 | OPEN |
+| PG-001 | Identity | P1 trust boundary/threat model complete; current raw trusted-header implementation still lacks OIDC/proxy validation, secure session and logout | Implement the approved IdP/edge/session contract with spoofing, replay, lifecycle and fail-closed tests | Identity impersonation or stale access if deployed as-is | HIGH | YES | P2 | P1 DECISION COMPLETE; COMPANY INPUT BLOCKS IMPLEMENTATION |
+| PG-002 | Authorization provisioning | P1 confirms pre-provisioned `(issuer,subject)` mapping and independent AIMS authority; company joiner/mover/leaver ownership remains undefined | Approve and implement identity mapping, department transfer and authority administration processes | Incorrect real-world business authority | HIGH | YES | P2, P16 | P1 DESIGN COMPLETE; OWNER INPUT OPEN |
 | PG-003 | Documents | Production rejects the local filesystem; no object adapter is wired | Private encrypted object storage with authorized access and reconciliation | Real evidence cannot be stored safely/durably | HIGH | YES | P3 | OPEN |
 | PG-004 | Malware | Scanner contract/tests exist; no production scanner or durable scan workflow is wired | Quarantine, scan, clean/reject, retry, audit and alert pipeline | Malicious evidence could become available | HIGH | YES | P4 | OPEN |
 | PG-005 | Secrets | Local env works; no selected runtime secret store or rotation runbook | Environment-separated secret manager, least privilege, rotation and audit | Credential exposure or uncontrolled rotation | HIGH | YES | P5 | OPEN |
@@ -33,7 +33,7 @@ Severity describes risk to a future real-data deployment. `Production blocker` d
 | PG-027 | Data retention | No approved retention/legal-hold policy | Category-specific retention, archival and deletion rules that preserve financial obligations | Regulatory/privacy conflict | HIGH | YES | P3, P12, P19 | OPEN |
 | PG-028 | Support/incident response | Operational runbook exists; no approved on-call, SLA or incident command | Severity model, responders, communications and financial stop-the-line process | Prolonged or mishandled incident | HIGH | YES | P10, P19 | OPEN |
 | PG-029 | External AI privacy | Evidence controls exist; permissible real Finance data has not been approved | Legal/privacy review and provider agreement | Unauthorized disclosure of confidential data | HIGH | YES if AI ON | P8 | OPEN |
-| PG-030 | Environment model | Local, competition and production logic exist; staging is not implemented | Explicit staging isolation, identities, data and promotion controls | Production-only defects discovered too late | HIGH | YES | P1, P13, P17 | OPEN |
+| PG-030 | Environment model | P1 staging identity contract and persona requirements are documented; no staging tenant, registrations, hosts or edge exist | Implement isolated staging identity, data, secrets, DNS/TLS and promotion controls | Production-only defects discovered too late | HIGH | YES | P2, P13, P17 | P1 REQUIREMENTS COMPLETE; EXTERNAL DEPENDENCIES OPEN |
 
 ## Risk summary
 

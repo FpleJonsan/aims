@@ -1,6 +1,6 @@
 # AIMS Production Architecture Baseline
 
-Status: P0 architecture freeze. This document describes the repository at commit `9014adc3ee0f5bf8f495fbd142abe8cb84827ae0` and the vendor-neutral production target. It does not authorize production deployment.
+Status: P0 architecture freeze with P1 identity decision addendum. The detailed identity contract is in [production-identity-architecture.md](production-identity-architecture.md). This document does not authorize production deployment.
 
 ## Frozen business architecture
 
@@ -50,6 +50,8 @@ Non-production identity selector
 ```
 
 The production header boundary is incomplete. A network deployment must never allow a client to supply or overwrite the trusted identity header.
+
+P1 verified that `AUTH_TRUSTED_PROXY=true` is only a configuration assertion: the API does not currently verify the proxy/source, validate a signed assertion, or prevent direct-header spoofing if it is reachable. Production identity implementation is therefore blocked until the IdP and validation/edge contract are approved. See [production-identity-architecture.md](production-identity-architecture.md).
 
 ## Target logical architecture
 
