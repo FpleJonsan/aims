@@ -10,33 +10,31 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P7 — Redis / Queue / Worker Decision Gate |
-| Current status | P7 DECISION PASS; implementation not started |
-| Last completed phase | P6 — Production Database & Runtime Roles |
+| Current Production phase | P7 — PostgreSQL-backed Worker Implementation |
+| Current status | P7 IMPLEMENTATION PASS / FROZEN |
+| Last completed phase | P7 — PostgreSQL-backed Worker Implementation |
 | Overall Production ready | NO |
-| Current schema | 56 |
-| Latest migration | `056_payment_slip_trust_transition` |
+| Current schema | 57 |
+| Latest migration | `057_p7_document_scan_worker_leases` |
 | Current branch | `main` |
-| Last verified commit | `a705249` |
+| Last verified commit | `20db6ee` (P7 starting baseline; changes uncommitted) |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
 | P6 final | PASS |
 
-The worktree contains the coherent, uncommitted P6 implementation and governance
-changes. The authorized local role, ownership, PUBLIC/default-privilege,
-SECURITY DEFINER, migrator-login, manifest, and attack-control work passed. The
-historical integration suites added synthetic fixtures to shared local `aims`;
-those rows were explicitly accepted as the new checkpoint and were not deleted
-or repaired. Mutating integration scripts now fail closed unless an isolated
-`aims_test_*` database is provisioned by the disposable runner. The complete
-isolated PostgreSQL suite, repository tests, static gates, disposable P6 proof,
-local runtime smoke, and final shared-local integrity checkpoint passed. The
-mandatory Senior PostgreSQL / Database Security / Application Security and
-Senior Architecture read-only review passed with no Critical, High, or Medium
-corrective finding. P6 is complete and frozen. The authorized P7 decision audit
-selected no Redis and a PostgreSQL-backed independent worker for durable outbox
-delivery and Production malware scanning. P7 implementation is not authorized.
+P6 remains complete and frozen. P7 implements the separately authorized
+PostgreSQL-backed independent worker, migration 057, durable document scan
+claim/lease/retry persistence, dedicated runtime/executor roles, trusted narrow
+functions, safe health signals, and graceful shutdown without Redis or a
+scheduler. Clean and schema-56 upgrade proofs, role/attack/concurrency tests,
+all 97 business integration tests, UAT, repository tests, builds, and isolation
+guards pass. Shared local `aims` remains schema 56 and was not mutated. Frontend
+is unchanged. Production object storage, scanner, deployment supervision, and
+central monitoring remain later-phase blockers; Production scanning fails
+closed until approved providers exist. The two final-review Medium findings are
+resolved by executable stale-version/SHA rejection proofs and bounded external
+I/O/shutdown deadlines. P7 correction is frozen and P8 has not started.
 
 ## 2. Locked Product Architecture
 
@@ -1037,3 +1035,92 @@ Frozen: P6 remains YES. P7 decision documentation is complete; implementation is
 Commit Readiness: Decision documentation YES; P7 implementation NO.
 
 Next: STOP. Wait for explicit P7 implementation authorization; do not begin P8.
+
+### 2026-08-31 — P7 PostgreSQL-backed worker implementation
+
+Status: PASS / FROZEN
+
+Starting Commit: `20db6ee`
+
+Ending Commit: NOT COMMITTED
+
+Schema: 56 → 57 in disposable proof environments only; shared local `aims`
+remains 56.
+
+Summary:
+- Added forward-only `057_p7_document_scan_worker_leases` without historical
+  trust promotion and extended clean bootstrap/hardening/manifest proof.
+- Added dedicated worker runtime/executor roles and narrow claim, finalize, and
+  health functions with fixed search paths and no PUBLIC execution.
+- Added an independent bounded worker process for durable document scans and
+  optional Telegram outbox polling, with separate credentials, external I/O
+  outside database transactions, lease recovery, terminal poison handling,
+  safe logs, health signals, and graceful shutdown.
+- Redis, Bull/BullMQ, scheduler, frontend, workflow, and financial authority
+  remain unchanged/absent.
+
+Security Impact: Worker raw trust mutation, DDL, role switching, Finance,
+Payment, ledger, commitment, Approval and PAID authority are denied. Stale
+token/attempt/version/hash guards fail closed. Production scanner/storage
+configuration remains fail-closed.
+
+Business Logic Impact: NONE. Finance Control, payment recording, ledger,
+commitment consumption, and PAID transition remain synchronous.
+
+Database Impact: Authorized migration 057 and two worker roles in disposable
+proof. No shared local, competition, staging, or Production database mutation.
+
+Frontend Impact: NONE; AIMS-UX-001 NOT REQUIRED.
+
+Verification:
+- `npm test`: PASS (15 frontend/auth + 119 API tests).
+- Consolidated disposable integration: PASS (97 tests, 11 suites, schema 57).
+- Worker integration: PASS (7 tests including process startup/shutdown).
+- P6/P7 disposable proof: PASS (001–057, upgrade preservation, manifest,
+  defaults, attacks, UAT).
+- Isolation guard: PASS (7 tests).
+- Lint, typecheck, frontend build, API build, and `git diff --check`: PASS.
+
+Reviews: Senior PostgreSQL, Database Security, Backend, Production/SRE, and
+Application Security read-only reviews required after this documentation freeze.
+
+Frozen: YES after final static/diff verification; no code, SQL, or documentation
+may change during the read-only reviews.
+
+Commit Readiness: Pending final read-only reviews.
+
+Next: Perform the mandatory final read-only reviews. Do not begin P8.
+
+### 2026-08-31 — P7 Medium findings correction
+
+Status: CORRECTIONS COMPLETE / PENDING READ-ONLY RE-REVIEW
+
+Starting Commit: `20db6ee` with expected uncommitted P7 implementation
+
+Ending Commit: NOT COMMITTED
+
+Schema: Target remains 57. Migration 057 unchanged. Migration 058+: NONE.
+
+Summary:
+- P7 MEDIUM-01 RESOLVED: added exact trusted-finalizer attacks for stale version
+  and stale SHA-256, with complete trust/claim snapshots and audit-count proof.
+- P7 MEDIUM-02 RESOLVED: added finite storage/scanner deadlines, propagated
+  cancellation where supported, worker-level deadline bounds where not, lease
+  coherence validation, bounded shutdown abort, retryable timeout codes, and
+  maximum-attempt terminalization.
+- No database role, grant, schema, workflow, financial authority, frontend,
+  Redis, scheduler, or provider-selection change.
+
+Verification:
+- P7 worker integration: PASS (13/13).
+- Document-security integration: PASS.
+- P6/P7 disposable proof: PASS (001–057, manifest, defaults, attacks, UAT).
+- Repository tests: PASS (15 frontend/auth + 119 API).
+- Integration isolation: PASS (7/7).
+- Lint, typecheck, frontend build, and API build: PASS.
+
+Frontend Impact: NONE; AIMS-UX-001 NOT REQUIRED.
+
+P7 Correction Implementation Frozen: YES after final diff/static verification.
+
+Next: Perform the mandatory five-discipline read-only re-review. Do not begin P8.

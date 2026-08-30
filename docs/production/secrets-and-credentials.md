@@ -15,6 +15,7 @@ No values are recorded here.
 | `DATABASE_URL` | Restricted; API database pool | local, competition, test; future hosted | Platform / DBA | New connection; restart required | Never |
 | `FINANCE_DATABASE_URL` | Highly restricted; Finance executor pool | local, competition, test; future hosted | Platform / Finance Security | Rotate independently; restart required | Never |
 | `PAYMENT_DATABASE_URL` | Highly restricted; Payment executor pool | local, competition, test; future hosted | Platform / Payment Security | Rotate independently; restart required | Never |
+| `DOCUMENT_WORKER_DATABASE_URL` | Highly restricted; document-worker pool only | local/test; future hosted | Platform / Document Security | Rotate independently; restart worker required | Never |
 | Migration/admin credential | Privileged; migration operator only | separately authorised environment | DBA | Operational runbook | Never; unavailable to runtime |
 | `OPENAI_API_KEY` | Restricted; server AI adapter | local live opt-in; future approved hosted | AI Platform / Security | Restart required | Never |
 | Telegram bot/webhook/callback secrets | Restricted; server channel adapter | approved environments when enabled | Integration / Security | Coordinated provider rotation; restart required | Never |

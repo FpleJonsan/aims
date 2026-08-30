@@ -13,7 +13,7 @@ const suffix=`${process.pid}_${randomBytes(6).toString("hex")}`;
 const container=`aims-integration-${suffix.replaceAll("_","-")}`;
 const database=`aims_test_${suffix}`;
 const password=()=>`T_${randomBytes(24).toString("base64url")}`;
-const credentials={admin:password(),app:password(),finance:password(),payment:password(),migrator:password()};
+const credentials={admin:password(),app:password(),finance:password(),payment:password(),worker:password(),migrator:password()};
 const envFile=path.join(tmpdir(),`${container}.env`);
 
 function run(command,args,{input,env=process.env,quiet=false,cwd=root}={}){
@@ -39,20 +39,25 @@ try{
   postgresPsql(`SELECT 'CREATE DATABASE ${database}' WHERE NOT EXISTS(SELECT 1 FROM pg_database WHERE datname='${database}')\\gexec\n`);
   const bootstrap=(await readFile(path.join(apiRoot,"database/production/bootstrap-roles.sql"),"utf8")).replaceAll(':"DBNAME"',`"${database}"`);
   adminPsql(bootstrap);
-  adminPsql(`ALTER ROLE aims_migrator PASSWORD ${literal(credentials.migrator)};ALTER ROLE aims_app PASSWORD ${literal(credentials.app)};ALTER ROLE aims_finance_runtime PASSWORD ${literal(credentials.finance)};ALTER ROLE aims_payment_runtime PASSWORD ${literal(credentials.payment)};`);
-  const migrations=(await readdir(path.join(apiRoot,"migrations"))).filter(name=>/^\d{3}_.*\.sql$/.test(name)&&Number(name.slice(0,3))<=56).sort();
-  if(migrations.length!==56||!migrations[0].startsWith("001_")||!migrations.at(-1).startsWith("056_"))throw new Error("expected immutable migration chain 001-056");
+  adminPsql(`ALTER ROLE aims_migrator PASSWORD ${literal(credentials.migrator)};ALTER ROLE aims_app PASSWORD ${literal(credentials.app)};ALTER ROLE aims_finance_runtime PASSWORD ${literal(credentials.finance)};ALTER ROLE aims_payment_runtime PASSWORD ${literal(credentials.payment)};ALTER ROLE aims_document_worker_runtime PASSWORD ${literal(credentials.worker)};`);
+  const migrations=(await readdir(path.join(apiRoot,"migrations"))).filter(name=>/^\d{3}_.*\.sql$/.test(name)&&Number(name.slice(0,3))<=57).sort();
+  if(migrations.length!==57||!migrations[0].startsWith("001_")||!migrations.at(-1).startsWith("057_"))throw new Error("expected immutable migration chain 001-057");
   for(const name of migrations)adminPsql(`SET ROLE aims_owner;\n${await readFile(path.join(apiRoot,"migrations",name),"utf8")}`);
   adminPsql(await readFile(path.join(apiRoot,"database/production/post-migration-hardening.sql"),"utf8"));
   adminPsql(await readFile(path.join(apiRoot,"database/production/privilege-manifest.sql"),"utf8"));
+  if(requested.includes(".test-dist/test/document-worker-integration.test.js"))adminPsql(`
+    INSERT INTO departments(id,code,name)VALUES('71000000-0000-4000-8000-000000000001','P7-WORKER','P7 Disposable Worker')ON CONFLICT DO NOTHING;
+    INSERT INTO users(id,external_subject,email,display_name,department_id)VALUES('72000000-0000-4000-8000-000000000001','p7-worker-fixture','p7-worker@example.invalid','P7 Worker Fixture','71000000-0000-4000-8000-000000000001')ON CONFLICT DO NOTHING;
+    INSERT INTO payment_requests(id,status,department_id,created_by)VALUES('73000000-0000-4000-8000-000000000001','DRAFT','71000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000001')ON CONFLICT DO NOTHING;
+  `);
   const port=run("docker",["port",container,"5432/tcp"],{quiet:true}).trim().split(":").at(-1);
   const url=(user,secret)=>`postgresql://${encodeURIComponent(user)}:${encodeURIComponent(secret)}@127.0.0.1:${port}/${database}`;
   const urls=[url("aims_app",credentials.app),url("aims_finance_runtime",credentials.finance),url("aims_payment_runtime",credentials.payment)];
   assertDisposableIntegrationDatabase({databaseName:database,urls});
   run("npx",["tsc","-p","tsconfig.test.json"],{cwd:apiRoot});
-  const env={...process.env,AIMS_ENVIRONMENT:"local",DATABASE_URL:urls[0],FINANCE_DATABASE_URL:urls[1],PAYMENT_DATABASE_URL:urls[2],AIMS_INTEGRATION_DATABASE:database,AIMS_INTEGRATION_DISPOSABLE:"true"};
+  const env={...process.env,AIMS_ENVIRONMENT:"local",DATABASE_URL:urls[0],FINANCE_DATABASE_URL:urls[1],PAYMENT_DATABASE_URL:urls[2],DOCUMENT_WORKER_DATABASE_URL:url("aims_document_worker_runtime",credentials.worker),AIMS_INTEGRATION_DATABASE:database,AIMS_INTEGRATION_DISPOSABLE:"true"};
   run(process.execPath,["--env-file=../../.env","--test","--test-concurrency=1",...requested],{cwd:apiRoot,env});
-  console.log(JSON.stringify({result:"PASS",database:"isolated-disposable",schema:56,tests:requested.length,cleanup:"pending"}));
+  console.log(JSON.stringify({result:"PASS",database:"isolated-disposable",schema:57,tests:requested.length,cleanup:"pending"}));
 }finally{
   spawnSync("docker",["rm","-f",container],{encoding:"utf8"});
   await rm(envFile,{force:true});

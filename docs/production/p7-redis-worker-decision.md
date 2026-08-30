@@ -1,9 +1,10 @@
 # AIMS P7 Redis / Queue / Worker Decision
 
-Status: DECISION PASS — implementation is not authorized by this document.
+Status: DECISION PASS — authorized implementation complete and frozen at schema 57.
 
-Baseline: branch `main`, commit `a705249`, clean worktree, schema 56,
-`056_payment_slip_trust_transition`, P6 PASS and frozen. No migration 057 exists.
+Decision baseline: branch `main`, commit `a705249`, clean worktree, schema 56,
+`056_payment_slip_trust_transition`, P6 PASS and frozen. The later implementation
+started at commit `20db6ee` under separate authorization.
 
 ## Decision
 
@@ -120,10 +121,70 @@ deployment supervision.
   operational ownership remain implementation/later-phase inputs.
 - CODE CHANGED DURING REVIEW: NO.
 
+## Implemented P7 contract
+
+Migration `057_p7_document_scan_worker_leases` adds nullable, coherent claim,
+lease, retry, terminal-disposition, and correlation metadata to
+`payment_documents`; it does not promote or otherwise rewrite historical trust.
+Claims use a short `FOR UPDATE SKIP LOCKED` trusted-function transaction. Storage
+and scanner I/O occurs after claim commit, and completion uses a second trusted
+transaction guarded by document ID, version, SHA-256, attempt, and claim token.
+Expired work is reclaimed with a new token and incremented attempt; old workers
+cannot finalize. Maximum attempts persist a terminal `SCAN_FAILED` result.
+
+The independent `worker-main` process supports document scans through the
+dedicated `aims_document_worker_runtime` credential and optional Telegram
+outbox delivery through the separate normal application credential. The worker
+has no raw table mutation, Finance, Payment, owner, migrator, approval, ledger,
+commitment, or PAID authority. It emits safe structured lifecycle/job evidence,
+exposes trusted backlog/lease/failure signals, stops polling on SIGTERM/SIGINT,
+closes pools, and needs neither Redis nor a scheduler.
+
+Production scanner and object-storage providers remain unselected. Production
+startup therefore fails closed; local deterministic scanning is development and
+test only. P10/P11 must add centralized supervision, metrics, and alerts, while
+P15 must validate polling and capacity against approved workloads.
+
+Operator commands after deployment configuration and migration are:
+
+```text
+npm run build --workspace @aims/api
+npm run worker --workspace @aims/api
+```
+
+Required server-only variables include `DOCUMENT_WORKER_DATABASE_URL` and the
+bounded worker controls documented in `.env.example`. Never reuse the owner,
+migrator, Finance, or Payment credential. During shutdown, allow the process to
+finish its bounded in-flight call; any abandoned claim becomes recoverable after
+its lease expires. Investigate terminal failures and expired leases using the
+trusted health output and correlation ID; never repair trust state directly.
+
+External storage reads/promotions and scanner calls have explicit finite
+deadlines. Defaults are 10 seconds per storage operation and 30 seconds per scan,
+with a 15-second shutdown grace and 120-second lease. Configuration validation
+requires two storage deadlines plus one scanner deadline to fit strictly inside
+the lease. `AbortSignal` is propagated to reads and scans; the worker-level await
+is deadline-bounded even when an adapter cannot actively cancel its underlying
+operation. Such an adapter is provider-limited and must not be described as truly
+cancelled. Timeout and shutdown-abort results remain fail-closed `SCAN_FAILED`,
+retryable until the configured maximum attempt and terminal afterward.
+After resources close, a signal-driven worker exits explicitly; if cleanup does
+not finish within the configured grace, it emits a safe deadline event and exits
+non-zero. This bounds the process even when a provider ignores cancellation.
+
+P7 MEDIUM-01 STALE VERSION/SHA ATTACK PROOF: RESOLVED. Executable disposable
+tests reach the trusted finalizer with the correct row, token, and attempt, then
+prove incorrect version and SHA-256 are specifically denied without trust,
+claim, identity, or audit mutation.
+
+P7 MEDIUM-02 WORKER I/O TIMEOUT: RESOLVED. Deterministic tests cover storage and
+scanner hangs, retryable safe codes, maximum-attempt terminalization, stopped
+claiming, bounded shutdown, closed worker pool, and recoverable work.
+
 ## Gate
 
 - Decision: **REDIS NOT REQUIRED / POSTGRESQL-BACKED WORKER REQUIRED**.
-- P7 implementation started: NO.
-- Migration 057 created: NO.
+- P7 implementation: PASS / FROZEN.
+- Migration 057 created: YES; disposable clean and schema-56 upgrade proofs pass.
 - Runtime/frontend changed: NO.
-- Next: wait for explicit P7 implementation authorization.
+- Next: do not begin P8 without separate authorization.

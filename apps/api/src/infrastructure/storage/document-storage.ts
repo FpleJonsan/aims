@@ -20,7 +20,7 @@ export interface PromoteDocumentInput {
 
 export interface DocumentStorage {
   storeQuarantined(input: StoreDocumentInput): Promise<StoredDocument>;
-  readQuarantined(key: string, expectedSha256: string): Promise<Uint8Array>;
+  readQuarantined(key: string, expectedSha256: string, signal?: AbortSignal): Promise<Uint8Array>;
   promoteQuarantined(input: PromoteDocumentInput): Promise<StoredDocument>;
   read(key: string, expectedSha256: string): Promise<Uint8Array>;
   delete(key: string): Promise<void>;

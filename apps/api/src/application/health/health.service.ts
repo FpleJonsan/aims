@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 
-export const EXPECTED_SCHEMA_VERSION = 56;
+export const EXPECTED_SCHEMA_VERSION = 57;
 
 @Injectable()
 export class HealthService {

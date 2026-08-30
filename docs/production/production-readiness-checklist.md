@@ -19,12 +19,12 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | Malware protection | BLOCKED | Real scanner, durable verdict, retry/error handling and promotion-only-after-CLEAN proof. |
 | Secret-management foundation | PASS | Provider-independent inventory, classification, environment validation, redaction, ownership, rotation and incident contracts are tested/documented. |
 | Production secret integration | BLOCKED | Selected store, workload identity/runtime injection, independent rotation and operational audit. |
-| PostgreSQL role/runtime foundation | PASS | Disposable clean bootstrap, NOLOGIN ownership, executor separation, defaults, drift checks, TLS/database identity validation and schema-56 UAT pass. |
+| PostgreSQL role/runtime foundation | PASS | Disposable clean bootstrap, NOLOGIN ownership, executor separation including the document worker, defaults, drift checks, TLS/database identity validation and schema-57 UAT pass. |
 | Production PostgreSQL deployment | BLOCKED | Selected service/version, private TLS/CA distribution, HA, capacity, role/secret provisioning and monitoring. |
 | Migration/bootstrap | BLOCKED | Production-safe migration path excludes fixtures; checksum/manifest and clean rehearsal pass. |
 | Redis decision | PASS | P7 confirms Redis is not required for Production v1; P15 may reopen only with measured evidence. |
-| PostgreSQL-backed worker | BLOCKED | Decision/contract complete; supervised worker, durable scan claims, unattended outbox dispatch, bounded retry/final failure, health and backlog metrics require separate implementation authorization. |
-| Worker reliability | BLOCKED | Supervision, leases, idempotent retry, poison/dead-letter, backlog, graceful shutdown. |
+| PostgreSQL-backed worker | PASS FOUNDATION | Independent process, durable scan claims, optional unattended outbox dispatch, bounded retry/terminal failure, safe health signals and graceful shutdown are implemented without Redis. Production providers/deployment remain blocked. |
+| Worker reliability | PARTIAL | Lease recovery, stale-worker rejection, poison handling and graceful shutdown pass; Production supervision, centralized telemetry/alerts and provider SLA evidence remain blocked. |
 | AI provider governance | DECISION REQUIRED | Provider/model/privacy/cost/timeout controls approved, or production AI OFF. |
 | Telegram | DECISION REQUIRED | Explicit disabled-for-v1 decision or complete production channel controls. |
 | Structured logging/redaction | BLOCKED | Central sink, access/retention, safe fields and automated redaction verification. |

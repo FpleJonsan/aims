@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-P6 defines a provider-independent PostgreSQL deployment boundary. It does not select a database provider, implement HA/read replicas, backups, monitoring, or modify application schema 56. Infrastructure SQL is under `apps/api/database/production`; application migrations remain the immutable `001`–`056` chain.
+P6 defines the provider-independent PostgreSQL deployment boundary and P7 extends it with the dedicated document-worker boundary. Neither phase selects a database provider or implements HA/read replicas, backups, or centralized monitoring. Infrastructure SQL is under `apps/api/database/production`; application migrations remain the immutable `001`–`057` chain.
 
 The disposable proof is the authoritative executable model. The existing local `aims` database remains schema 56 and has not been administratively changed by P6. Its runtime roles are restricted, but its database objects and `SECURITY DEFINER` functions are currently owned by the local `postgres` administrator. Applying the target ownership/default-privilege posture locally requires separate explicit administrator authorization.
 
@@ -17,6 +17,8 @@ The disposable proof is the authoritative executable model. The existing local `
 | `aims_finance_runtime` | Yes | Yes | Dedicated Finance pool | Member of Finance executor only | Server runtime injection |
 | `aims_payment_executor` | No | Yes | Payment capability and accepted narrow payment-slip scan transition | Inherits `aims_app` baseline | None |
 | `aims_payment_runtime` | Yes | Yes | Dedicated Payment pool | Member of Payment executor only | Server runtime injection |
+| `aims_document_worker_executor` | No | Yes | Narrow document claim/finalization/health capability | No application, Finance, Payment, owner or migrator membership | None |
+| `aims_document_worker_runtime` | Yes | Yes | Dedicated document scan worker pool | Member of document-worker executor only | Server runtime injection |
 | Bootstrap administrator | Operational | N/A | Creates database/roles and assigns injected credentials | Outside application | Never available to API |
 
 All runtime roles are `NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`. Runtime roles own no application objects and cannot `SET ROLE` to another executor, migrator, or owner. Technical ADMIN and all business roles remain application identities; they never map to PostgreSQL administration.
@@ -39,7 +41,18 @@ Finance executor receives direct Finance Control working-table privileges requir
 
 The application uses UUIDs for nearly all identities. The one owned sequence is migration-created and remains owner-controlled; legitimate runtime operations depend on explicit migration grants rather than ownership or future blanket sequence defaults.
 
-## Complete SECURITY DEFINER inventory at schema 56
+## P7 worker SECURITY DEFINER inventory at schema 57
+
+Document-worker callable only:
+
+- `claim_next_payment_document_scan(text,integer,integer,uuid)`
+- `complete_payment_document_scan(uuid,integer,text,integer,uuid,text,text,integer,text,text,text,text)`
+- `payment_document_scan_worker_health()`
+
+These functions share the owner/fixed-search-path/PUBLIC-denial rules below.
+The worker receives no raw table write or cross-executor function access.
+
+## Earlier SECURITY DEFINER inventory preserved from schema 56
 
 All target functions are owned by `aims_owner`, use fixed `search_path=pg_catalog, public`, contain no dynamic SQL, and deny PUBLIC execution.
 
@@ -103,10 +116,10 @@ New installation:
 
 1. Create an isolated database with the operational bootstrap identity.
 2. Run `bootstrap-roles.sql` with an explicit target database; assign generated credentials through the approved secret channel.
-3. Connect as `aims_migrator`, explicitly `SET ROLE aims_owner`, and apply reviewed migrations 001–056 in lexical order with `ON_ERROR_STOP`.
+3. Connect as `aims_migrator`, explicitly `SET ROLE aims_owner`, and apply reviewed migrations 001–057 in lexical order with `ON_ERROR_STOP`.
 4. Run `post-migration-hardening.sql` and `privilege-manifest.sql`.
-5. Verify singleton schema version 56 and exact migration ID `056_payment_slip_trust_transition`.
-6. Start runtime with only the three runtime credentials; verify readiness and representative workflow.
+5. Verify singleton schema version 57 and exact migration ID `057_p7_document_scan_worker_leases`.
+6. Start the API with its three existing runtime credentials and the independent worker with its dedicated document-worker credential; verify readiness and representative workflow.
 
 Existing installation at schema 56 performs a no-op version check, then privilege verification. It must not replay historical migrations or synthetic data. Production bootstrap/master-data strategy remains D-015/PG-026; the current historical chain contains explicitly local synthetic fixtures and is therefore a proven schema/bootstrap artifact, not yet an approved Production data-loading policy.
 
@@ -120,7 +133,7 @@ Password/credential rotation follows the P5 runbook. Database release rollback d
 
 ## Disposable proof and future roles
 
-Run `npm run test:p6:database-proof --workspace @aims/api`. It creates and destroys an isolated container, applies untouched migrations 001–056, checks defaults/manifest/attacks and runs UAT with generated disposable credentials. It never uses local `aims`.
+Run `npm run test:p6:database-proof --workspace @aims/api`. It creates and destroys an isolated container, applies untouched migrations 001–057, checks the schema-56 upgrade preservation boundary, defaults/manifest/attacks and UAT with generated disposable credentials. It never uses local `aims`.
 
 Mutating integration scripts also run through the repository's isolated database
 runner. The runner creates a uniquely named `aims_test_*` database/container,

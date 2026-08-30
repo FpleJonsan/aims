@@ -30,7 +30,7 @@ The following invariants are frozen:
 | AI | Optional OpenAI-compatible provider with strict structured schemas, evidence validation, safe provider errors, feature flags, usage records, and AI OFF behavior. Calls are currently in request paths; no production circuit breaker, central rate/cost budget, privacy approval, or provider SLA is configured. |
 | Telegram | Optional channel with webhook/callback secrets, identity binding, replay controls, outbox leasing, retries, and safe errors. Production use has not been approved. |
 | Redis | `REDIS_URL` appears in local environment documentation, but no Redis client dependency or Redis-backed runtime behavior exists. |
-| Workers | No independent worker executable, scheduler, or process supervision exists. P7 selects a future PostgreSQL-backed worker for notification outbox delivery and Production malware scanning; implementation requires separate authorization. |
+| Workers | P7 provides an independent PostgreSQL-backed worker for optional notification outbox delivery and durable document scanning. Redis and a scheduler are absent; Production supervision/providers remain open. |
 | Audit | Append-oriented PostgreSQL audit events carry actor, state, safe metadata, and correlation ID. Financial records and terminal history are database-protected. |
 | Logging | NestJS console logger plus a global safe exception filter. Failures log structured JSON with correlation ID, method, path, status, and safe code. No centralized sink, retention, redaction test gate, or alert routing exists. |
 | Health | `/health/live` reports process liveness. `/health/ready` checks database, schema, executor pools, storage configuration, AI state, and Telegram configuration without returning secrets. |
@@ -122,9 +122,9 @@ Requirements: block public access, TLS, server-side encryption, separate quarant
 
 Redis is not part of application correctness and P7 confirms it is not required
 for Production v1. PostgreSQL outbox/scan rows remain the durable source of work.
-A separately authorized worker must claim jobs with leases, support idempotent
-retries, backoff, poison/final-failure handling, backlog metrics, graceful
-shutdown, and deployment-safe lease recovery. P15 may reopen Redis only if
+A dedicated worker now claims jobs with leases, supports guarded retries,
+backoff, poison/final-failure handling, safe backlog signals, graceful shutdown,
+and deployment-safe lease recovery. P15 may reopen Redis only if
 measured capacity evidence identifies a concrete problem PostgreSQL cannot meet.
 
 ## AI boundary

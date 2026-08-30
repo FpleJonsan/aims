@@ -1,7 +1,7 @@
 \set ON_ERROR_STOP on
 SET ROLE aims_owner;
 
-REVOKE CREATE ON SCHEMA public FROM PUBLIC,aims_app,aims_finance_executor,aims_finance_runtime,aims_payment_executor,aims_payment_runtime;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC,aims_app,aims_finance_executor,aims_finance_runtime,aims_payment_executor,aims_payment_runtime,aims_document_worker_executor,aims_document_worker_runtime;
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC;
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
@@ -21,5 +21,8 @@ GRANT EXECUTE ON FUNCTION attach_payment_slip(uuid,uuid,uuid,text,text,text,bigi
 GRANT EXECUTE ON FUNCTION record_payment(uuid,uuid,uuid,date,bigint,text,text,uuid,boolean) TO aims_payment_executor;
 GRANT EXECUTE ON FUNCTION begin_payment_slip_security_scan(uuid,uuid,integer,text) TO aims_payment_executor;
 GRANT EXECUTE ON FUNCTION complete_payment_slip_security_scan(uuid,uuid,integer,text,integer,text,text,text,text) TO aims_payment_executor;
+GRANT EXECUTE ON FUNCTION claim_next_payment_document_scan(text,integer,integer,uuid) TO aims_document_worker_executor;
+GRANT EXECUTE ON FUNCTION complete_payment_document_scan(uuid,integer,text,integer,uuid,text,text,integer,text,text,text,text) TO aims_document_worker_executor;
+GRANT EXECUTE ON FUNCTION payment_document_scan_worker_health() TO aims_document_worker_executor;
 
 RESET ROLE;

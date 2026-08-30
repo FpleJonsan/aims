@@ -8,6 +8,7 @@ export interface MalwareScanRequest {
   sha256: string;
   contentType: string;
   data: Uint8Array;
+  signal?: AbortSignal;
 }
 
 export interface MalwareScanResult {

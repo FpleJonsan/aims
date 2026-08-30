@@ -4,6 +4,7 @@ export const SERVER_SECRET_NAMES = [
   "DATABASE_URL",
   "FINANCE_DATABASE_URL",
   "PAYMENT_DATABASE_URL",
+  "DOCUMENT_WORKER_DATABASE_URL",
   "OPENAI_API_KEY",
   "TELEGRAM_BOT_TOKEN",
   "TELEGRAM_WEBHOOK_SECRET",
@@ -50,4 +51,3 @@ export function redactSensitiveData(value: unknown, seen = new WeakSet<object>()
     ]),
   );
 }
-
