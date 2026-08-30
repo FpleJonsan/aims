@@ -10,14 +10,14 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P7 — PostgreSQL-backed Worker Implementation |
-| Current status | P7 IMPLEMENTATION PASS / FROZEN |
+| Current Production phase | P8 — AI Governance Decision / Gap Audit |
+| Current status | P8 DECISION COMPLETE; CODE HARDENING REQUIRED |
 | Last completed phase | P7 — PostgreSQL-backed Worker Implementation |
 | Overall Production ready | NO |
 | Current schema | 57 |
 | Latest migration | `057_p7_document_scan_worker_leases` |
 | Current branch | `main` |
-| Last verified commit | `20db6ee` (P7 starting baseline; changes uncommitted) |
+| Last verified commit | `ba8e603` |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -34,7 +34,8 @@ is unchanged. Production object storage, scanner, deployment supervision, and
 central monitoring remain later-phase blockers; Production scanning fails
 closed until approved providers exist. The two final-review Medium findings are
 resolved by executable stale-version/SHA rejection proofs and bounded external
-I/O/shutdown deadlines. P7 correction is frozen and P8 has not started.
+I/O/shutdown deadlines. P7 correction is frozen. The P8 audit selected code
+hardening before Production AI may be enabled; Production AI remains OFF.
 
 ## 2. Locked Product Architecture
 
@@ -197,8 +198,8 @@ risk register. Overall Production readiness remains NO.
 | P3/P4 | COMPLETED FOUNDATION / PROVIDERS DEFERRED | Document storage and malware trust foundation |
 | P5 | COMPLETED FOUNDATION | Secrets and credential management |
 | P6 | COMPLETED / FROZEN | PostgreSQL and runtime roles |
-| P7 | DECISION PASS; IMPLEMENTATION NOT AUTHORIZED | No Redis; PostgreSQL-backed reliable worker |
-| P8 | PENDING | Production AI governance |
+| P7 | COMPLETED / FROZEN | No Redis; PostgreSQL-backed reliable worker |
+| P8 | DECISION COMPLETE / HARDENING REQUIRED | Production AI governance; no provider selected |
 | P9 | PENDING | Telegram/external-integration decision |
 | P10 | PENDING | Structured logs, metrics, dashboards |
 | P11 | PENDING | Alerts, SLO/SLA, on-call |
@@ -1124,3 +1125,46 @@ Frontend Impact: NONE; AIMS-UX-001 NOT REQUIRED.
 P7 Correction Implementation Frozen: YES after final diff/static verification.
 
 Next: Perform the mandatory five-discipline read-only re-review. Do not begin P8.
+
+### 2026-08-31 — P8 AI governance and Production-readiness decision audit
+
+Status: DECISION COMPLETE / P8 CODE HARDENING REQUIRED
+
+Starting Commit: `ba8e603`
+
+Ending Commit: NOT COMMITTED
+
+Schema: 57 → 57
+
+Summary:
+- Inventoried Validation AI, Financial Risk/Spending/Compliance agents,
+  Aggregator, Finance Watch, Ask AIMS, provider adapter, flags, usage history,
+  document trust, evidence, scope, failure, and secret boundaries.
+- Confirmed AI remains optional, advisory, human-reviewed and unable to perform
+  Policy, Approval, Finance Control, Payment, ledger, commitment or PAID actions.
+- Selected decision B: code hardening is required before Production AI can be
+  enabled; no Production provider is selected.
+
+Findings:
+- Critical: NONE.
+- High: unbounded provider network/response handling; Validation output not
+  bound to the exact CLEAN document manifest.
+- Medium: Risk-agent evidence lacks catalog validation; aggregate input/output
+  limits are incomplete; usage/cost traceability is incomplete; Finance
+  Intelligence projections require stricter minimization.
+- Low: centralized AI telemetry, alerting, SLA/cost ownership and circuit-breaker
+  policy remain later Production gates.
+
+Business Logic Impact: NONE
+
+Database Impact: NONE; migration 058 does not exist.
+
+Frontend Impact: NONE; AIMS-UX-001 NOT REQUIRED.
+
+Runtime Code Changed: NO
+
+P8 Final: NO. Production AI must remain OFF pending separately authorized code
+hardening and later provider/privacy approval.
+
+Next: WAIT FOR EXPLICIT P8 IMPLEMENTATION AUTHORIZATION. Do not select a provider
+and do not begin P9.
