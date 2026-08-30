@@ -16,6 +16,7 @@ import {
   type PolicyFacts,
 } from "../../domain/policy.js";
 import { Postgres } from "../../infrastructure/database/postgres.js";
+import { redactSensitiveData } from "../../infrastructure/configuration/secret-boundary.js";
 import { PaymentRequestService } from "../payment-requests/payment-request.service.js";
 import type {
   CreatePolicyRuleDto,
@@ -56,7 +57,7 @@ export class PolicyService {
         entityType,
         entityId,
         correlationId,
-        JSON.stringify(metadata),
+        JSON.stringify(redactSensitiveData(metadata)),
       ],
     );
   }

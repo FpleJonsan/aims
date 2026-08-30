@@ -1,5 +1,6 @@
 import { ArgumentsHost, Catch, HttpException, HttpStatus, Logger } from "@nestjs/common";
 import type { Request, Response } from "express";
+import { redactSensitiveText } from "../configuration/secret-boundary.js";
 
 @Catch()
 export class OperationalExceptionFilter {
@@ -10,7 +11,9 @@ export class OperationalExceptionFilter {
     const response = host.switchToHttp().getResponse<Response>();
     const status = error instanceof HttpException ? error.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     const code = error instanceof HttpException ? error.name : "InternalServerError";
-    const safeMessage = error instanceof HttpException ? error.message : "Internal server error";
+    const safeMessage = error instanceof HttpException
+      ? redactSensitiveText(error.message)
+      : "Internal server error";
     this.logger.error(JSON.stringify({
       event: "request_failure",
       correlationId: request.correlationId,

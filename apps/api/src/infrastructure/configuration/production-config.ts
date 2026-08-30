@@ -1,9 +1,12 @@
+import { isPlaceholderSecret, readServerSecret } from "./secret-boundary.js";
+
 const MIN_SECRET_LENGTH = 32;
 
 export type ConfigurationMode = "development" | "test" | "production";
 
 export interface ConfigurationSummary {
   mode: ConfigurationMode;
+  aimsEnvironment: "development" | "local" | "competition" | "staging" | "production";
   identity: "LOCAL_SESSION" | "COMPETITION_HEADER";
   storage: string;
   malwareScanner:string;
@@ -24,10 +27,11 @@ export function validateProductionConfig(
   const storage = environment.STORAGE_DRIVER ?? "";
   const malwareScanner=environment.MALWARE_SCANNER_DRIVER??"";
 
-  requireUrl(environment.DATABASE_URL, "DATABASE_URL", ["postgres:", "postgresql:"]);
+  requireDatabaseUrl(readServerSecret("DATABASE_URL", environment), "DATABASE_URL", production);
   if (production) {
-    requireUrl(environment.FINANCE_DATABASE_URL, "FINANCE_DATABASE_URL", ["postgres:", "postgresql:"]);
-    requireUrl(environment.PAYMENT_DATABASE_URL, "PAYMENT_DATABASE_URL", ["postgres:", "postgresql:"]);
+    if (environment.AIMS_DEMO_MODE === "true") throw new Error("Production rejects the deprecated competition identity mode");
+    requireDatabaseUrl(readServerSecret("FINANCE_DATABASE_URL", environment), "FINANCE_DATABASE_URL", true);
+    requireDatabaseUrl(readServerSecret("PAYMENT_DATABASE_URL", environment), "PAYMENT_DATABASE_URL", true);
     if (storage !== "object") throw new Error("Production requires an approved private object-storage adapter; local or missing storage is forbidden");
     if(malwareScanner!=="provider")throw new Error("Production requires an approved malware-scanner provider; deterministic local or missing scanning is forbidden");
   }else{
@@ -52,6 +56,7 @@ export function validateProductionConfig(
 
   return {
     mode,
+    aimsEnvironment: aimsEnvironment as ConfigurationSummary["aimsEnvironment"],
     identity: aimsEnvironment === "competition" || environment.AIMS_DEMO_MODE === "true" ? "COMPETITION_HEADER" : "LOCAL_SESSION",
     storage,
     malwareScanner,
@@ -74,6 +79,15 @@ function requireUrl(value: string | undefined, name: string, protocols: string[]
   if (!parsed.hostname) throw new Error(`${name} must include a host`);
 }
 
+function requireDatabaseUrl(value: string | undefined, name: string, production: boolean): void {
+  requireUrl(value, name, ["postgres:", "postgresql:"]);
+  if (production && value && isPlaceholderSecret(value)) {
+    throw new Error(`${name} contains a placeholder credential and is forbidden in production`);
+  }
+  const parsed = new URL(value!);
+  if (!parsed.username || !parsed.password) throw new Error(`${name} must include an injected runtime credential`);
+}
+
 function requireHttpsUrl(value: string | undefined, name: string): void {
   if (!value) throw new Error(`${name} is required`);
   let parsed: URL;
@@ -86,4 +100,5 @@ function requireSecret(value: string | undefined, name: string, strong: boolean)
   if (strong && value.length < MIN_SECRET_LENGTH) {
     throw new Error(`${name} must contain at least ${MIN_SECRET_LENGTH} characters in production`);
   }
+  if (strong && isPlaceholderSecret(value)) throw new Error(`${name} contains a placeholder and is forbidden in production`);
 }

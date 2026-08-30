@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { validateProductionConfig } from "../src/infrastructure/configuration/production-config.js";
+import { redactSensitiveData, redactSensitiveText, SERVER_SECRET_NAMES } from "../src/infrastructure/configuration/secret-boundary.js";
 
 const local = {
   NODE_ENV: "development",
@@ -37,6 +38,31 @@ test("production rejects missing object storage, missing scanner, and determinis
   assert.throws(()=>validateProductionConfig({...base,STORAGE_DRIVER:""}),/private object-storage adapter/);
   assert.throws(()=>validateProductionConfig({...base,STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:""}),/malware-scanner provider/);
   assert.throws(()=>validateProductionConfig({...base,STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"deterministic-local"}),/malware-scanner provider/);
+});
+
+test("production rejects placeholder and incomplete database credentials", () => {
+  const production = {...local,NODE_ENV:"production",STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider",FINANCE_DATABASE_URL:"postgresql://finance:strong-runtime-value@db.internal/aims",PAYMENT_DATABASE_URL:"postgresql://payment:strong-runtime-value@db.internal/aims"};
+  assert.throws(() => validateProductionConfig({...production,DATABASE_URL:"postgresql://aims:replace_with_password@db.internal/aims"}), /placeholder credential/);
+  assert.throws(() => validateProductionConfig({...local,DATABASE_URL:"postgresql://db.internal/aims"}), /injected runtime credential/);
+});
+
+test("production rejects competition compatibility mode", () => {
+  const production = {...local,NODE_ENV:"production",AIMS_DEMO_MODE:"true",STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider",FINANCE_DATABASE_URL:local.DATABASE_URL,PAYMENT_DATABASE_URL:local.DATABASE_URL};
+  assert.throws(() => validateProductionConfig(production), /competition identity mode/);
+});
+
+test("secret redaction protects structured and unstructured boundaries", () => {
+  const canary="p5-canary-not-a-real-secret", connection=`postgresql://aims:${canary}@localhost:5432/aims`;
+  const serialized=JSON.stringify(redactSensitiveData({authorization:`Bearer ${canary}`,nested:{databaseUrl:connection,note:`password=${canary}`}}));
+  assert.doesNotMatch(serialized,new RegExp(canary));
+  assert.match(serialized,/REDACTED/);
+  assert.doesNotMatch(redactSensitiveText(`failed ${connection}`),new RegExp(canary));
+});
+
+test("server secret catalogue excludes browser-public configuration", () => {
+  assert.ok(SERVER_SECRET_NAMES.includes("DATABASE_URL"));
+  assert.ok(SERVER_SECRET_NAMES.includes("OPENAI_API_KEY"));
+  assert.equal(SERVER_SECRET_NAMES.some((name)=>name.startsWith("NEXT_PUBLIC_")),false);
 });
 
 test("AI OFF has no OpenAI credential dependency", () => {

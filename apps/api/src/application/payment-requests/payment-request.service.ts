@@ -16,6 +16,7 @@ import {
   type Principal,
 } from "../../domain/payment-request.js";
 import { Postgres } from "../../infrastructure/database/postgres.js";
+import { redactSensitiveData } from "../../infrastructure/configuration/secret-boundary.js";
 import type {
   CapturePaymentRequestDto,
   ListPaymentRequestsDto,
@@ -330,7 +331,7 @@ export class PaymentRequestService {
         previousState,
         newState,
         correlationId,
-        JSON.stringify(metadata),
+        JSON.stringify(redactSensitiveData(metadata)),
       ],
     );
   }

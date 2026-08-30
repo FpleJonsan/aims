@@ -140,7 +140,7 @@ Redis is not currently part of application correctness. P7 must decide whether R
 | Database | Local `aims` | Isolated `aims_competition` | Isolated staging DB | Production DB |
 | Reset/seed | Developer-controlled | Guarded deterministic commands | No competition seed; approved bootstrap only | Competition reset/seed forbidden |
 | Documents | Local synthetic files | Local synthetic files | Private object storage + scanner | Private object storage + scanner |
-| Secrets | Ignored local env | Ignored local env | Secret manager injection | Secret manager injection |
+| Secrets | Ignored local env | Ignored local env | Controlled runtime injection from an approved store | Controlled runtime injection from an approved store |
 | AI | OFF/default or explicit test | OFF/default; optional preflight | Governed sandbox or OFF | Governed provider or OFF |
 | Telegram | Disabled/default | Optional controlled test | Disabled unless approved | Disabled unless approved and productionized |
 | TLS/network | Loopback | Local controlled | Production-like private network/TLS | Mandatory TLS/private dependencies |

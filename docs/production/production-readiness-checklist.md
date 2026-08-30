@@ -17,7 +17,8 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | Authorization regression | PARTIAL | Local session preserves current PostgreSQL authority evaluation; real IdP/staging identity and full Production regression remain blocked. |
 | Private object storage | BLOCKED | Encrypted private quarantine/clean storage, authorized reads, version/hash reconciliation. |
 | Malware protection | BLOCKED | Real scanner, durable verdict, retry/error handling and promotion-only-after-CLEAN proof. |
-| Secret management | BLOCKED | Selected store, runtime injection, environment isolation, independent rotation and audit. |
+| Secret-management foundation | PASS | Provider-independent inventory, classification, environment validation, redaction, ownership, rotation and incident contracts are tested/documented. |
+| Production secret integration | BLOCKED | Selected store, workload identity/runtime injection, independent rotation and operational audit. |
 | Production PostgreSQL | BLOCKED | Selected service/version, TLS, HA, pools/timeouts, role provisioning and monitoring. |
 | Migration/bootstrap | BLOCKED | Production-safe migration path excludes fixtures; checksum/manifest and clean rehearsal pass. |
 | Redis decision | DECISION REQUIRED | Verified need and design, or explicit no-Redis decision. |
