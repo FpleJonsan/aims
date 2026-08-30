@@ -10,6 +10,8 @@ const local = {
   STORAGE_DRIVER: "local",
   MALWARE_SCANNER_DRIVER: "deterministic-local",
 };
+const productionUrl=(user:string,database="aims_production")=>`postgresql://${user}:strong-runtime-value@db.internal/${database}?sslmode=verify-full`;
+const productionDatabase={AIMS_EXPECTED_DATABASE:"aims_production",DATABASE_URL:productionUrl("aims_app"),FINANCE_DATABASE_URL:productionUrl("aims_finance_runtime"),PAYMENT_DATABASE_URL:productionUrl("aims_payment_runtime")};
 
 test("development accepts explicit local storage and optional integrations disabled", () => {
   const result = validateProductionConfig(local);
@@ -18,7 +20,7 @@ test("development accepts explicit local storage and optional integrations disab
 });
 
 test("production fails closed without an approved corporate authentication adapter", () => {
-  const configured={...local,STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider",FINANCE_DATABASE_URL:local.DATABASE_URL,PAYMENT_DATABASE_URL:local.DATABASE_URL};
+  const configured={...local,...productionDatabase,STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider"};
   assert.throws(() => validateProductionConfig({ ...configured, NODE_ENV: "production" }), /approved corporate adapter/);
   assert.throws(() => validateProductionConfig({ ...configured, AIMS_ENVIRONMENT: "production" }), /approved corporate adapter/);
 });
@@ -26,29 +28,37 @@ test("production fails closed without an approved corporate authentication adapt
 test("production rejects local document storage", () => {
   assert.throws(() => validateProductionConfig({
     ...local,
+    ...productionDatabase,
     NODE_ENV: "production",
     AUTH_TRUSTED_PROXY: "true",
-    FINANCE_DATABASE_URL: local.DATABASE_URL,
-    PAYMENT_DATABASE_URL: local.DATABASE_URL,
   }), /private object-storage adapter/);
 });
 
 test("production rejects missing object storage, missing scanner, and deterministic local scanner",()=>{
-  const base={...local,NODE_ENV:"production",FINANCE_DATABASE_URL:local.DATABASE_URL,PAYMENT_DATABASE_URL:local.DATABASE_URL};
+  const base={...local,...productionDatabase,NODE_ENV:"production"};
   assert.throws(()=>validateProductionConfig({...base,STORAGE_DRIVER:""}),/private object-storage adapter/);
   assert.throws(()=>validateProductionConfig({...base,STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:""}),/malware-scanner provider/);
   assert.throws(()=>validateProductionConfig({...base,STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"deterministic-local"}),/malware-scanner provider/);
 });
 
 test("production rejects placeholder and incomplete database credentials", () => {
-  const production = {...local,NODE_ENV:"production",STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider",FINANCE_DATABASE_URL:"postgresql://finance:strong-runtime-value@db.internal/aims",PAYMENT_DATABASE_URL:"postgresql://payment:strong-runtime-value@db.internal/aims"};
-  assert.throws(() => validateProductionConfig({...production,DATABASE_URL:"postgresql://aims:replace_with_password@db.internal/aims"}), /placeholder credential/);
+  const production = {...local,...productionDatabase,NODE_ENV:"production",STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider"};
+  assert.throws(() => validateProductionConfig({...production,DATABASE_URL:"postgresql://aims_app:replace_with_password@db.internal/aims_production?sslmode=verify-full"}), /placeholder credential/);
   assert.throws(() => validateProductionConfig({...local,DATABASE_URL:"postgresql://db.internal/aims"}), /injected runtime credential/);
 });
 
 test("production rejects competition compatibility mode", () => {
-  const production = {...local,NODE_ENV:"production",AIMS_DEMO_MODE:"true",STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider",FINANCE_DATABASE_URL:local.DATABASE_URL,PAYMENT_DATABASE_URL:local.DATABASE_URL};
+  const production = {...local,...productionDatabase,NODE_ENV:"production",AIMS_DEMO_MODE:"true",STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider"};
   assert.throws(() => validateProductionConfig(production), /competition identity mode/);
+});
+
+test("production database identity, TLS, and role separation fail closed",()=>{
+ const base={...local,...productionDatabase,NODE_ENV:"production",STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider"};
+ assert.throws(()=>validateProductionConfig({...base,AIMS_EXPECTED_DATABASE:"aims_competition"}),/AIMS_EXPECTED_DATABASE|isolated non-local database/);
+ assert.throws(()=>validateProductionConfig({...base,DATABASE_URL:productionUrl("aims_app").replace("?sslmode=verify-full","")}),/sslmode=verify-full/);
+ assert.throws(()=>validateProductionConfig({...base,DATABASE_URL:productionUrl("postgres")}),/administrator identity/);
+ assert.throws(()=>validateProductionConfig({...base,PAYMENT_DATABASE_URL:productionUrl("aims_finance_runtime")}),/identities must be distinct/);
+ assert.throws(()=>validateProductionConfig({...base,DATABASE_URL:productionUrl("aims_app","wrong_database")}),/AIMS_EXPECTED_DATABASE/);
 });
 
 test("secret redaction protects structured and unstructured boundaries", () => {

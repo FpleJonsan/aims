@@ -23,15 +23,19 @@ export function validateProductionConfig(
   if(!["development","local","competition","staging","production"].includes(aimsEnvironment))
     throw new Error("AIMS_ENVIRONMENT must be development, local, competition, staging, or production");
   const production = mode === "production"||aimsEnvironment==="production";
+  const expectedDatabase = environment.AIMS_EXPECTED_DATABASE;
   const telegramEnabled = environment.TELEGRAM_APPROVAL_ENABLED === "true";
   const storage = environment.STORAGE_DRIVER ?? "";
   const malwareScanner=environment.MALWARE_SCANNER_DRIVER??"";
 
-  requireDatabaseUrl(readServerSecret("DATABASE_URL", environment), "DATABASE_URL", production);
+  requireDatabaseUrl(readServerSecret("DATABASE_URL", environment), "DATABASE_URL", production, expectedDatabase);
   if (production) {
+    if (!expectedDatabase) throw new Error("Production requires AIMS_EXPECTED_DATABASE");
+    if (["aims", "aims_competition", "postgres", "template0", "template1"].includes(expectedDatabase)) throw new Error("Production expected database must be an explicitly isolated non-local database");
     if (environment.AIMS_DEMO_MODE === "true") throw new Error("Production rejects the deprecated competition identity mode");
-    requireDatabaseUrl(readServerSecret("FINANCE_DATABASE_URL", environment), "FINANCE_DATABASE_URL", true);
-    requireDatabaseUrl(readServerSecret("PAYMENT_DATABASE_URL", environment), "PAYMENT_DATABASE_URL", true);
+    requireDatabaseUrl(readServerSecret("FINANCE_DATABASE_URL", environment), "FINANCE_DATABASE_URL", true, expectedDatabase);
+    requireDatabaseUrl(readServerSecret("PAYMENT_DATABASE_URL", environment), "PAYMENT_DATABASE_URL", true, expectedDatabase);
+    requireDistinctDatabaseIdentities(environment);
     if (storage !== "object") throw new Error("Production requires an approved private object-storage adapter; local or missing storage is forbidden");
     if(malwareScanner!=="provider")throw new Error("Production requires an approved malware-scanner provider; deterministic local or missing scanning is forbidden");
   }else{
@@ -79,13 +83,25 @@ function requireUrl(value: string | undefined, name: string, protocols: string[]
   if (!parsed.hostname) throw new Error(`${name} must include a host`);
 }
 
-function requireDatabaseUrl(value: string | undefined, name: string, production: boolean): void {
+function requireDatabaseUrl(value: string | undefined, name: string, production: boolean, expectedDatabase?: string): void {
   requireUrl(value, name, ["postgres:", "postgresql:"]);
   if (production && value && isPlaceholderSecret(value)) {
     throw new Error(`${name} contains a placeholder credential and is forbidden in production`);
   }
   const parsed = new URL(value!);
   if (!parsed.username || !parsed.password) throw new Error(`${name} must include an injected runtime credential`);
+  if (production) {
+    if (["localhost", "127.0.0.1", "::1"].includes(parsed.hostname)) throw new Error(`${name} cannot use a local database host in production`);
+    if (decodeURIComponent(parsed.pathname.slice(1)) !== expectedDatabase) throw new Error(`${name} does not target AIMS_EXPECTED_DATABASE`);
+    if (parsed.searchParams.get("sslmode") !== "verify-full") throw new Error(`${name} requires sslmode=verify-full in production`);
+    if (["postgres", "root", "admin", "aims_owner", "aims_migrator"].includes(decodeURIComponent(parsed.username).toLowerCase())) throw new Error(`${name} cannot use an owner, migration, or administrator identity`);
+  }
+}
+
+function requireDistinctDatabaseIdentities(environment: Readonly<Record<string,string|undefined>>): void {
+  const names=["DATABASE_URL","FINANCE_DATABASE_URL","PAYMENT_DATABASE_URL"] as const;
+  const users=names.map(name=>decodeURIComponent(new URL(environment[name]!).username).toLowerCase());
+  if(new Set(users).size!==users.length)throw new Error("Production database runtime, Finance, and Payment identities must be distinct");
 }
 
 function requireHttpsUrl(value: string | undefined, name: string): void {

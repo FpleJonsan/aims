@@ -14,16 +14,22 @@ export class Postgres implements OnModuleDestroy {
       connectionString,
       max: 10,
       statement_timeout: 10_000,
+      connectionTimeoutMillis: 5_000,
+      lock_timeout: 5_000,
+      idle_in_transaction_session_timeout: 15_000,
     });
     this.financePool = process.env.FINANCE_DATABASE_URL
       ? new Pool({
           connectionString: process.env.FINANCE_DATABASE_URL,
           max: 5,
           statement_timeout: 10_000,
+          connectionTimeoutMillis: 5_000,
+          lock_timeout: 5_000,
+          idle_in_transaction_session_timeout: 15_000,
         })
       : null;
     this.paymentPool = process.env.PAYMENT_DATABASE_URL
-      ? new Pool({ connectionString: process.env.PAYMENT_DATABASE_URL, max: 5, statement_timeout: 10_000 })
+      ? new Pool({ connectionString: process.env.PAYMENT_DATABASE_URL, max: 5, statement_timeout: 10_000, connectionTimeoutMillis: 5_000, lock_timeout: 5_000, idle_in_transaction_session_timeout: 15_000 })
       : null;
   }
 

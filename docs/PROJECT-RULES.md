@@ -1375,3 +1375,113 @@ SENIOR UI/UX REVIEW: NOT REQUIRED
 Do not perform a fake review merely to mark the gate PASS. When frontend changes
 exist, READY TO COMMIT must not be YES unless the frozen review has completed,
 `CRITICAL = 0`, `HIGH = 0`, and `SENIOR UI/UX REVIEW: PASS`.
+
+
+==================================================
+22. PROJECT PROGRESS GOVERNANCE
+==================================================
+
+### AIMS-GOV-001 — Mandatory Project Progress Ledger
+
+`docs/PROJECT-PROGRESS.md` is the canonical human-readable AIMS progress ledger.
+Every implementation, correction, hardening pass, migration, security change,
+frontend change, infrastructure change, documentation change, or material
+architecture decision MUST update that ledger before the work may be classified
+`READY TO COMMIT` or `COMPLETE`. No material project change may be committed
+without its corresponding progress entry.
+
+### AIMS-GOV-002 — Mandatory Progress Read Before Modification
+
+Before modifying AIMS, every Codex implementation session MUST read:
+
+- `docs/PROJECT-RULES.md`
+- `docs/PROJECT-PROGRESS.md`
+- all phase-specific governing documents relevant to the task
+
+The session must determine the current phase, current schema version, last
+completed phase, current frozen baseline, known open findings, authorized scope,
+and next allowed action before changing files. If requested work conflicts with
+the recorded frozen baseline or project rules, STOP, report the conflict, and do
+not silently override project history.
+
+Every modifying session must begin with this **AIMS CONTEXT CHECK**:
+
+1. Read `docs/PROJECT-RULES.md`.
+2. Read `docs/PROJECT-PROGRESS.md`.
+3. Read relevant phase documentation.
+4. Verify Git branch and status.
+5. Verify current schema/migration state when database-related.
+6. State the current phase.
+7. State the frozen boundaries.
+8. State the authorized task.
+9. State known blockers/findings.
+10. Only then modify files.
+
+### AIMS-GOV-003 — Mandatory Progress Update After Material Change
+
+After every material change and before declaring `READY TO COMMIT`, Codex MUST
+update `docs/PROJECT-PROGRESS.md`. The update must record the date, work package,
+starting and ending/current commits where available, schema before and after,
+material components changed, implementation summary, security/business/database/
+frontend impact, tests, reviews, findings and accepted/deferred findings,
+migrations, Production-readiness impact, freeze status, commit readiness, and
+next authorized step. Never record secret values.
+
+Every material implementation session must end with this **AIMS PROGRESS
+CHECKPOINT**, followed by the ledger update:
+
+```text
+Phase:
+Status:
+Schema:
+Material changes:
+Tests:
+Reviews:
+Findings:
+Frozen:
+Commit readiness:
+Next authorized action:
+```
+
+### AIMS-GOV-004 — Progress Ledger Must Travel With Implementation
+
+When code, configuration, or infrastructure changes are committed, the related
+`docs/PROJECT-PROGRESS.md` update must normally be included in the same coherent
+commit. Do not leave implementation and the canonical project state describing
+different phases.
+
+### AIMS-GOV-005 — Append-Only Project History
+
+Completed progress entries are historical records. Do not silently rewrite them.
+If an old entry is inaccurate, append a dated correction referencing it. The
+top-level current-state summary may advance as the project advances. Do not add
+noise for temporary edits, formatting, or other non-material saves; material
+failures and blockers must be recorded as well as successful work.
+
+### AIMS-GOV-006 — Repository Context Precedence
+
+Future Codex sessions must use repository evidence as the persistent project
+source of truth, in this order:
+
+1. Explicit current user authorization.
+2. `docs/PROJECT-RULES.md`.
+3. `docs/PROJECT-PROGRESS.md` current state.
+4. Phase-specific Production documentation.
+5. Repository implementation and tests.
+6. Older historical progress entries.
+
+If documentation conflicts with implementation, STOP and investigate. Do not
+silently select whichever version is easier.
+
+### AIMS-GOV-007 — Progress Consistency Gate
+
+Before `READY TO COMMIT`, verify that the progress ledger matches implementation,
+schema and migration state, phase status, findings and deferred items, and the
+next authorized action, without overstating Production readiness. Any
+inconsistency means `READY TO COMMIT: NO`.
+
+### AIMS-GOV-008 — Production Readiness Must Be Evidence-Based
+
+The progress ledger must never infer overall Production readiness merely because
+one phase passed. Overall Production readiness remains `NO` until every roadmap
+acceptance gate is satisfied. Individual phase `PASS` is not Production readiness.

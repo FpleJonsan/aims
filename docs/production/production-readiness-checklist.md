@@ -19,7 +19,8 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | Malware protection | BLOCKED | Real scanner, durable verdict, retry/error handling and promotion-only-after-CLEAN proof. |
 | Secret-management foundation | PASS | Provider-independent inventory, classification, environment validation, redaction, ownership, rotation and incident contracts are tested/documented. |
 | Production secret integration | BLOCKED | Selected store, workload identity/runtime injection, independent rotation and operational audit. |
-| Production PostgreSQL | BLOCKED | Selected service/version, TLS, HA, pools/timeouts, role provisioning and monitoring. |
+| PostgreSQL role/runtime foundation | PASS | Disposable clean bootstrap, NOLOGIN ownership, executor separation, defaults, drift checks, TLS/database identity validation and schema-56 UAT pass. |
+| Production PostgreSQL deployment | BLOCKED | Selected service/version, private TLS/CA distribution, HA, capacity, role/secret provisioning and monitoring. |
 | Migration/bootstrap | BLOCKED | Production-safe migration path excludes fixtures; checksum/manifest and clean rehearsal pass. |
 | Redis decision | DECISION REQUIRED | Verified need and design, or explicit no-Redis decision. |
 | Worker reliability | BLOCKED | Supervision, leases, idempotent retry, poison/dead-letter, backlog, graceful shutdown. |
