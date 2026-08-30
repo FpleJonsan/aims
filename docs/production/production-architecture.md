@@ -21,16 +21,16 @@ The following invariants are frozen:
 | --- | --- |
 | Frontend | React 19 and Next-compatible routing built with Vinext/Vite. One browser application calls the API and derives workspace navigation from `/session`. |
 | API | NestJS 11 modular monolith on Express. DTO validation uses whitelist and unknown-field rejection. Swagger is disabled in production. |
-| Database | PostgreSQL via `pg`. Normal pool max 10; Finance and Payment pools max 5 each; 10-second statement timeout; bounded serialization retry. PostgreSQL is authoritative for workflow, audit, policy, commitments, payment, ledger, and reporting. |
-| Database roles | Separate normal application, Finance runtime/executor, Payment runtime/executor, and migration/admin concepts. Restricted executor functions and triggers enforce terminal mutations. |
-| Migrations | Fifty-three immutable lexical SQL migrations. Schema readiness expects version 53. No automated production migration runner or checksum manifest exists. Several historical migrations contain local/competition fixtures and must not be applied blindly as production bootstrap data. |
+| Database | PostgreSQL via `pg`. Normal pool max 10; Finance and Payment pools max 5 each; bounded connection, statement, lock, idle-transaction and serialization retry behavior. PostgreSQL is authoritative for workflow, audit, policy, commitments, payment, ledger, and reporting. |
+| Database roles | P6-verified NOLOGIN owner, explicit migrator, normal application, Finance runtime/executor, and Payment runtime/executor boundaries. Restricted executor functions and triggers enforce terminal mutations. |
+| Migrations | Fifty-six immutable lexical SQL migrations. Schema readiness expects version 56. P6 provides a disposable migration/role proof and privilege manifest; a provider deployment and checksum policy remain open. Several historical migrations contain local/competition fixtures and must not be applied blindly as production bootstrap data. |
 | Authentication | LOCAL uses the P1-L namespaced identity adapter and hashed opaque server-side session. COMPETITION retains its guarded compatibility header. STAGING/PRODUCTION fail closed until an approved corporate adapter is implemented; no OIDC client or trusted proxy assertion is implemented. |
 | Authorization | Backend resolves active user, department, technical roles, and independent business-authority tables on each request. `/session` returns safe user/workspace/capability projections. |
 | Documents | Node filesystem adapter only. It streams to quarantine, validates size/type/signature/container ending, stores SHA-256, blocks traversal/symlinks, and supports scanner-gated promotion in code. Local storage refuses production. No production object-storage adapter or malware engine is wired. |
 | AI | Optional OpenAI-compatible provider with strict structured schemas, evidence validation, safe provider errors, feature flags, usage records, and AI OFF behavior. Calls are currently in request paths; no production circuit breaker, central rate/cost budget, privacy approval, or provider SLA is configured. |
 | Telegram | Optional channel with webhook/callback secrets, identity binding, replay controls, outbox leasing, retries, and safe errors. Production use has not been approved. |
 | Redis | `REDIS_URL` appears in local environment documentation, but no Redis client dependency or Redis-backed runtime behavior exists. |
-| Workers | No independent worker executable, scheduler, queue consumer, or process supervision exists. Notification outbox processing is PostgreSQL-backed and invoked through application services/endpoints. |
+| Workers | No independent worker executable, scheduler, or process supervision exists. P7 selects a future PostgreSQL-backed worker for notification outbox delivery and Production malware scanning; implementation requires separate authorization. |
 | Audit | Append-oriented PostgreSQL audit events carry actor, state, safe metadata, and correlation ID. Financial records and terminal history are database-protected. |
 | Logging | NestJS console logger plus a global safe exception filter. Failures log structured JSON with correlation ID, method, path, status, and safe code. No centralized sink, retention, redaction test gate, or alert routing exists. |
 | Health | `/health/live` reports process liveness. `/health/ready` checks database, schema, executor pools, storage configuration, AI state, and Telegram configuration without returning secrets. |
@@ -120,7 +120,12 @@ Requirements: block public access, TLS, server-side encryption, separate quarant
 
 ## Worker boundary
 
-Redis is not currently part of application correctness. P7 must decide whether Redis is needed. PostgreSQL outbox rows remain the durable source of work. A future worker must claim jobs with leases, support idempotent retries, backoff, poison/dead-letter handling, backlog metrics, graceful shutdown, and deployment-safe lease recovery. Redis, if introduced, may accelerate delivery but must not become the sole record of a financial action.
+Redis is not part of application correctness and P7 confirms it is not required
+for Production v1. PostgreSQL outbox/scan rows remain the durable source of work.
+A separately authorized worker must claim jobs with leases, support idempotent
+retries, backoff, poison/final-failure handling, backlog metrics, graceful
+shutdown, and deployment-safe lease recovery. P15 may reopen Redis only if
+measured capacity evidence identifies a concrete problem PostgreSQL cannot meet.
 
 ## AI boundary
 

@@ -22,7 +22,8 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | PostgreSQL role/runtime foundation | PASS | Disposable clean bootstrap, NOLOGIN ownership, executor separation, defaults, drift checks, TLS/database identity validation and schema-56 UAT pass. |
 | Production PostgreSQL deployment | BLOCKED | Selected service/version, private TLS/CA distribution, HA, capacity, role/secret provisioning and monitoring. |
 | Migration/bootstrap | BLOCKED | Production-safe migration path excludes fixtures; checksum/manifest and clean rehearsal pass. |
-| Redis decision | DECISION REQUIRED | Verified need and design, or explicit no-Redis decision. |
+| Redis decision | PASS | P7 confirms Redis is not required for Production v1; P15 may reopen only with measured evidence. |
+| PostgreSQL-backed worker | BLOCKED | Decision/contract complete; supervised worker, durable scan claims, unattended outbox dispatch, bounded retry/final failure, health and backlog metrics require separate implementation authorization. |
 | Worker reliability | BLOCKED | Supervision, leases, idempotent retry, poison/dead-letter, backlog, graceful shutdown. |
 | AI provider governance | DECISION REQUIRED | Provider/model/privacy/cost/timeout controls approved, or production AI OFF. |
 | Telegram | DECISION REQUIRED | Explicit disabled-for-v1 decision or complete production channel controls. |

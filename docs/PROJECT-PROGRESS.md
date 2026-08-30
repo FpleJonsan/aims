@@ -10,14 +10,14 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P6 — Production Database & Runtime Roles |
-| Current status | P6 COMPLETE / PASS; implementation frozen |
+| Current Production phase | P7 — Redis / Queue / Worker Decision Gate |
+| Current status | P7 DECISION PASS; implementation not started |
 | Last completed phase | P6 — Production Database & Runtime Roles |
 | Overall Production ready | NO |
 | Current schema | 56 |
 | Latest migration | `056_payment_slip_trust_transition` |
 | Current branch | `main` |
-| Last verified commit | `3467db7` |
+| Last verified commit | `a705249` |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -34,7 +34,9 @@ isolated PostgreSQL suite, repository tests, static gates, disposable P6 proof,
 local runtime smoke, and final shared-local integrity checkpoint passed. The
 mandatory Senior PostgreSQL / Database Security / Application Security and
 Senior Architecture read-only review passed with no Critical, High, or Medium
-corrective finding. P6 is complete and frozen. P7 is not authorized.
+corrective finding. P6 is complete and frozen. The authorized P7 decision audit
+selected no Redis and a PostgreSQL-backed independent worker for durable outbox
+delivery and Production malware scanning. P7 implementation is not authorized.
 
 ## 2. Locked Product Architecture
 
@@ -96,7 +98,7 @@ Preserve these invariants:
 | Latest migration | `056_payment_slip_trust_transition.sql` |
 | Historical migration chain | `001`–`056`, immutable |
 | Migration 057 | NOT AUTHORIZED |
-| Local database | Schema 56; P6 target ownership/role posture not yet verified complete |
+| Local database | Schema 56; P6 ownership/role posture verified PASS and frozen |
 | Target owner | `aims_owner` (`NOLOGIN`) |
 | Target migrator | `aims_migrator` (`LOGIN`, `NOINHERIT`, explicit owner-role entry) |
 | Normal runtime | `aims_app` |
@@ -118,9 +120,9 @@ The current disposable proof validates the target model without changing local
 | P1-L follow-up | PASS | Baseline identity/UX and currency-safety findings closed without implementing Corporate OIDC. |
 | P3/P4 | PASS foundation | Migration 055 document security and migration 056 payment-slip trust transition implemented and verified; Production provider/scanner remain open. |
 | P5 | PASS foundation | Provider-independent secrets/configuration validation, redaction, rotation, and incident foundation completed at commit `3467db7`. |
-| P6 | IN PROGRESS | Architecture and disposable role proof PASS; local role hardening authorized but not yet verified complete. |
+| P6 | PASS / FROZEN | Architecture, disposable proof, local role hardening, regression, runtime smoke, and final read-only review passed. |
 
-## 6. Current Work Package — P6
+## 6. Completed Work Package — P6
 
 Authorized scope:
 
@@ -140,12 +142,12 @@ Current evidence:
 - Disposable privilege manifest and default privileges: PASS.
 - Disposable authority/attack tests: PASS.
 - Disposable UAT: PASS.
-- Local administrative application and post-apply verification: PARTIAL / BLOCKED on test-data isolation.
-- P6 final review and closure: PENDING.
+- Local administrative application and post-apply verification: PASS.
+- Integration-test isolation and final review closure: PASS.
 
-P6 may be marked PASS only after local privilege manifest, attack tests, full
-regression, runtime smoke, and final Senior PostgreSQL/Security read-only review
-pass with zero Critical and High findings.
+P6 met its privilege manifest, attack, regression, runtime-smoke, and final
+Senior PostgreSQL/Security review gates with zero Critical, High, or Medium
+corrective findings and remains frozen.
 
 ## 7. Frozen / Do Not Change
 
@@ -162,7 +164,8 @@ pass with zero Critical and High findings.
 - Frozen competition release and dataset semantics.
 
 No broad redesign, Corporate IdP/OIDC implementation, provider selection, schema
-migration, P7 work, or staging/Production/competition database change is authorized.
+migration, P7 implementation, or staging/Production/competition database change
+is authorized.
 
 ## 8. Open Production Gaps
 
@@ -173,7 +176,7 @@ migration, P7 work, or staging/Production/competition database change is authori
 - Dedicated document-security executor remains a deferred LOW-risk refinement.
 - Production PostgreSQL provider/version/HA/capacity are not selected or deployed.
 - Backup, PITR, restore, and DR are not implemented or rehearsed.
-- Redis necessity and worker architecture remain undecided; reliable workers are pending.
+- Redis is not required for Production v1; PostgreSQL-backed worker implementation remains pending separate authorization.
 - Central observability, metrics, alerting, SLOs, and on-call ownership are pending.
 - Production deployment, private network, edge TLS, and CI/CD are pending.
 - Performance/load/soak testing and capacity acceptance are pending.
@@ -195,8 +198,8 @@ risk register. Overall Production readiness remains NO.
 | P2 | BLOCKED / PENDING | Corporate identity adapter and lifecycle |
 | P3/P4 | COMPLETED FOUNDATION / PROVIDERS DEFERRED | Document storage and malware trust foundation |
 | P5 | COMPLETED FOUNDATION | Secrets and credential management |
-| P6 | CURRENT / IN PROGRESS | PostgreSQL and runtime roles |
-| P7 | PENDING; NOT AUTHORIZED | Redis decision and reliable workers |
+| P6 | COMPLETED / FROZEN | PostgreSQL and runtime roles |
+| P7 | DECISION PASS; IMPLEMENTATION NOT AUTHORIZED | No Redis; PostgreSQL-backed reliable worker |
 | P8 | PENDING | Production AI governance |
 | P9 | PENDING | Telegram/external-integration decision |
 | P10 | PENDING | Structured logs, metrics, dashboards |
@@ -978,3 +981,59 @@ Frozen: YES — P6 implementation and review are complete.
 Commit Readiness: YES
 
 Next: STOP. Await explicit P7 authorization.
+
+### 2026-08-30 — P7 Redis / queue / worker decision gate
+
+Status: DECISION PASS / IMPLEMENTATION NOT STARTED
+
+Starting Commit: `a705249`
+
+Ending Commit: NOT COMMITTED
+
+Schema: 56 → 56
+
+Summary:
+- Audited current synchronous, external-I/O, retryable, AI, document-scanning,
+  Telegram, outbox, queue, worker, cache, scheduler, and Redis behavior.
+- Confirmed Redis has only an unused local placeholder and no package,
+  connection, read, write, cache, lock, session, limiter, or queue use.
+- Selected a PostgreSQL-backed independent worker for durable enabled-channel
+  outbox delivery and Production malware scanning. Redis and a separate
+  scheduler are not required.
+
+Security Impact: P5/P6 remain preserved. Approval, Policy, Finance Control,
+Payment, ledger, commitments, PAID transitions, and financial truth remain
+outside worker authority and synchronous.
+
+Business Logic Impact: NONE
+
+Database Impact: NONE
+
+Frontend Impact: NONE
+
+Migrations: NONE; migration 057 was not created.
+
+Verification: Repository-wide runtime/package/config search, outbox claim/retry/
+lease review, document trust lifecycle review, AI failure-path review, deployment
+inventory, option comparison, and four-discipline read-only review completed.
+
+Reviews:
+- Senior Backend Architect: PASS.
+- Senior PostgreSQL Architect: PASS.
+- Senior Production/SRE: PASS.
+- Application Security: PASS.
+- AIMS-UX-001: NOT REQUIRED.
+- Code changed during review: NO.
+
+Findings:
+- Critical: NONE.
+- High: NONE in the decision.
+- Medium: NONE.
+- Low: Capacity, polling cadence, retry/backoff, scanner/provider SLA, metrics,
+  alerting, and operational ownership remain implementation/later-phase inputs.
+
+Frozen: P6 remains YES. P7 decision documentation is complete; implementation is NO.
+
+Commit Readiness: Decision documentation YES; P7 implementation NO.
+
+Next: STOP. Wait for explicit P7 implementation authorization; do not begin P8.
