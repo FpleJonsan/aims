@@ -1,7 +1,7 @@
 # AIMS P8 AI Governance Hardening
 
-Status: IMPLEMENTED; AI-OFF configuration-gate correction verified and pending
-final read-only re-review.
+Status: PASS / FROZEN. The AI-OFF configuration-gate correction and final
+five-discipline read-only review are complete.
 
 This change hardens the existing optional, synchronous, advisory AI surfaces. It
 does not select a provider, enable Production AI, add an agent, alter financial
@@ -82,3 +82,14 @@ not feature enablement. Production AI remains OFF and its provider/privacy/
 contract gate remains open.
 
 P8 CORRECTION IMPLEMENTATION FROZEN: YES
+
+## Final review closure
+
+The repository-backed final review evidence is recorded in
+`p8-final-read-only-review.md`. Senior AI Systems Architecture, Application
+Security, Data Governance / Privacy, Senior Backend Architecture and
+Production / SRE all PASS with zero Critical, High, Medium or Low findings
+requiring correction. Production AI remains OFF and the external provider,
+privacy, contract, cost and operations gates remain open.
+
+P8 FINAL: PASS / FROZEN

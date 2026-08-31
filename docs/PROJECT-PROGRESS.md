@@ -10,14 +10,14 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P8 — AI Governance Decision / Gap Audit |
-| Current status | P8 DECISION COMPLETE; CODE HARDENING REQUIRED |
-| Last completed phase | P7 — PostgreSQL-backed Worker Implementation |
+| Current Production phase | P8 — AI Governance (PASS / FROZEN) |
+| Current status | P8 PASS / FROZEN; Production AI OFF; external provider/privacy/contract gate OPEN |
+| Last completed phase | P8 — AI Governance Hardening and Final Review |
 | Overall Production ready | NO |
 | Current schema | 57 |
 | Latest migration | `057_p7_document_scan_worker_leases` |
 | Current branch | `main` |
-| Last verified commit | `ba8e603` |
+| Last verified commit | `fdc7bb6` |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -35,7 +35,10 @@ central monitoring remain later-phase blockers; Production scanning fails
 closed until approved providers exist. The two final-review Medium findings are
 resolved by executable stale-version/SHA rejection proofs and bounded external
 I/O/shutdown deadlines. P7 correction is frozen. The P8 audit selected code
-hardening before Production AI may be enabled; Production AI remains OFF.
+hardening before Production AI may be enabled. That hardening, the AI-OFF
+configuration correction and the five-discipline final read-only review now
+PASS and are frozen. Production AI remains OFF; provider/model, privacy,
+contract, cost and operational gates remain open. P9 has not started.
 
 ## 2. Locked Product Architecture
 
@@ -74,7 +77,7 @@ Preserve these invariants:
   closed until an approved corporate identity adapter exists.
 - **Sessions:** only hashes of opaque session/CSRF tokens are stored; origin,
   CSRF, expiry, revocation, logout, and current-user status are enforced.
-- **Database:** schema 56 is authoritative. Runtime roles must not own schema
+- **Database:** schema 57 is authoritative. Runtime roles must not own schema
   objects or obtain DDL, role administration, or cross-executor authority.
 - **Finance executor:** only the approved Finance Control capabilities and two
   trusted functions are available to the dedicated executor.
@@ -93,10 +96,10 @@ Preserve these invariants:
 
 | Item | State |
 | --- | --- |
-| Schema version | 56 |
-| Latest migration | `056_payment_slip_trust_transition.sql` |
-| Historical migration chain | `001`–`056`, immutable |
-| Migration 057 | NOT AUTHORIZED |
+| Schema version | 57 |
+| Latest migration | `057_p7_document_scan_worker_leases.sql` |
+| Historical migration chain | `001`–`057`, immutable |
+| Migration 058+ | NONE / NOT AUTHORIZED |
 | Local database | Schema 56; P6 ownership/role posture verified PASS and frozen |
 | Target owner | `aims_owner` (`NOLOGIN`) |
 | Target migrator | `aims_migrator` (`LOGIN`, `NOINHERIT`, explicit owner-role entry) |
@@ -120,6 +123,8 @@ The current disposable proof validates the target model without changing local
 | P3/P4 | PASS foundation | Migration 055 document security and migration 056 payment-slip trust transition implemented and verified; Production provider/scanner remain open. |
 | P5 | PASS foundation | Provider-independent secrets/configuration validation, redaction, rotation, and incident foundation completed at commit `3467db7`. |
 | P6 | PASS / FROZEN | Architecture, disposable proof, local role hardening, regression, runtime smoke, and final read-only review passed. |
+| P7 | PASS / FROZEN | PostgreSQL-backed worker foundation, schema 57, role/concurrency proof and final correction review passed; Redis and scheduler remain unnecessary. |
+| P8 | PASS / FROZEN | AI governance hardening, AI-OFF configuration gate and five-discipline final read-only review passed; Production AI remains OFF and external enablement gates remain open. |
 
 ## 6. Completed Work Package — P6
 
@@ -150,7 +155,7 @@ corrective findings and remains frozen.
 
 ## 7. Frozen / Do Not Change
 
-- Historical migrations 001–056 and schema 56.
+- Historical migrations 001–057 and schema 57.
 - The 12-stage workflow and distinct stage semantics.
 - Deterministic financial equation and Policy behavior.
 - Approval, Finance Control, Payment, segregation-of-duties, and authority rules.
@@ -175,7 +180,7 @@ is authorized.
 - Dedicated document-security executor remains a deferred LOW-risk refinement.
 - Production PostgreSQL provider/version/HA/capacity are not selected or deployed.
 - Backup, PITR, restore, and DR are not implemented or rehearsed.
-- Redis is not required for Production v1; PostgreSQL-backed worker implementation remains pending separate authorization.
+- Redis is not required for Production v1; the PostgreSQL-backed worker foundation is complete while Production providers, supervision and observability remain open.
 - Central observability, metrics, alerting, SLOs, and on-call ownership are pending.
 - Production deployment, private network, edge TLS, and CI/CD are pending.
 - Performance/load/soak testing and capacity acceptance are pending.
@@ -199,8 +204,8 @@ risk register. Overall Production readiness remains NO.
 | P5 | COMPLETED FOUNDATION | Secrets and credential management |
 | P6 | COMPLETED / FROZEN | PostgreSQL and runtime roles |
 | P7 | COMPLETED / FROZEN | No Redis; PostgreSQL-backed reliable worker |
-| P8 | DECISION COMPLETE / HARDENING REQUIRED | Production AI governance; no provider selected |
-| P9 | PENDING | Telegram/external-integration decision |
+| P8 | COMPLETED / FROZEN | Production AI governance hardening and final review; AI OFF and no provider selected |
+| P9 | NOT STARTED | Telegram/external-integration decision |
 | P10 | PENDING | Structured logs, metrics, dashboards |
 | P11 | PENDING | Alerts, SLO/SLA, on-call |
 | P12 | PENDING | Backup, PITR, restore, DR |
@@ -215,35 +220,29 @@ risk register. Overall Production readiness remains NO.
 
 ## 10. Latest Verification
 
-At the current uncommitted P6 checkpoint:
+At the P8 final read-only review checkpoint (`fdc7bb6`):
 
-- `npm run test:p6:database-proof --workspace @aims/api`: PASS against an
-  isolated disposable PostgreSQL container, including migrations 001–056,
-  schema 56, privilege manifest, future defaults, attacks, and UAT.
-- `npm test`: PASS (frontend/auth and API tests).
-- Existing PostgreSQL integration suites: PASS, including lifecycle, document
-  security, Validation, Finance Context, Financial Risk, Policy, Approval,
-  Finance Control, Payment, Dashboard, and UAT.
+- `npm test`: PASS (15 frontend/auth and 134 API tests).
+- Validation, Financial Analysis, Dashboard/Finance Intelligence and
+  four-scenario UAT integrations: PASS in disposable schema-57 databases.
+- Integration isolation guard: PASS (7/7); shared local `aims`, competition,
+  staging and Production were unchanged.
 - `npm run lint`: PASS.
 - `npm run typecheck`: PASS.
 - Frontend and API builds: PASS.
 - `git diff --check`: PASS.
-- P6 Senior PostgreSQL/Security and Senior Architecture read-only review of the
-  disposable architecture: PASS with no unresolved Critical, High, or Medium findings.
+- Five-discipline P8 final read-only review: PASS with no Critical, High,
+  Medium or Low findings requiring correction.
 - Frontend changes detected: NO; AIMS-UX-001 review NOT REQUIRED.
-- Local schema verification: 56. Local P6 ownership/privilege application remains pending.
-
-These results do not make P6 final or AIMS Production ready.
+- Production AI remains OFF; external provider/privacy/contract/cost/operations
+  gates remain open. These results do not make AIMS Production ready.
 
 ## 11. Next Authorized Action
 
-Authorize a reviewed test-data isolation and recovery approach. The existing
-integration suites must not continue writing fixtures into the shared local
-`aims` integrity baseline, and existing added fixture rows must not be removed or
-reclassified without explicit data-recovery authorization. Phase G and final
-review remain pending.
-
-Do not start P7 until P6 closes and P7 receives separate explicit authorization.
+P9 baseline is eligible after this documentation-only closure is committed and
+the working tree is clean. P9 remains NOT STARTED and requires separate explicit
+authorization. Do not enable Production AI; external provider/privacy/contract
+approval remains open.
 
 ## 12. Append-Only Progress History
 
@@ -1241,3 +1240,36 @@ P8 Correction Implementation Frozen: YES. Do not modify code, SQL or
 documentation during the mandatory five-discipline read-only re-review.
 
 Next: Perform the final read-only re-review. Do not begin P9.
+
+### 2026-08-31 — P8 final read-only review and governance closure
+
+Status: PASS / FROZEN
+
+Starting Commit: `fdc7bb6`
+
+Ending Commit: NOT COMMITTED
+
+Schema: 57 → 57; migration 058+: NONE
+
+Summary:
+- Independently re-reviewed the frozen P8 hardening and AI-OFF correction from
+  Senior AI Systems Architecture, Application Security, Data Governance /
+  Privacy, Senior Backend Architecture and Production / SRE perspectives.
+- All five reviewers PASS. Critical, High, Medium and Low findings requiring
+  correction: NONE.
+- Provider reliability, exact Validation manifest binding, Risk evidence
+  catalog validation, bounds, traceability, data minimization, AI-OFF master
+  gating and AI-ON fail-closed behavior PASS.
+- `npm test`, isolated schema-57 Validation, Financial Analysis,
+  Dashboard/Finance Intelligence and four-scenario UAT, P5 secret regression,
+  integration isolation, lint, typecheck, API/frontend builds and diff checks
+  PASS. Shared local `aims`, competition, staging and Production were unchanged.
+
+Technical Impact: documentation evidence only; runtime, tests, SQL, migrations,
+roles, frontend, worker and Telegram unchanged.
+
+Production AI: OFF. Provider/privacy/contract/cost/operations gates: OPEN.
+
+P8 Final: PASS / FROZEN. P9: NOT STARTED. Overall Production ready: NO.
+
+Next: Commit this governance closure before separately authorizing P9.
