@@ -10,8 +10,8 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P8 — AI Governance (PASS / FROZEN) |
-| Current status | P8 PASS / FROZEN; Production AI OFF; external provider/privacy/contract gate OPEN |
+| Current Production phase | P9 — Telegram Production Hardening Decision / Gap Audit |
+| Current status | P9 DECISION COMPLETE; CODE HARDENING REQUIRED; no external Telegram setup authorized |
 | Last completed phase | P8 — AI Governance Hardening and Final Review |
 | Overall Production ready | NO |
 | Current schema | 57 |
@@ -38,7 +38,10 @@ I/O/shutdown deadlines. P7 correction is frozen. The P8 audit selected code
 hardening before Production AI may be enabled. That hardening, the AI-OFF
 configuration correction and the five-discipline final read-only review now
 PASS and are frozen. Production AI remains OFF; provider/model, privacy,
-contract, cost and operational gates remain open. P9 has not started.
+contract, cost and operational gates remain open. The P9 audit found shared
+Approval authority and replay controls sound, but Telegram OFF webhook gating,
+provider reliability, bounds, worker configuration, destination lifecycle and
+data projection require hardening before external setup.
 
 ## 2. Locked Product Architecture
 
@@ -205,7 +208,7 @@ risk register. Overall Production readiness remains NO.
 | P6 | COMPLETED / FROZEN | PostgreSQL and runtime roles |
 | P7 | COMPLETED / FROZEN | No Redis; PostgreSQL-backed reliable worker |
 | P8 | COMPLETED / FROZEN | Production AI governance hardening and final review; AI OFF and no provider selected |
-| P9 | NOT STARTED | Telegram/external-integration decision |
+| P9 | DECISION COMPLETE / HARDENING REQUIRED | Telegram remains optional; no external setup until code gaps close |
 | P10 | PENDING | Structured logs, metrics, dashboards |
 | P11 | PENDING | Alerts, SLO/SLA, on-call |
 | P12 | PENDING | Backup, PITR, restore, DR |
@@ -239,10 +242,10 @@ At the P8 final read-only review checkpoint (`fdc7bb6`):
 
 ## 11. Next Authorized Action
 
-P9 baseline is eligible after this documentation-only closure is committed and
-the working tree is clean. P9 remains NOT STARTED and requires separate explicit
-authorization. Do not enable Production AI; external provider/privacy/contract
-approval remains open.
+Wait for explicit P9 implementation authorization. Do not configure an external
+Telegram bot or Production credentials, create migration 058, change database
+roles, modify P7/P8, add Redis/scheduler, or start P10. Production AI remains
+OFF and its external provider/privacy/contract approval remains open.
 
 ## 12. Append-Only Progress History
 
@@ -1273,3 +1276,44 @@ Production AI: OFF. Provider/privacy/contract/cost/operations gates: OPEN.
 P8 Final: PASS / FROZEN. P9: NOT STARTED. Overall Production ready: NO.
 
 Next: Commit this governance closure before separately authorizing P9.
+
+### 2026-08-31 — P9 Telegram Production hardening decision audit
+
+Status: DECISION COMPLETE / P9 CODE HARDENING REQUIRED
+
+Starting Commit: `81ff93c`
+
+Ending Commit: NOT COMMITTED
+
+Schema: 57 → 57; migration 058+: NONE
+
+Decision: P9 CODE HARDENING REQUIRED — NO EXTERNAL SETUP YET.
+
+Evidence and conclusions:
+- `npm test` PASS (15 frontend/auth and 134 API tests); isolated schema-57
+  Approval/Telegram integration PASS (20/20) with cleanup.
+- Web and Telegram converge on the same serialized, action-time Approval
+  authority. Current active user, authority, amount/scope, self-approval,
+  case/step, revision, policy/evidence and idempotency controls are preserved.
+- Telegram has no Finance Control, Payment, ledger, commitment, PAID, Policy or
+  database-executor authority.
+- High findings: webhook remains operational with stale secrets while Telegram
+  master is OFF; outbound Telegram HTTP lacks deadline/abort/response ceiling
+  and can stall the shared worker beyond its lease.
+- Medium findings: incomplete provider retry/response classification, webhook
+  input bounds, independent worker configuration validation, binding
+  revocation/destination ownership, post-notification authority-revocation
+  proof and purpose-field data minimization.
+- External bot ownership, privacy/retention/residency, private-chat/group policy,
+  TLS/network exposure, monitoring and operational ownership remain later
+  approval/deployment gates.
+
+Risks: Critical 0; High 2; Medium 6; Low 3 accepted later/external gates.
+
+Technical impact: documentation only. Runtime, tests, migrations, database,
+roles, frontend, Redis, scheduler, P7 and P8 unchanged. Production AI remains
+OFF. P10 NOT STARTED.
+
+P9 Final: NO. Overall Production ready: NO.
+
+Next: WAIT FOR EXPLICIT P9 IMPLEMENTATION AUTHORIZATION.
