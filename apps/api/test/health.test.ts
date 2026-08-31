@@ -19,10 +19,26 @@ test("AI OFF is reported disabled and does not make readiness fail", async () =>
 
 test("AI ON with a configured provider and current schema is ready", async () => {
   const previous = { ...process.env };
-  process.env.STORAGE_DRIVER = "local"; process.env.MALWARE_SCANNER_DRIVER = "deterministic-local"; process.env.OPENAI_API_KEY = "configured"; process.env.TELEGRAM_APPROVAL_ENABLED = "false";
+  process.env.STORAGE_DRIVER = "local"; process.env.MALWARE_SCANNER_DRIVER = "deterministic-local"; process.env.AI_MASTER = "ON"; process.env.OPENAI_API_KEY = "configured"; process.env.TELEGRAM_APPROVAL_ENABLED = "false";
   const pool = { query: async (query: string) => query.includes("ai_feature_configuration") ? { rows: [{ enabled: true }] } : query.includes("aims_schema_version") ? { rows: [{ version: 57 }] } : { rows: [{}] } };
   try { assert.equal((await new HealthService({ pool, financePool: pool, paymentPool: pool } as never).readiness()).status, "ready"); }
   finally { process.env = previous; }
+});
+
+test("environment AI master OFF dominates a stale key and enabled subordinate database state", async () => {
+  const previous = { ...process.env };
+  process.env.STORAGE_DRIVER = "local";
+  process.env.MALWARE_SCANNER_DRIVER = "deterministic-local";
+  process.env.AI_MASTER = "OFF";
+  process.env.OPENAI_API_KEY = "sk-unused-valid-secret";
+  process.env.AI_REQUEST_TIMEOUT_MS = "invalid";
+  process.env.TELEGRAM_APPROVAL_ENABLED = "false";
+  const pool = { query: async (query: string) => query.includes("ai_feature_configuration") ? { rows: [{ enabled: true }] } : query.includes("aims_schema_version") ? { rows: [{ version: 57 }] } : { rows: [{}] } };
+  try {
+    const result = await new HealthService({ pool, financePool: pool, paymentPool: pool } as never).readiness();
+    assert.equal(result.status, "ready");
+    assert.equal(result.checks.ai.status, "disabled");
+  } finally { process.env = previous; }
 });
 
 for (const [label, failure] of [

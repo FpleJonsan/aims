@@ -1,4 +1,8 @@
 import { isPlaceholderSecret, readServerSecret } from "./secret-boundary.js";
+import {
+  isAiMasterEnabled,
+  loadAiReliabilityConfig,
+} from "../ai/ai-governance.js";
 
 const MIN_SECRET_LENGTH = 32;
 
@@ -6,10 +10,15 @@ export type ConfigurationMode = "development" | "test" | "production";
 
 export interface ConfigurationSummary {
   mode: ConfigurationMode;
-  aimsEnvironment: "development" | "local" | "competition" | "staging" | "production";
+  aimsEnvironment:
+    | "development"
+    | "local"
+    | "competition"
+    | "staging"
+    | "production";
   identity: "LOCAL_SESSION" | "COMPETITION_HEADER";
   storage: string;
-  malwareScanner:string;
+  malwareScanner: string;
   aiProviderConfigured: boolean;
   telegramEnabled: boolean;
 }
@@ -19,49 +28,123 @@ export function validateProductionConfig(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): ConfigurationSummary {
   const mode = normalizeMode(environment.NODE_ENV);
-  const aimsEnvironment=environment.AIMS_ENVIRONMENT??"development";
-  if(!["development","local","competition","staging","production"].includes(aimsEnvironment))
-    throw new Error("AIMS_ENVIRONMENT must be development, local, competition, staging, or production");
-  const production = mode === "production"||aimsEnvironment==="production";
+  const aimsEnvironment = environment.AIMS_ENVIRONMENT ?? "development";
+  if (
+    !["development", "local", "competition", "staging", "production"].includes(
+      aimsEnvironment,
+    )
+  )
+    throw new Error(
+      "AIMS_ENVIRONMENT must be development, local, competition, staging, or production",
+    );
+  const production = mode === "production" || aimsEnvironment === "production";
   const expectedDatabase = environment.AIMS_EXPECTED_DATABASE;
   const telegramEnabled = environment.TELEGRAM_APPROVAL_ENABLED === "true";
   const storage = environment.STORAGE_DRIVER ?? "";
-  const malwareScanner=environment.MALWARE_SCANNER_DRIVER??"";
+  const malwareScanner = environment.MALWARE_SCANNER_DRIVER ?? "";
 
-  requireDatabaseUrl(readServerSecret("DATABASE_URL", environment), "DATABASE_URL", production, expectedDatabase);
+  requireDatabaseUrl(
+    readServerSecret("DATABASE_URL", environment),
+    "DATABASE_URL",
+    production,
+    expectedDatabase,
+  );
   if (production) {
-    if (!expectedDatabase) throw new Error("Production requires AIMS_EXPECTED_DATABASE");
-    if (["aims", "aims_competition", "postgres", "template0", "template1"].includes(expectedDatabase)) throw new Error("Production expected database must be an explicitly isolated non-local database");
-    if (environment.AIMS_DEMO_MODE === "true") throw new Error("Production rejects the deprecated competition identity mode");
-    requireDatabaseUrl(readServerSecret("FINANCE_DATABASE_URL", environment), "FINANCE_DATABASE_URL", true, expectedDatabase);
-    requireDatabaseUrl(readServerSecret("PAYMENT_DATABASE_URL", environment), "PAYMENT_DATABASE_URL", true, expectedDatabase);
+    if (!expectedDatabase)
+      throw new Error("Production requires AIMS_EXPECTED_DATABASE");
+    if (
+      [
+        "aims",
+        "aims_competition",
+        "postgres",
+        "template0",
+        "template1",
+      ].includes(expectedDatabase)
+    )
+      throw new Error(
+        "Production expected database must be an explicitly isolated non-local database",
+      );
+    if (environment.AIMS_DEMO_MODE === "true")
+      throw new Error(
+        "Production rejects the deprecated competition identity mode",
+      );
+    requireDatabaseUrl(
+      readServerSecret("FINANCE_DATABASE_URL", environment),
+      "FINANCE_DATABASE_URL",
+      true,
+      expectedDatabase,
+    );
+    requireDatabaseUrl(
+      readServerSecret("PAYMENT_DATABASE_URL", environment),
+      "PAYMENT_DATABASE_URL",
+      true,
+      expectedDatabase,
+    );
     requireDistinctDatabaseIdentities(environment);
-    if (storage !== "object") throw new Error("Production requires an approved private object-storage adapter; local or missing storage is forbidden");
-    if(malwareScanner!=="provider")throw new Error("Production requires an approved malware-scanner provider; deterministic local or missing scanning is forbidden");
-  }else{
-    if(storage!=="local")throw new Error("This foundation currently supports only explicit LOCAL document storage outside Production");
-    if(malwareScanner!=="deterministic-local")throw new Error("Local document security requires MALWARE_SCANNER_DRIVER=deterministic-local");
+    if (storage !== "object")
+      throw new Error(
+        "Production requires an approved private object-storage adapter; local or missing storage is forbidden",
+      );
+    if (malwareScanner !== "provider")
+      throw new Error(
+        "Production requires an approved malware-scanner provider; deterministic local or missing scanning is forbidden",
+      );
+  } else {
+    if (storage !== "local")
+      throw new Error(
+        "This foundation currently supports only explicit LOCAL document storage outside Production",
+      );
+    if (malwareScanner !== "deterministic-local")
+      throw new Error(
+        "Local document security requires MALWARE_SCANNER_DRIVER=deterministic-local",
+      );
   }
-  if(production)throw new Error("Production authentication is not configured; an approved corporate adapter is required");
-  if(aimsEnvironment==="staging")throw new Error("Staging authentication is not configured; an approved test IdP adapter is required");
+  if (production)
+    throw new Error(
+      "Production authentication is not configured; an approved corporate adapter is required",
+    );
+  if (aimsEnvironment === "staging")
+    throw new Error(
+      "Staging authentication is not configured; an approved test IdP adapter is required",
+    );
 
   if (telegramEnabled) {
-    requireSecret(environment.TELEGRAM_BOT_TOKEN, "TELEGRAM_BOT_TOKEN", production);
-    requireSecret(environment.TELEGRAM_WEBHOOK_SECRET, "TELEGRAM_WEBHOOK_SECRET", production);
-    requireSecret(environment.TELEGRAM_CALLBACK_SECRET, "TELEGRAM_CALLBACK_SECRET", production);
-    if (production) requireHttpsUrl(environment.TELEGRAM_WEBHOOK_URL, "TELEGRAM_WEBHOOK_URL");
+    requireSecret(
+      environment.TELEGRAM_BOT_TOKEN,
+      "TELEGRAM_BOT_TOKEN",
+      production,
+    );
+    requireSecret(
+      environment.TELEGRAM_WEBHOOK_SECRET,
+      "TELEGRAM_WEBHOOK_SECRET",
+      production,
+    );
+    requireSecret(
+      environment.TELEGRAM_CALLBACK_SECRET,
+      "TELEGRAM_CALLBACK_SECRET",
+      production,
+    );
+    if (production)
+      requireHttpsUrl(environment.TELEGRAM_WEBHOOK_URL, "TELEGRAM_WEBHOOK_URL");
   }
 
-  const aiMasterRequested = environment.AI_MASTER === "ON";
+  const aiMasterRequested = isAiMasterEnabled(environment);
   if (aiMasterRequested) {
     requireSecret(environment.OPENAI_API_KEY, "OPENAI_API_KEY", production);
-    requireHttpsUrl(environment.OPENAI_BASE_URL ?? "https://api.openai.com/v1", "OPENAI_BASE_URL");
+    requireHttpsUrl(
+      environment.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
+      "OPENAI_BASE_URL",
+    );
+    loadAiReliabilityConfig(environment);
   }
 
   return {
     mode,
     aimsEnvironment: aimsEnvironment as ConfigurationSummary["aimsEnvironment"],
-    identity: aimsEnvironment === "competition" || environment.AIMS_DEMO_MODE === "true" ? "COMPETITION_HEADER" : "LOCAL_SESSION",
+    identity:
+      aimsEnvironment === "competition" || environment.AIMS_DEMO_MODE === "true"
+        ? "COMPETITION_HEADER"
+        : "LOCAL_SESSION",
     storage,
     malwareScanner,
     aiProviderConfigured: Boolean(environment.OPENAI_API_KEY),
@@ -75,46 +158,98 @@ function normalizeMode(value: string | undefined): ConfigurationMode {
   throw new Error("NODE_ENV must be development, test, or production");
 }
 
-function requireUrl(value: string | undefined, name: string, protocols: string[]): void {
+function requireUrl(
+  value: string | undefined,
+  name: string,
+  protocols: string[],
+): void {
   if (!value) throw new Error(`${name} is required`);
   let parsed: URL;
-  try { parsed = new URL(value); } catch { throw new Error(`${name} must be a valid URL`); }
-  if (!protocols.includes(parsed.protocol)) throw new Error(`${name} uses an unsupported protocol`);
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${name} must be a valid URL`);
+  }
+  if (!protocols.includes(parsed.protocol))
+    throw new Error(`${name} uses an unsupported protocol`);
   if (!parsed.hostname) throw new Error(`${name} must include a host`);
 }
 
-function requireDatabaseUrl(value: string | undefined, name: string, production: boolean, expectedDatabase?: string): void {
+function requireDatabaseUrl(
+  value: string | undefined,
+  name: string,
+  production: boolean,
+  expectedDatabase?: string,
+): void {
   requireUrl(value, name, ["postgres:", "postgresql:"]);
   if (production && value && isPlaceholderSecret(value)) {
-    throw new Error(`${name} contains a placeholder credential and is forbidden in production`);
+    throw new Error(
+      `${name} contains a placeholder credential and is forbidden in production`,
+    );
   }
   const parsed = new URL(value!);
-  if (!parsed.username || !parsed.password) throw new Error(`${name} must include an injected runtime credential`);
+  if (!parsed.username || !parsed.password)
+    throw new Error(`${name} must include an injected runtime credential`);
   if (production) {
-    if (["localhost", "127.0.0.1", "::1"].includes(parsed.hostname)) throw new Error(`${name} cannot use a local database host in production`);
-    if (decodeURIComponent(parsed.pathname.slice(1)) !== expectedDatabase) throw new Error(`${name} does not target AIMS_EXPECTED_DATABASE`);
-    if (parsed.searchParams.get("sslmode") !== "verify-full") throw new Error(`${name} requires sslmode=verify-full in production`);
-    if (["postgres", "root", "admin", "aims_owner", "aims_migrator"].includes(decodeURIComponent(parsed.username).toLowerCase())) throw new Error(`${name} cannot use an owner, migration, or administrator identity`);
+    if (["localhost", "127.0.0.1", "::1"].includes(parsed.hostname))
+      throw new Error(`${name} cannot use a local database host in production`);
+    if (decodeURIComponent(parsed.pathname.slice(1)) !== expectedDatabase)
+      throw new Error(`${name} does not target AIMS_EXPECTED_DATABASE`);
+    if (parsed.searchParams.get("sslmode") !== "verify-full")
+      throw new Error(`${name} requires sslmode=verify-full in production`);
+    if (
+      ["postgres", "root", "admin", "aims_owner", "aims_migrator"].includes(
+        decodeURIComponent(parsed.username).toLowerCase(),
+      )
+    )
+      throw new Error(
+        `${name} cannot use an owner, migration, or administrator identity`,
+      );
   }
 }
 
-function requireDistinctDatabaseIdentities(environment: Readonly<Record<string,string|undefined>>): void {
-  const names=["DATABASE_URL","FINANCE_DATABASE_URL","PAYMENT_DATABASE_URL"] as const;
-  const users=names.map(name=>decodeURIComponent(new URL(environment[name]!).username).toLowerCase());
-  if(new Set(users).size!==users.length)throw new Error("Production database runtime, Finance, and Payment identities must be distinct");
+function requireDistinctDatabaseIdentities(
+  environment: Readonly<Record<string, string | undefined>>,
+): void {
+  const names = [
+    "DATABASE_URL",
+    "FINANCE_DATABASE_URL",
+    "PAYMENT_DATABASE_URL",
+  ] as const;
+  const users = names.map((name) =>
+    decodeURIComponent(new URL(environment[name]!).username).toLowerCase(),
+  );
+  if (new Set(users).size !== users.length)
+    throw new Error(
+      "Production database runtime, Finance, and Payment identities must be distinct",
+    );
 }
 
 function requireHttpsUrl(value: string | undefined, name: string): void {
   if (!value) throw new Error(`${name} is required`);
   let parsed: URL;
-  try { parsed = new URL(value); } catch { throw new Error(`${name} must be a valid URL`); }
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${name} must be a valid URL`);
+  }
   if (parsed.protocol !== "https:") throw new Error(`${name} must use HTTPS`);
 }
 
-function requireSecret(value: string | undefined, name: string, strong: boolean): void {
-  if (!value) throw new Error(`${name} is required when its feature is enabled`);
+function requireSecret(
+  value: string | undefined,
+  name: string,
+  strong: boolean,
+): void {
+  if (!value)
+    throw new Error(`${name} is required when its feature is enabled`);
   if (strong && value.length < MIN_SECRET_LENGTH) {
-    throw new Error(`${name} must contain at least ${MIN_SECRET_LENGTH} characters in production`);
+    throw new Error(
+      `${name} must contain at least ${MIN_SECRET_LENGTH} characters in production`,
+    );
   }
-  if (strong && isPlaceholderSecret(value)) throw new Error(`${name} contains a placeholder and is forbidden in production`);
+  if (strong && isPlaceholderSecret(value))
+    throw new Error(
+      `${name} contains a placeholder and is forbidden in production`,
+    );
 }

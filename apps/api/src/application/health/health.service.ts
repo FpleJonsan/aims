@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Postgres } from "../../infrastructure/database/postgres.js";
+import { isAiMasterEnabled } from "../../infrastructure/ai/ai-governance.js";
 
 export const EXPECTED_SCHEMA_VERSION = 57;
 
@@ -66,7 +67,11 @@ export class HealthService {
   private async aiState(): Promise<{ enabled: boolean; error?: string }> {
     try {
       const result = await this.database.pool.query<{ enabled: boolean }>("SELECT enabled FROM ai_feature_configuration WHERE feature='AI_MASTER'");
-      return { enabled: Boolean(result.rows[0]?.enabled) };
+      return {
+        enabled: Boolean(
+          isAiMasterEnabled(process.env) && result.rows[0]?.enabled,
+        ),
+      };
     } catch { return { enabled: false, error: "AI configuration schema cannot be read" }; }
   }
 }

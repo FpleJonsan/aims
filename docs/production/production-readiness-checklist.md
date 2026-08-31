@@ -25,7 +25,7 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | Redis decision | PASS | P7 confirms Redis is not required for Production v1; P15 may reopen only with measured evidence. |
 | PostgreSQL-backed worker | PASS FOUNDATION | Independent process, durable scan claims, optional unattended outbox dispatch, bounded retry/terminal failure, safe health signals and graceful shutdown are implemented without Redis. Production providers/deployment remain blocked. |
 | Worker reliability | PARTIAL | Lease recovery, stale-worker rejection, poison handling and graceful shutdown pass; Production supervision, centralized telemetry/alerts and provider SLA evidence remain blocked. |
-| AI governance foundation | NEEDS P8 CODE HARDENING | Add provider deadlines/retry/response bounds, manifest/catalog evidence validation, input limits, minimized projections and complete traceability. Production AI remains OFF. |
+| AI governance foundation | PASS | Provider deadlines/retry/response bounds, exact Validation manifests, Risk evidence catalogs, input/output limits, minimized projections and linked traceability are implemented. Production AI remains OFF. |
 | AI provider governance | DECISION REQUIRED | After code hardening, approve provider/model, permissible data, retention/training/residency/deletion terms, cost policy and operational ownership—or launch with AI OFF. |
 | Telegram | DECISION REQUIRED | Explicit disabled-for-v1 decision or complete production channel controls. |
 | Structured logging/redaction | BLOCKED | Central sink, access/retention, safe fields and automated redaction verification. |

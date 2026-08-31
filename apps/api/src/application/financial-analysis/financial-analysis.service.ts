@@ -8,14 +8,18 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import {
+  FINANCIAL_ANALYSIS_RESPONSE_SCHEMA_VERSION,
   deterministicMetrics,
   prompts,
+  type AgentResult,
+  type AggregatedResult,
 } from "../../domain/financial-analysis.js";
 import type { Principal } from "../../domain/payment-request.js";
 import type {
   FinancialAgentProviderResult,
   OpenAiCompatibleProvider,
 } from "../../infrastructure/ai/openai-compatible-provider.js";
+import { AiProviderError } from "../../infrastructure/ai/openai-compatible-provider.js";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import { PaymentRequestService } from "../payment-requests/payment-request.service.js";
 import { AI_PROVIDER } from "../validation/validation.service.js";
@@ -67,10 +71,19 @@ export class FinancialAnalysisService {
     );
     if (run.reused) return this.get(id, actor, false);
     const input = this.authoritativeInput(eligible);
+    const evidenceCatalog = buildRiskEvidenceCatalog(input);
+    const boundedInput = { ...input, evidenceCatalog };
     const results = await Promise.all(
       agents.map(async ([agent, flag]) =>
         enabled.get(flag)
-          ? this.callAgent(run.id, agent, input)
+          ? this.callAgent(
+              run.id,
+              agent,
+              boundedInput,
+              evidenceCatalog,
+              correlationId,
+              actor.id,
+            )
           : this.skipped(run.id, agent),
       ),
     );
@@ -84,6 +97,7 @@ export class FinancialAnalysisService {
         "AGGREGATOR",
         {
           authoritativeFinanceContextId: eligible.context.id,
+          evidenceCatalog,
           agentResults: completed.map((r) => ({
             agent: r.agent,
             result: r.result.output,
@@ -91,9 +105,17 @@ export class FinancialAnalysisService {
         },
         true,
       );
-      await this.saveAgent(run.id, "AGGREGATOR", aggregate, prompts.AGGREGATOR);
+      validateRiskEvidence(aggregate.output, evidenceCatalog);
+      await this.saveAgent(
+        run.id,
+        "AGGREGATOR",
+        aggregate,
+        prompts.AGGREGATOR,
+        correlationId,
+        actor.id,
+      );
     } catch (error) {
-      await this.failed(run.id, "AGGREGATOR", error);
+      await this.failed(run.id, "AGGREGATOR", error, correlationId, actor.id);
     }
     await this.db.transaction(async (c) => {
       await c.query(
@@ -381,18 +403,28 @@ export class FinancialAnalysisService {
       return { ...run.rows[0], reused: false };
     });
   }
-  private async callAgent(runId: string, agent: string, input: unknown) {
+  private async callAgent(
+    runId: string,
+    agent: string,
+    input: unknown,
+    catalog: RiskEvidenceCatalogEntry[],
+    correlationId: string,
+    actorId: string,
+  ) {
     try {
       const result = await this.provider!.analyzeFinancialAgent(agent, input);
+      validateRiskEvidence(result.output, catalog);
       await this.saveAgent(
         runId,
         agent,
         result,
         prompts[agent as keyof typeof prompts],
+        correlationId,
+        actorId,
       );
       return { agent, result };
     } catch (error) {
-      await this.failed(runId, agent, error);
+      await this.failed(runId, agent, error, correlationId, actorId);
       return { agent, failed: true };
     }
   }
@@ -401,6 +433,8 @@ export class FinancialAnalysisService {
     agent: string,
     r: FinancialAgentProviderResult,
     prompt: string,
+    correlationId: string,
+    actorId: string,
   ) {
     await this.db.transaction(async (c) => {
       const inserted = await c.query(
@@ -425,7 +459,7 @@ export class FinancialAnalysisService {
         [runId],
       );
       await c.query(
-        `INSERT INTO ai_usage_events(id,payment_request_id,agent,provider,model,prompt_version,input_tokens,output_tokens,total_tokens,latency_ms,status,schema_valid,financial_analysis_run_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'COMPLETED',true,$11)`,
+        `INSERT INTO ai_usage_events(id,payment_request_id,agent,provider,model,prompt_version,input_tokens,output_tokens,total_tokens,latency_ms,status,schema_valid,financial_analysis_run_id,retry_count,estimated_cost) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'COMPLETED',true,$11,$12,NULL)`,
         [
           randomUUID(),
           run.rows[0].payment_request_id,
@@ -438,6 +472,7 @@ export class FinancialAnalysisService {
           r.totalTokens,
           r.latencyMs,
           runId,
+          r.retryCount ?? 0,
         ],
       );
       await this.requests.audit(
@@ -447,8 +482,18 @@ export class FinancialAnalysisService {
         run.rows[0].payment_request_id,
         "VALIDATING",
         "VALIDATING",
-        `financial-agent:${runId}`,
-        { analysisId: runId, agent, promptVersion: prompt },
+        correlationId,
+        {
+          analysisId: runId,
+          agent,
+          promptVersion: prompt,
+          responseSchemaVersion: FINANCIAL_ANALYSIS_RESPONSE_SCHEMA_VERSION,
+          correlationId,
+          actorId,
+          aiMode: "AI_ENABLED",
+          providerAttempts: r.providerAttempts ?? 1,
+          cost: "UNKNOWN",
+        },
       );
     });
   }
@@ -459,7 +504,13 @@ export class FinancialAnalysisService {
     );
     return { agent, skipped: true };
   }
-  private async failed(runId: string, agent: string, error: unknown) {
+  private async failed(
+    runId: string,
+    agent: string,
+    error: unknown,
+    correlationId: string,
+    actorId: string,
+  ) {
     await this.db.transaction(async (c) => {
       const failure =
         error instanceof Error ? error.name : "UNKNOWN_PROVIDER_ERROR";
@@ -474,6 +525,19 @@ export class FinancialAnalysisService {
         "SELECT payment_request_id FROM financial_analysis_runs WHERE id=$1",
         [runId],
       );
+      const providerError = error instanceof AiProviderError ? error : null;
+      await c.query(
+        `INSERT INTO ai_usage_events(id,payment_request_id,agent,provider,model,prompt_version,status,schema_valid,financial_analysis_run_id,failure_classification,retry_count,estimated_cost) VALUES($1,$2,$3,'configured','configured',$4,'FAILED',false,$5,$6,$7,NULL)`,
+        [
+          randomUUID(),
+          run.rows[0].payment_request_id,
+          agent,
+          prompt,
+          runId,
+          failure,
+          providerError?.retryCount ?? 0,
+        ],
+      );
       await this.requests.audit(
         c,
         null,
@@ -481,9 +545,72 @@ export class FinancialAnalysisService {
         run.rows[0].payment_request_id,
         "VALIDATING",
         "VALIDATING",
-        `financial-agent:${runId}`,
-        { analysisId: runId, agent, failureCode: failure },
+        correlationId,
+        {
+          analysisId: runId,
+          agent,
+          failureCode: failure,
+          responseSchemaVersion: FINANCIAL_ANALYSIS_RESPONSE_SCHEMA_VERSION,
+          correlationId,
+          actorId,
+          aiMode: "PROVIDER_FAILURE_FALLBACK",
+          providerAttempts: providerError?.providerAttempts ?? 1,
+          cost: "UNKNOWN",
+        },
       );
     });
   }
+}
+
+export interface RiskEvidenceCatalogEntry {
+  source: string;
+  reference: string;
+  field: string;
+  value: string;
+}
+export function buildRiskEvidenceCatalog(
+  input: any,
+): RiskEvidenceCatalogEntry[] {
+  const entries: RiskEvidenceCatalogEntry[] = [];
+  const requestReference = `REQUEST:${input.request.id}:REVISION:${input.request.revision}`;
+  for (const field of ["amount", "currency", "category", "dueDate"])
+    entries.push({
+      source: "PAYMENT_REQUEST",
+      reference: requestReference,
+      field,
+      value: String(input.request[field] ?? "UNKNOWN"),
+    });
+  const contextReference = `CONTEXT:${input.financeContext.id}:VERSION:${input.financeContext.version}`;
+  for (const [field, value] of Object.entries(input.financeContext.metrics))
+    if (typeof value !== "object")
+      entries.push({
+        source: "FINANCE_CONTEXT",
+        reference: contextReference,
+        field,
+        value: String(value ?? "UNKNOWN"),
+      });
+  entries.push({
+    source: "VALIDATION_FINDING",
+    reference: `VALIDATION:${input.validation.id}`,
+    field: "result",
+    value: String(input.validation.result),
+  });
+  return entries.slice(0, 80);
+}
+export function validateRiskEvidence(
+  output: AgentResult | AggregatedResult,
+  catalog: RiskEvidenceCatalogEntry[],
+) {
+  const allowed = new Set(
+    catalog.map((x) => `${x.source}:${x.reference}:${x.field}`),
+  );
+  for (const finding of output.findings)
+    for (const evidence of finding.evidenceReferences)
+      if (
+        !allowed.has(
+          `${evidence.source}:${evidence.reference}:${evidence.field}`,
+        )
+      )
+        throw new Error("UNAUTHORIZED_RISK_EVIDENCE_REFERENCE");
+  return output;
 }

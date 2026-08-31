@@ -1168,3 +1168,76 @@ hardening and later provider/privacy approval.
 
 Next: WAIT FOR EXPLICIT P8 IMPLEMENTATION AUTHORIZATION. Do not select a provider
 and do not begin P9.
+
+### 2026-08-31 — P8 AI governance Production hardening
+
+Status: IMPLEMENTED AND FROZEN / READ-ONLY REVIEW PENDING
+
+Starting Commit: `87756e4`
+
+Ending Commit: NOT COMMITTED
+
+Schema: 57 → 57; migration 058+: NONE
+
+Summary:
+- H-01 RESOLVED: finite provider timeout/abort, bounded transient retries with
+  backoff/jitter, streaming response ceiling and safe failure classification.
+- H-02 RESOLVED: exact request-scoped CLEAN ID/version/SHA-256 manifest binding
+  and transactional pre-persistence TOCTOU recheck.
+- M-01 RESOLVED: bounded deterministic Risk evidence catalog enforced for all
+  agents and Aggregator.
+- M-02 RESOLVED: centralized document/input/evidence/output collection bounds.
+- M-03 RESOLVED: existing run, usage and audit structures now carry linked
+  provider/model/contract/token/latency/retry/correlation/actor/mode/failure
+  trace; unknown cost remains NULL.
+- M-04 RESOLVED: Finance Intelligence provider projections are reduced to
+  authorized evidence and minimum operational metadata; raw payee/dashboard
+  rows, bank/auth/session and Telegram data are absent.
+
+Business Logic Impact: NONE. AI remains optional, advisory and non-authoritative.
+
+Database / Roles / P7 / Frontend Impact: NONE.
+
+Production Provider Selected: NO. Production AI: OFF.
+
+Verification: lint/typecheck, 15 frontend/auth tests, 130 API tests, both builds,
+all schema-57 integration suites, P5/P6/P7 security regressions, four-scenario
+UAT including AI OFF, P6 role/attack proof, and diff validation PASS.
+
+P8 Implementation Frozen: YES. No code, SQL or documentation changes are
+permitted during the mandatory independent review.
+
+Next: Conduct the five-discipline read-only review and do not begin P9.
+
+### 2026-08-31 — P8 AI-OFF configuration-gate correction
+
+Status: CORRECTION COMPLETE AND FROZEN / READ-ONLY RE-REVIEW PENDING
+
+Starting Commit: `87756e4` with expected uncommitted P8 hardening
+
+Ending Commit: NOT COMMITTED
+
+Schema: 57 → 57; migration 058+: NONE
+
+Finding: P8 review Medium — runtime provider wiring treated API-key presence as
+enablement and parsed reliability controls while `AI_MASTER=OFF`.
+
+Resolution: provider initialization, configuration validation and readiness now
+share the explicit master-gate interpretation. Master OFF returns the null/manual
+provider boundary before any provider-only parsing; subordinate flags and stale
+secrets cannot override it. Master ON remains fail closed.
+
+Verification: exact constructor/fetch spies PASS; OFF matrix with absent/present
+key, malformed URL and invalid reliability values PASS; ON negative matrix PASS;
+15 frontend/auth and 134 API tests PASS; lint/typecheck/builds PASS; Validation,
+Financial Analysis, Dashboard/Intelligence and four-scenario UAT integrations
+PASS on disposable schema 57; AI-OFF workflow reaches PAID.
+
+Business / AI Authority / Database / Roles / P7 / Frontend Impact: NONE.
+
+Production AI: OFF. Provider privacy/contract gate: OPEN. P9: NOT STARTED.
+
+P8 Correction Implementation Frozen: YES. Do not modify code, SQL or
+documentation during the mandatory five-discipline read-only re-review.
+
+Next: Perform the final read-only re-review. Do not begin P9.

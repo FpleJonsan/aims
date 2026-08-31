@@ -2,8 +2,10 @@ import { z } from "zod";
 import { createHash } from "node:crypto";
 
 export const FINANCE_ANALYTICS_VERSION = "finance-dashboard:v1";
-export const FINANCE_WATCH_PROMPT_VERSION = "finance-watch:v1";
-export const ASK_AIMS_PROMPT_VERSION = "ask-aims:v1";
+export const FINANCE_WATCH_PROMPT_VERSION = "finance-watch:v2/schema:v1";
+export const ASK_AIMS_PROMPT_VERSION = "ask-aims:v2/schema:v1";
+export const FINANCE_INTELLIGENCE_RESPONSE_SCHEMA_VERSION =
+  "finance-intelligence-schema-v1";
 export const InsightEvidenceSchema = z
   .object({
     metric: z.string().min(1).max(120),
@@ -65,7 +67,11 @@ export type FinanceWatchOutput = z.infer<typeof FinanceWatchOutputSchema>;
 export type AskAimsOutput = z.infer<typeof AskAimsOutputSchema>;
 export type InsightEvidence = z.infer<typeof InsightEvidenceSchema>;
 export function payeeEvidenceReference(payee: string) {
-  const normalized = payee.normalize("NFKC").trim().toLocaleLowerCase("en").replace(/\s+/g, " ");
+  const normalized = payee
+    .normalize("NFKC")
+    .trim()
+    .toLocaleLowerCase("en")
+    .replace(/\s+/g, " ");
   return `PAYEE:${createHash("sha256").update(normalized).digest("hex")}`;
 }
 
@@ -79,15 +85,24 @@ export function validateEvidence<
   for (const item of evidence) {
     const key = `${item.metric}:${item.reference}`;
     if (!allowed.has(key)) throw new Error("FABRICATED_EVIDENCE_REFERENCE");
-    if (allowed instanceof Map && allowed.get(key) !== String((item as { value?: unknown }).value))
+    if (
+      allowed instanceof Map &&
+      allowed.get(key) !== String((item as { value?: unknown }).value)
+    )
       throw new Error("EVIDENCE_VALUE_MISMATCH");
     if (/bank/i.test(item.metric) || /bank/i.test(item.reference))
       throw new Error("SENSITIVE_EVIDENCE_REJECTED");
   }
   const insightType = (output as { type?: string }).type;
-  if (insightType === "VENDOR_CONCENTRATION" && !evidence.some((x) => x.reference.startsWith("PAYEE:")))
+  if (
+    insightType === "VENDOR_CONCENTRATION" &&
+    !evidence.some((x) => x.reference.startsWith("PAYEE:"))
+  )
     throw new Error("VENDOR_EVIDENCE_REQUIRED");
-  if (insightType === "CATEGORY_SPENDING" && !evidence.some((x) => x.reference.startsWith("CATEGORY:")))
+  if (
+    insightType === "CATEGORY_SPENDING" &&
+    !evidence.some((x) => x.reference.startsWith("CATEGORY:"))
+  )
     throw new Error("CATEGORY_EVIDENCE_REQUIRED");
   return output;
 }

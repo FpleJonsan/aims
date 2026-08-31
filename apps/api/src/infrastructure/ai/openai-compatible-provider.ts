@@ -21,6 +21,12 @@ import {
   type AskAimsOutput,
   type FinanceWatchOutput,
 } from "../../domain/finance-intelligence.js";
+import {
+  AI_BOUNDS,
+  DEFAULT_AI_RELIABILITY_CONFIG,
+  assertBoundedText,
+  type AiReliabilityConfig,
+} from "./ai-governance.js";
 
 export type AiProviderFailureCode =
   | "AUTHENTICATION_ERROR"
@@ -29,6 +35,7 @@ export type AiProviderFailureCode =
   | "MODEL_NOT_AVAILABLE"
   | "PROVIDER_TIMEOUT"
   | "PROVIDER_UNAVAILABLE"
+  | "RESPONSE_TOO_LARGE"
   | "INVALID_PROVIDER_RESPONSE"
   | "STRUCTURED_OUTPUT_INVALID"
   | "UNKNOWN_PROVIDER_ERROR";
@@ -42,6 +49,8 @@ export interface SafeProviderErrorDetails {
   requestId: string | null;
 }
 export class AiProviderError extends Error {
+  retryCount = 0;
+  providerAttempts = 1;
   constructor(readonly details: SafeProviderErrorDetails) {
     super(details.message);
     this.name = details.classification;
@@ -55,6 +64,8 @@ export interface ProviderDiagnosticResult {
   outputTokens: number | null;
   totalTokens: number | null;
   schemaValid: true;
+  retryCount: number;
+  providerAttempts: number;
 }
 export interface FinancialAgentProviderResult {
   output: AgentResult | AggregatedResult;
@@ -64,6 +75,8 @@ export interface FinancialAgentProviderResult {
   inputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
+  retryCount: number;
+  providerAttempts: number;
 }
 export interface FinanceIntelligenceProviderResult {
   output: FinanceWatchOutput | AskAimsOutput;
@@ -73,6 +86,8 @@ export interface FinanceIntelligenceProviderResult {
   inputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
+  retryCount: number;
+  providerAttempts: number;
 }
 interface ResponsesPayload {
   output_text?: string;
@@ -92,11 +107,22 @@ export class OpenAiCompatibleProvider implements AiProvider {
     private readonly apiKey: string,
     private readonly model: string,
     private readonly baseUrl = "https://api.openai.com/v1",
+    private readonly reliability: AiReliabilityConfig = DEFAULT_AI_RELIABILITY_CONFIG,
+    private readonly dependencies: {
+      fetch: typeof fetch;
+      sleep: (milliseconds: number) => Promise<void>;
+      random: () => number;
+    } = {
+      fetch,
+      sleep: (milliseconds) =>
+        new Promise((resolve) => setTimeout(resolve, milliseconds)),
+      random: Math.random,
+    },
   ) {}
 
   async diagnoseStructuredOutput(): Promise<ProviderDiagnosticResult> {
     const started = Date.now();
-    const payload = await this.createResponse({
+    const response = await this.createResponse({
       model: this.model,
       store: false,
       instructions: "Return only the requested structured diagnostic result.",
@@ -116,7 +142,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
         },
       },
     });
-    const parsed = parseJsonOutput(payload);
+    const parsed = parseJsonOutput(response.payload);
     if (!isRecord(parsed) || parsed.result !== "OK")
       throw localError(
         "STRUCTURED_OUTPUT_INVALID",
@@ -126,7 +152,9 @@ export class OpenAiCompatibleProvider implements AiProvider {
       provider: "openai-compatible",
       model: this.model,
       latencyMs: Date.now() - started,
-      ...usage(payload),
+      ...usage(response.payload),
+      retryCount: response.retryCount,
+      providerAttempts: response.providerAttempts,
       schemaValid: true,
     };
   }
@@ -136,7 +164,8 @@ export class OpenAiCompatibleProvider implements AiProvider {
     aggregator = false,
   ): Promise<FinancialAgentProviderResult> {
     const started = Date.now();
-    const payload = await this.createResponse({
+    assertBoundedText(input, `${agent} input`);
+    const response = await this.createResponse({
       model: this.model,
       store: false,
       instructions: `${ANALYSIS_SYSTEM_POLICY}\nYou are the bounded AIMS ${agent} agent.`,
@@ -151,16 +180,24 @@ export class OpenAiCompatibleProvider implements AiProvider {
         },
       },
     });
-    const raw = parseJsonOutput(payload);
-    const output = (
+    const raw = parseJsonOutput(response.payload);
+    const parsed = (
       aggregator ? AggregatedResultSchema : AgentResultSchema
-    ).parse(raw);
+    ).safeParse(raw);
+    if (!parsed.success)
+      throw localError(
+        "STRUCTURED_OUTPUT_INVALID",
+        "Provider output failed runtime financial-analysis schema validation.",
+      );
+    const output = parsed.data;
     return {
       output,
       provider: "openai-compatible",
       model: this.model,
       latencyMs: Date.now() - started,
-      ...usage(payload),
+      ...usage(response.payload),
+      retryCount: response.retryCount,
+      providerAttempts: response.providerAttempts,
     };
   }
   async analyzeFinanceIntelligence(
@@ -169,7 +206,8 @@ export class OpenAiCompatibleProvider implements AiProvider {
   ): Promise<FinanceIntelligenceProviderResult> {
     const started = Date.now(),
       watch = kind === "FINANCE_WATCH";
-    const payload = await this.createResponse({
+    assertBoundedText(input, `${kind} input`);
+    const response = await this.createResponse({
       model: this.model,
       store: false,
       instructions:
@@ -185,23 +223,33 @@ export class OpenAiCompatibleProvider implements AiProvider {
         },
       },
     });
-    const output = (
+    const parsed = (
       watch ? FinanceWatchOutputSchema : AskAimsOutputSchema
-    ).parse(parseJsonOutput(payload));
+    ).safeParse(parseJsonOutput(response.payload));
+    if (!parsed.success)
+      throw localError(
+        "STRUCTURED_OUTPUT_INVALID",
+        "Provider output failed runtime Finance Intelligence schema validation.",
+      );
+    const output = parsed.data;
     return {
       output,
       provider: "openai-compatible",
       model: this.model,
       latencyMs: Date.now() - started,
-      ...usage(payload),
+      ...usage(response.payload),
+      retryCount: response.retryCount,
+      providerAttempts: response.providerAttempts,
     };
   }
 
   async analyzeDocuments(input: DocumentAgentInput): Promise<AiProviderResult> {
     const started = Date.now();
+    assertDocumentInputBounds(input);
     const documentManifest = input.documents.map((document) => ({
       documentId: document.id,
       documentVersion: document.version,
+      sha256: document.sha256,
       filename: document.filename,
     }));
     const content: unknown[] = [
@@ -216,7 +264,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
         filename: document.filename,
         file_data: `data:${document.mimeType};base64,${Buffer.from(document.data).toString("base64")}`,
       });
-    const payload = await this.createResponse({
+    const response = await this.createResponse({
       model: this.model,
       store: false,
       instructions: DOCUMENT_AGENT_SYSTEM_POLICY,
@@ -232,7 +280,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
       },
     });
     const parsed = DocumentValidationOutputSchema.safeParse(
-      parseJsonOutput(payload),
+      parseJsonOutput(response.payload),
     );
     if (!parsed.success) {
       const issues = parsed.error.issues
@@ -248,51 +296,91 @@ export class OpenAiCompatibleProvider implements AiProvider {
       output: parsed.data,
       provider: "openai-compatible",
       model: this.model,
-      ...usage(payload),
+      ...usage(response.payload),
+      retryCount: response.retryCount,
+      providerAttempts: response.providerAttempts,
       latencyMs: Date.now() - started,
     };
   }
 
-  private async createResponse(body: unknown): Promise<ResponsesPayload> {
-    let response: Response;
-    try {
-      response = await fetch(`${this.baseUrl}/responses`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-    } catch (error) {
-      const timeout = error instanceof Error && error.name === "AbortError";
-      throw localError(
-        timeout ? "PROVIDER_TIMEOUT" : "PROVIDER_UNAVAILABLE",
-        timeout
-          ? "AI provider request timed out."
-          : "AI provider is unavailable.",
+  private async createResponse(
+    body: unknown,
+  ): Promise<{
+    payload: ResponsesPayload;
+    retryCount: number;
+    providerAttempts: number;
+  }> {
+    for (let attempt = 0; attempt <= this.reliability.maxRetries; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(
+        () => controller.abort(),
+        this.reliability.requestTimeoutMs,
       );
+      try {
+        const response = await this.dependencies.fetch(
+          `${this.baseUrl}/responses`,
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${this.apiKey}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          },
+        );
+        if (!response.ok) {
+          const providerError = await parseOpenAiErrorResponse(
+            response,
+            this.apiKey,
+            this.reliability.maxResponseBytes,
+          );
+          if (
+            !retryable(providerError) ||
+            attempt === this.reliability.maxRetries
+          )
+            throw attempted(providerError, attempt);
+          await this.backoff(attempt);
+          continue;
+        }
+        const payload = await readBoundedJson(
+          response,
+          this.reliability.maxResponseBytes,
+        );
+        return { payload, retryCount: attempt, providerAttempts: attempt + 1 };
+      } catch (error) {
+        const normalized = normalizeProviderFailure(
+          error,
+          controller.signal.aborted,
+        );
+        if (!retryable(normalized) || attempt === this.reliability.maxRetries)
+          throw attempted(normalized, attempt);
+        await this.backoff(attempt);
+      } finally {
+        clearTimeout(timer);
+      }
     }
-    if (!response.ok)
-      throw await parseOpenAiErrorResponse(response, this.apiKey);
-    try {
-      return (await response.json()) as ResponsesPayload;
-    } catch {
-      throw localError(
-        "INVALID_PROVIDER_RESPONSE",
-        "AI provider returned an invalid response body.",
-      );
-    }
+    throw localError(
+      "UNKNOWN_PROVIDER_ERROR",
+      "AI provider retry budget was exhausted.",
+    );
+  }
+
+  private async backoff(attempt: number) {
+    const exponential = this.reliability.retryBaseDelayMs * 2 ** attempt;
+    const jitter = Math.floor(exponential * 0.25 * this.dependencies.random());
+    await this.dependencies.sleep(exponential + jitter);
   }
 }
 
 export async function parseOpenAiErrorResponse(
   response: Response,
   apiKey = "",
+  maximumBytes = DEFAULT_AI_RELIABILITY_CONFIG.maxResponseBytes,
 ): Promise<AiProviderError> {
   let body: unknown = null;
   try {
-    body = await response.json();
+    body = await readBoundedJson(response, maximumBytes);
   } catch {
     /* Never log a malformed raw provider body. */
   }
@@ -315,6 +403,104 @@ export async function parseOpenAiErrorResponse(
       safeField(response.headers.get("x-request-id")) ??
       safeField(response.headers.get("request-id")),
   });
+}
+function retryable(error: AiProviderError) {
+  return (
+    error.details.classification === "PROVIDER_TIMEOUT" ||
+    (error.details.classification === "PROVIDER_UNAVAILABLE" &&
+      (error.details.status === null ||
+        [500, 502, 503, 504].includes(error.details.status))) ||
+    error.details.classification === "RATE_LIMIT"
+  );
+}
+function attempted(error: AiProviderError, retryCount: number) {
+  error.retryCount = retryCount;
+  error.providerAttempts = retryCount + 1;
+  return error;
+}
+function normalizeProviderFailure(error: unknown, timedOut: boolean) {
+  if (error instanceof AiProviderError) return error;
+  return localError(
+    timedOut || (error instanceof Error && error.name === "AbortError")
+      ? "PROVIDER_TIMEOUT"
+      : "PROVIDER_UNAVAILABLE",
+    timedOut ? "AI provider request timed out." : "AI provider is unavailable.",
+  );
+}
+async function readBoundedJson(
+  response: Response,
+  maximumBytes: number,
+): Promise<ResponsesPayload> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maximumBytes)
+    throw localError(
+      "RESPONSE_TOO_LARGE",
+      "AI provider response exceeded the configured size ceiling.",
+    );
+  if (!response.body)
+    throw localError(
+      "INVALID_PROVIDER_RESPONSE",
+      "AI provider returned an empty response body.",
+    );
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maximumBytes) {
+        await reader.cancel();
+        throw localError(
+          "RESPONSE_TOO_LARGE",
+          "AI provider response exceeded the configured size ceiling.",
+        );
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return JSON.parse(new TextDecoder().decode(bytes)) as ResponsesPayload;
+  } catch (error) {
+    if (error instanceof AiProviderError) throw error;
+    throw localError(
+      "INVALID_PROVIDER_RESPONSE",
+      "AI provider returned an invalid response body.",
+    );
+  }
+}
+function assertDocumentInputBounds(input: DocumentAgentInput) {
+  if (input.documents.length > AI_BOUNDS.maxDocuments)
+    throw new Error("Document count exceeds the authorized AI input bound");
+  let aggregate = 0;
+  for (const document of input.documents) {
+    if (document.data.byteLength > AI_BOUNDS.maxDocumentBytes)
+      throw new Error("Document exceeds the per-document AI byte bound");
+    aggregate += document.data.byteLength;
+    assertBoundedText(
+      {
+        id: document.id,
+        version: document.version,
+        sha256: document.sha256,
+        filename: document.filename,
+        mimeType: document.mimeType,
+      },
+      "Document metadata",
+      2_000,
+    );
+  }
+  if (aggregate > AI_BOUNDS.maxAggregateDocumentBytes)
+    throw new Error("Documents exceed the aggregate AI byte bound");
+  assertBoundedText(
+    input.request,
+    "Request facts",
+    AI_BOUNDS.maxTextFieldCharacters * 4,
+  );
 }
 function classify(
   status: number,
@@ -401,6 +587,7 @@ function validationJsonSchema() {
     properties: {
       extractions: {
         type: "array",
+        maxItems: AI_BOUNDS.maxDocuments,
         items: {
           type: "object",
           additionalProperties: false,
@@ -434,6 +621,7 @@ function validationJsonSchema() {
       },
       checks: {
         type: "array",
+        maxItems: AI_BOUNDS.maxFindings,
         items: {
           type: "object",
           additionalProperties: false,
@@ -471,6 +659,7 @@ function validationJsonSchema() {
             evidenceReferences: {
               type: "array",
               minItems: 1,
+              maxItems: AI_BOUNDS.maxEvidencePerFinding,
               items: {
                 type: "object",
                 additionalProperties: false,
@@ -491,7 +680,11 @@ function validationJsonSchema() {
           },
         },
       },
-      missingInformation: { type: "array", items: { type: "string" } },
+      missingInformation: {
+        type: "array",
+        maxItems: AI_BOUNDS.maxRecommendations,
+        items: { type: "string", maxLength: 500 },
+      },
       overallResult: {
         type: "string",
         enum: ["PASS", "CLARIFICATION_REQUIRED"],
@@ -539,6 +732,7 @@ function financialAgentJsonSchema(aggregator: boolean) {
     suggestedDeadline: { type: ["string", "null"] },
     findings: {
       type: "array",
+      maxItems: AI_BOUNDS.maxFindings,
       items: {
         type: "object",
         additionalProperties: false,
@@ -550,7 +744,12 @@ function financialAgentJsonSchema(aggregator: boolean) {
             enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
           },
           explanation: { type: "string" },
-          evidenceReferences: { type: "array", items: evidence },
+          evidenceReferences: {
+            type: "array",
+            minItems: 1,
+            maxItems: AI_BOUNDS.maxEvidencePerFinding,
+            items: evidence,
+          },
         },
       },
     },
@@ -568,7 +767,11 @@ function financialAgentJsonSchema(aggregator: boolean) {
     "confidence",
   ];
   if (aggregator) {
-    properties.disagreements = { type: "array", items: { type: "string" } };
+    properties.disagreements = {
+      type: "array",
+      maxItems: AI_BOUNDS.maxRecommendations,
+      items: { type: "string", maxLength: 1000 },
+    };
     required.push("disagreements");
   }
   return { type: "object", additionalProperties: false, required, properties };
@@ -592,6 +795,7 @@ function financeIntelligenceJsonSchema(watch: boolean) {
       properties: {
         insights: {
           type: "array",
+          maxItems: AI_BOUNDS.maxRecommendations,
           items: {
             type: "object",
             additionalProperties: false,
@@ -623,13 +827,21 @@ function financeIntelligenceJsonSchema(watch: boolean) {
               },
               title: { type: "string" },
               summary: { type: "string" },
-              evidence: { type: "array", items: evidence },
+              evidence: {
+                type: "array",
+                maxItems: AI_BOUNDS.maxEvidencePerFinding,
+                items: evidence,
+              },
               suggestedAction: { type: "string" },
               confidence: { type: "number" },
             },
           },
         },
-        limitations: { type: "array", items: { type: "string" } },
+        limitations: {
+          type: "array",
+          maxItems: AI_BOUNDS.maxRecommendations,
+          items: { type: "string", maxLength: 1000 },
+        },
       },
     };
   return {
@@ -645,10 +857,19 @@ function financeIntelligenceJsonSchema(watch: boolean) {
     ],
     properties: {
       answer: { type: "string" },
-      keyFindings: { type: "array", items: { type: "string" } },
-      evidenceReferences: { type: "array", items: evidence },
+      keyFindings: {
+        type: "array",
+        maxItems: AI_BOUNDS.maxFindings,
+        items: { type: "string", maxLength: 1000 },
+      },
+      evidenceReferences: {
+        type: "array",
+        maxItems: AI_BOUNDS.maxEvidenceItems,
+        items: evidence,
+      },
       relatedEntities: {
         type: "array",
+        maxItems: AI_BOUNDS.maxRecommendations,
         items: {
           type: "object",
           additionalProperties: false,
@@ -664,7 +885,11 @@ function financeIntelligenceJsonSchema(watch: boolean) {
         },
       },
       dataPeriod: { type: "string" },
-      limitations: { type: "array", items: { type: "string" } },
+      limitations: {
+        type: "array",
+        maxItems: AI_BOUNDS.maxRecommendations,
+        items: { type: "string", maxLength: 1000 },
+      },
     },
   };
 }

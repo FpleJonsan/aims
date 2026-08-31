@@ -40,50 +40,192 @@ test("Day 9 dashboard reconciles authoritative financial truth without AI", asyn
           `WITH components AS(SELECT b.currency,bv.revised_amount_minor::bigint budget,0::bigint actual,0::bigint committed FROM budgets b JOIN budget_versions bv ON bv.budget_id=b.id AND bv.status='ACTIVE' WHERE b.status='ACTIVE' UNION ALL SELECT currency,0::bigint,amount_minor::bigint,0::bigint FROM financial_ledger_entries UNION ALL SELECT currency,0::bigint,0::bigint,amount_minor::bigint FROM budget_commitments WHERE status='ACTIVE')SELECT currency,sum(budget)::bigint budget,sum(actual)::bigint actual,sum(committed)::bigint committed FROM components GROUP BY currency ORDER BY currency`,
         )
       ).rows,
-      rawPayments=(await db.pool.query("SELECT currency,count(*)::int paid_count,sum(amount_minor)::bigint paid FROM payments GROUP BY currency ORDER BY currency")).rows,
-      rawControl=(await db.pool.query("SELECT count(*)FILTER(WHERE f.status='HOLD')::int holds,count(*)FILTER(WHERE f.status='PASSED' AND pr.status='READY_FOR_PAYMENT')::int ready FROM finance_control_runs f JOIN payment_requests pr ON pr.id=f.payment_request_id WHERE f.is_current")).rows[0];
+      rawPayments = (
+        await db.pool.query(
+          "SELECT currency,count(*)::int paid_count,sum(amount_minor)::bigint paid FROM payments GROUP BY currency ORDER BY currency",
+        )
+      ).rows,
+      rawControl = (
+        await db.pool.query(
+          "SELECT count(*)FILTER(WHERE f.status='HOLD')::int holds,count(*)FILTER(WHERE f.status='PASSED' AND pr.status='READY_FOR_PAYMENT')::int ready FROM finance_control_runs f JOIN payment_requests pr ON pr.id=f.payment_request_id WHERE f.is_current",
+        )
+      ).rows[0];
     const toMinor = (x: string) => BigInt(x.replace(".", ""));
-    assert.ok(rawFinancial.length>=2,"PostgreSQL fixtures must exercise more than one currency");
-    assert.deepEqual(summary.financialPositions.map((x)=>x.currency),rawFinancial.map((x)=>x.currency));
-    for(const raw of rawFinancial){const position=summary.financialPositions.find((x)=>x.currency===raw.currency)!;assert.equal(toMinor(position.budget),BigInt(raw.budget));assert.equal(toMinor(position.actual),BigInt(raw.actual));assert.equal(toMinor(position.committed),BigInt(raw.committed));assert.equal(toMinor(position.available),BigInt(raw.budget)-BigInt(raw.actual)-BigInt(raw.committed));}
-    for(const raw of rawPayments){const amount=summary.payments.amounts.find((x)=>x.currency===raw.currency)!;assert.equal(toMinor(amount.paidAmount),BigInt(raw.paid));}
-    assert.equal(summary.payments.total_paid,rawPayments.reduce((total,row)=>total+row.paid_count,0));
+    assert.ok(
+      rawFinancial.length >= 2,
+      "PostgreSQL fixtures must exercise more than one currency",
+    );
+    assert.deepEqual(
+      summary.financialPositions.map((x) => x.currency),
+      rawFinancial.map((x) => x.currency),
+    );
+    for (const raw of rawFinancial) {
+      const position = summary.financialPositions.find(
+        (x) => x.currency === raw.currency,
+      )!;
+      assert.equal(toMinor(position.budget), BigInt(raw.budget));
+      assert.equal(toMinor(position.actual), BigInt(raw.actual));
+      assert.equal(toMinor(position.committed), BigInt(raw.committed));
+      assert.equal(
+        toMinor(position.available),
+        BigInt(raw.budget) - BigInt(raw.actual) - BigInt(raw.committed),
+      );
+    }
+    for (const raw of rawPayments) {
+      const amount = summary.payments.amounts.find(
+        (x) => x.currency === raw.currency,
+      )!;
+      assert.equal(toMinor(amount.paidAmount), BigInt(raw.paid));
+    }
+    assert.equal(
+      summary.payments.total_paid,
+      rawPayments.reduce((total, row) => total + row.paid_count, 0),
+    );
     assert.equal(summary.financeControl.holds, rawControl.holds);
     assert.equal(summary.financeControl.ready, rawControl.ready);
-    assert.equal("financial" in summary,false,"a cross-currency financial total must not be exposed");
-    assert.equal("paid_amount" in summary.payments,false,"a cross-currency paid amount must not be exposed");
+    assert.equal(
+      "financial" in summary,
+      false,
+      "a cross-currency financial total must not be exposed",
+    );
+    assert.equal(
+      "paid_amount" in summary.payments,
+      false,
+      "a cross-currency paid amount must not be exposed",
+    );
     assert.equal(summary.risk.CRITICAL ?? 0, summary.risk.CRITICAL ?? 0);
   } finally {
     await db.onModuleDestroy();
   }
 });
-test("dashboard contract preserves partial positions and separates paid and payee amounts by currency",async()=>{
-  const queries:string[]=[];
-  const pool={query:async(sql:string)=>{queries.push(sql);
-    if(sql.includes("FROM finance_reporting_authorities"))return{rowCount:1,rows:[{scope:"ORGANIZATION",department_id:null}]};
-    if(sql.includes("WITH components AS"))return{rows:[{currency:"MYR",budget:"100000",actual:"150000",committed:"20000"},{currency:"SGD",budget:"0",actual:"30000",committed:"0"},{currency:"USD",budget:"200000",actual:"0",committed:"0"}]};
-    if(sql.startsWith("SELECT currency,count(*)::int total_paid"))return{rows:[{currency:"MYR",total_paid:2,paid_amount:"50000",paid_this_month:1,paid_amount_this_month:"20000"},{currency:"USD",total_paid:1,paid_amount:"40000",paid_this_month:1,paid_amount_this_month:"40000"}]};
-    if(sql.startsWith("SELECT status,currency"))return{rows:[]};
-    if(sql.startsWith("SELECT final_risk"))return{rows:[]};
-    if(sql.includes("WITH scoped_cases AS"))return{rows:[{completed:0,rejected:0,clarification:0,avg_seconds:"0"}]};
-    if(sql.includes("FROM finance_control_runs"))return{rows:[{pending:0,holds:0,ready:0}]};
-    if(sql.startsWith("SELECT payment_method"))return{rows:[{payment_method:"BANK_TRANSFER",currency:"MYR",count:2,amount:"50000"},{payment_method:"BANK_TRANSFER",currency:"USD",count:1,amount:"40000"}]};
-    if(sql.startsWith("SELECT payee,currency"))return{rows:[{payee:"MYR Vendor",currency:"MYR",payment_count:2,amount:"50000"},{payee:"USD Vendor",currency:"USD",payment_count:1,amount:"40000"}]};
-    throw new Error(`Unexpected query: ${sql}`);
-  }};
-  const summary=await new DashboardService({pool} as never).summary(finance,{page:1,pageSize:25}),byCurrency=new Map(summary.financialPositions.map((x)=>[x.currency,x]));
-  assert.equal(byCurrency.get("MYR")?.available,"-700.00");
-  assert.equal(byCurrency.get("SGD")?.budget,"0.00");
-  assert.equal(byCurrency.get("SGD")?.available,"-300.00");
-  assert.equal(byCurrency.get("USD")?.actual,"0.00");
-  assert.deepEqual(summary.payments.amounts.map((x)=>[x.currency,x.paidAmount]),[["MYR","500.00"],["USD","400.00"]]);
-  assert.deepEqual(summary.vendors.map((x)=>[x.currency,x.payee,x.amount]),[["MYR","MYR Vendor","500.00"],["USD","USD Vendor","400.00"]]);
-  assert.equal("financial" in summary,false);assert.equal("paid_amount" in summary.payments,false);
-  assert.ok(queries.some((sql)=>sql.includes("GROUP BY payment_method,currency")));
-  assert.ok(queries.some((sql)=>sql.includes("GROUP BY payee,currency ORDER BY currency")));
+test("dashboard contract preserves partial positions and separates paid and payee amounts by currency", async () => {
+  const queries: string[] = [];
+  const pool = {
+    query: async (sql: string) => {
+      queries.push(sql);
+      if (sql.includes("FROM finance_reporting_authorities"))
+        return {
+          rowCount: 1,
+          rows: [{ scope: "ORGANIZATION", department_id: null }],
+        };
+      if (sql.includes("WITH components AS"))
+        return {
+          rows: [
+            {
+              currency: "MYR",
+              budget: "100000",
+              actual: "150000",
+              committed: "20000",
+            },
+            { currency: "SGD", budget: "0", actual: "30000", committed: "0" },
+            { currency: "USD", budget: "200000", actual: "0", committed: "0" },
+          ],
+        };
+      if (sql.startsWith("SELECT currency,count(*)::int total_paid"))
+        return {
+          rows: [
+            {
+              currency: "MYR",
+              total_paid: 2,
+              paid_amount: "50000",
+              paid_this_month: 1,
+              paid_amount_this_month: "20000",
+            },
+            {
+              currency: "USD",
+              total_paid: 1,
+              paid_amount: "40000",
+              paid_this_month: 1,
+              paid_amount_this_month: "40000",
+            },
+          ],
+        };
+      if (sql.startsWith("SELECT status,currency")) return { rows: [] };
+      if (sql.startsWith("SELECT final_risk")) return { rows: [] };
+      if (sql.includes("WITH scoped_cases AS"))
+        return {
+          rows: [
+            { completed: 0, rejected: 0, clarification: 0, avg_seconds: "0" },
+          ],
+        };
+      if (sql.includes("FROM finance_control_runs"))
+        return { rows: [{ pending: 0, holds: 0, ready: 0 }] };
+      if (sql.startsWith("SELECT payment_method"))
+        return {
+          rows: [
+            {
+              payment_method: "BANK_TRANSFER",
+              currency: "MYR",
+              count: 2,
+              amount: "50000",
+            },
+            {
+              payment_method: "BANK_TRANSFER",
+              currency: "USD",
+              count: 1,
+              amount: "40000",
+            },
+          ],
+        };
+      if (sql.startsWith("SELECT payee,currency"))
+        return {
+          rows: [
+            {
+              payee: "MYR Vendor",
+              currency: "MYR",
+              payment_count: 2,
+              amount: "50000",
+            },
+            {
+              payee: "USD Vendor",
+              currency: "USD",
+              payment_count: 1,
+              amount: "40000",
+            },
+          ],
+        };
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+  };
+  const summary = await new DashboardService({ pool } as never).summary(
+      finance,
+      { page: 1, pageSize: 25 },
+    ),
+    byCurrency = new Map(
+      summary.financialPositions.map((x) => [x.currency, x]),
+    );
+  assert.equal(byCurrency.get("MYR")?.available, "-700.00");
+  assert.equal(byCurrency.get("SGD")?.budget, "0.00");
+  assert.equal(byCurrency.get("SGD")?.available, "-300.00");
+  assert.equal(byCurrency.get("USD")?.actual, "0.00");
+  assert.deepEqual(
+    summary.payments.amounts.map((x) => [x.currency, x.paidAmount]),
+    [
+      ["MYR", "500.00"],
+      ["USD", "400.00"],
+    ],
+  );
+  assert.deepEqual(
+    summary.vendors.map((x) => [x.currency, x.payee, x.amount]),
+    [
+      ["MYR", "MYR Vendor", "500.00"],
+      ["USD", "USD Vendor", "400.00"],
+    ],
+  );
+  assert.equal("financial" in summary, false);
+  assert.equal("paid_amount" in summary.payments, false);
+  assert.ok(
+    queries.some((sql) => sql.includes("GROUP BY payment_method,currency")),
+  );
+  assert.ok(
+    queries.some((sql) =>
+      sql.includes("GROUP BY payee,currency ORDER BY currency"),
+    ),
+  );
 });
 test("Finance Control counters stay live across historical ranges and declare their period semantics", async () => {
-  const db = new Postgres(), service = new DashboardService(db);
+  const db = new Postgres(),
+    service = new DashboardService(db);
   try {
     const current = await service.summary(finance, { page: 1, pageSize: 25 }),
       historical = await service.summary(finance, {
@@ -173,7 +315,13 @@ test("multiple department authorities aggregate their union and still reject IDO
         [[scoped.departmentId, second]],
       )
     ).rows;
-    assert.deepEqual(result.financialPositions.map((x)=>({currency:x.currency,budget:BigInt(x.budget.replace(".",""))})),raw.map((x)=>({currency:x.currency,budget:BigInt(x.budget)})));
+    assert.deepEqual(
+      result.financialPositions.map((x) => ({
+        currency: x.currency,
+        budget: BigInt(x.budget.replace(".", "")),
+      })),
+      raw.map((x) => ({ currency: x.currency, budget: BigInt(x.budget) })),
+    );
     await assert.rejects(
       () =>
         service.summary(scoped, {
@@ -369,6 +517,14 @@ test("Finance Watch and Ask AIMS persist evidence-backed bounded interpretations
     });
     assert.match(answer.answer, /authorized/i);
     assert.equal(JSON.stringify(captured).includes("bank_reference"), false);
+    assert.equal(JSON.stringify(captured).includes("Synthetic Vendor"), false);
+    assert.equal(JSON.stringify(captured).includes("session"), false);
+    assert.equal(JSON.stringify(captured).includes("telegram"), false);
+    assert.equal("toolResults" in captured, false);
+    assert.deepEqual(Object.keys(captured.authorizedProjection).sort(), [
+      "evidenceItemCount",
+      "toolNames",
+    ]);
     assert.deepEqual(captured.prohibited, [
       "SQL",
       "bank references",
@@ -376,6 +532,13 @@ test("Finance Watch and Ask AIMS persist evidence-backed bounded interpretations
       "system prompt",
       "workflow actions",
     ]);
+    const usage = await db.pool.query(
+      "SELECT prompt_version,retry_count,estimated_cost FROM ai_usage_events WHERE finance_ask_run_id=$1",
+      [answer.id],
+    );
+    assert.match(usage.rows[0].prompt_version, /schema:v1/);
+    assert.equal(usage.rows[0].retry_count, 0);
+    assert.equal(usage.rows[0].estimated_cost, null);
   } finally {
     await db.onModuleDestroy();
   }

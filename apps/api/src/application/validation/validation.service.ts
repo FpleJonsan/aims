@@ -11,10 +11,16 @@ import {
 import type { Principal } from "../../domain/payment-request.js";
 import {
   DOCUMENT_AGENT_PROMPT_VERSION,
+  DOCUMENT_AGENT_RESPONSE_SCHEMA_VERSION,
   type DocumentValidationOutput,
 } from "../../domain/validation.js";
+import { AI_BOUNDS } from "../../infrastructure/ai/ai-governance.js";
+import { AiProviderError } from "../../infrastructure/ai/openai-compatible-provider.js";
 import { Postgres } from "../../infrastructure/database/postgres.js";
-import type { AiProvider } from "../../infrastructure/ai/ai-provider.js";
+import type {
+  AiDocument,
+  AiProvider,
+} from "../../infrastructure/ai/ai-provider.js";
 import type { DocumentStorage } from "../../infrastructure/storage/document-storage.js";
 import { DOCUMENT_STORAGE } from "../documents/tokens.js";
 import { PaymentRequestService } from "../payment-requests/payment-request.service.js";
@@ -72,14 +78,30 @@ export class ValidationService {
           runId,
           id,
           request.rowVersion + 1,
-          ai ? "AI_ASSISTED" : aiRequested ? "AI_UNAVAILABLE_FALLBACK" : "MANUAL",
+          ai
+            ? "AI_ASSISTED"
+            : aiRequested
+              ? "AI_UNAVAILABLE_FALLBACK"
+              : "MANUAL",
           ai ? "PROCESSING" : "PENDING",
           actor.id,
         ],
       );
       if (aiRequested && !this.provider) {
-        await client.query("UPDATE validation_runs SET failure_code='PROVIDER_NOT_CONFIGURED',schema_valid=false WHERE id=$1", [runId]);
-        await this.requests.audit(client, null, "AI_VALIDATION_FAILED", id, "VALIDATING", "VALIDATING", correlationId, { runId, failureCode: "PROVIDER_NOT_CONFIGURED" });
+        await client.query(
+          "UPDATE validation_runs SET failure_code='PROVIDER_NOT_CONFIGURED',schema_valid=false WHERE id=$1",
+          [runId],
+        );
+        await this.requests.audit(
+          client,
+          null,
+          "AI_VALIDATION_FAILED",
+          id,
+          "VALIDATING",
+          "VALIDATING",
+          correlationId,
+          { runId, failureCode: "PROVIDER_NOT_CONFIGURED" },
+        );
       }
       await this.requests.audit(
         client,
@@ -89,7 +111,14 @@ export class ValidationService {
         "SUBMITTED",
         "VALIDATING",
         correlationId,
-        { runId, mode: ai ? "AI_ASSISTED" : aiRequested ? "AI_UNAVAILABLE_FALLBACK" : "MANUAL" },
+        {
+          runId,
+          mode: ai
+            ? "AI_ASSISTED"
+            : aiRequested
+              ? "AI_UNAVAILABLE_FALLBACK"
+              : "MANUAL",
+        },
       );
       return { runId, ai: Boolean(ai) };
     });
@@ -102,21 +131,20 @@ export class ValidationService {
       [requestId],
     );
     const docs = await this.db.pool.query<any>(
-      "SELECT id,version,original_filename,mime_type,storage_object_key,sha256 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN'",
+      "SELECT id,version,original_filename,mime_type,storage_object_key,sha256,size_bytes FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' ORDER BY id",
       [requestId],
     );
     try {
-      const inputs = [];
+      assertDocumentRowsBounded(docs.rows);
+      const inputs: AiDocument[] = [];
       for (const d of docs.rows)
         inputs.push({
           id: d.id,
           version: d.version,
+          sha256: d.sha256,
           filename: d.original_filename,
           mimeType: d.mime_type,
-          data: await this.storage.read(
-            d.storage_object_key,
-            d.sha256,
-          ),
+          data: await this.storage.read(d.storage_object_key, d.sha256),
         });
       const result = await this.provider!.analyzeDocuments({
         request: {
@@ -138,6 +166,12 @@ export class ValidationService {
           locked.rows[0].request_revision !== locked.rows[0].row_version
         )
           throw new ConflictException("Stale AI validation result rejected");
+        await assertCurrentCleanManifest(
+          client,
+          requestId,
+          inputs,
+          result.output,
+        );
         await this.persistOutput(client, runId, result.output);
         await client.query(
           "UPDATE validation_runs SET status='AWAITING_HUMAN_REVIEW',confidence=$2,provider=$3,model=$4,prompt_version=$5,schema_valid=true WHERE id=$1",
@@ -150,7 +184,7 @@ export class ValidationService {
           ],
         );
         await client.query(
-          `INSERT INTO ai_usage_events(id,payment_request_id,validation_run_id,agent,provider,model,prompt_version,input_tokens,output_tokens,total_tokens,latency_ms,status,schema_valid) VALUES($1,$2,$3,'DOCUMENT_AGENT',$4,$5,$6,$7,$8,$9,$10,'COMPLETED',true)`,
+          `INSERT INTO ai_usage_events(id,payment_request_id,validation_run_id,agent,provider,model,prompt_version,input_tokens,output_tokens,total_tokens,latency_ms,status,schema_valid,retry_count,estimated_cost) VALUES($1,$2,$3,'DOCUMENT_AGENT',$4,$5,$6,$7,$8,$9,$10,'COMPLETED',true,$11,NULL)`,
           [
             randomUUID(),
             requestId,
@@ -162,6 +196,7 @@ export class ValidationService {
             result.outputTokens,
             result.totalTokens,
             result.latencyMs,
+            result.retryCount ?? 0,
           ],
         );
         await this.requests.audit(
@@ -177,18 +212,32 @@ export class ValidationService {
             provider: result.provider,
             model: result.model,
             promptVersion: DOCUMENT_AGENT_PROMPT_VERSION,
+            responseSchemaVersion: DOCUMENT_AGENT_RESPONSE_SCHEMA_VERSION,
+            correlationId,
+            actorId: locked.rows[0].created_by,
+            aiMode: "AI_ENABLED",
+            providerAttempts: result.providerAttempts ?? 1,
+            cost: "UNKNOWN",
           },
         );
       });
     } catch (error) {
       await this.db.transaction(async (client) => {
+        const failure = providerFailure(error);
         await client.query(
           "UPDATE validation_runs SET source='AI_UNAVAILABLE_FALLBACK',status='PENDING',failure_code=$2,schema_valid=false WHERE id=$1 AND is_current",
-          [runId, error instanceof Error ? error.name : "AI_ERROR"],
+          [runId, failure],
         );
         await client.query(
-          `INSERT INTO ai_usage_events(id,payment_request_id,validation_run_id,agent,provider,model,prompt_version,status,schema_valid) VALUES($1,$2,$3,'DOCUMENT_AGENT','configured','configured',$4,'FAILED',false)`,
-          [randomUUID(), requestId, runId, DOCUMENT_AGENT_PROMPT_VERSION],
+          `INSERT INTO ai_usage_events(id,payment_request_id,validation_run_id,agent,provider,model,prompt_version,status,schema_valid,failure_classification,retry_count,estimated_cost) VALUES($1,$2,$3,'DOCUMENT_AGENT','configured','configured',$4,'FAILED',false,$5,$6,NULL)`,
+          [
+            randomUUID(),
+            requestId,
+            runId,
+            DOCUMENT_AGENT_PROMPT_VERSION,
+            failure,
+            error instanceof AiProviderError ? error.retryCount : 0,
+          ],
         );
         await this.requests.audit(
           client,
@@ -200,7 +249,11 @@ export class ValidationService {
           correlationId,
           {
             runId,
-            failureCode: error instanceof Error ? error.name : "AI_ERROR",
+            failureCode: failure,
+            responseSchemaVersion: DOCUMENT_AGENT_RESPONSE_SCHEMA_VERSION,
+            correlationId,
+            aiMode: "PROVIDER_FAILURE_FALLBACK",
+            cost: "UNKNOWN",
           },
         );
       });
@@ -223,11 +276,24 @@ export class ValidationService {
       );
       if (!run.rowCount)
         throw new NotFoundException("Current validation not found");
-      const activeDocuments = await client.query("SELECT 1 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' LIMIT 1", [id]);
+      const activeDocuments = await client.query(
+        "SELECT 1 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' LIMIT 1",
+        [id],
+      );
       if (input.overallResult === "PASS" && !activeDocuments.rowCount)
-        throw new BadRequestException("Validation cannot PASS without a supporting document");
-      if (input.overallResult === "PASS" && input.findings.some(finding => finding.status === "FAIL" || finding.status === "UNKNOWN"))
-        throw new BadRequestException("Validation cannot PASS with failed or unknown findings");
+        throw new BadRequestException(
+          "Validation cannot PASS without a supporting document",
+        );
+      if (
+        input.overallResult === "PASS" &&
+        input.findings.some(
+          (finding) =>
+            finding.status === "FAIL" || finding.status === "UNKNOWN",
+        )
+      )
+        throw new BadRequestException(
+          "Validation cannot PASS with failed or unknown findings",
+        );
       // AI candidates remain immutable evidence; human review findings append to the run.
       for (const finding of input.findings) {
         const findingId = randomUUID();
@@ -463,4 +529,78 @@ export class ValidationService {
         );
     }
   }
+}
+
+export function validateManifestReferences(
+  output: DocumentValidationOutput,
+  manifest: Array<{ id: string; version: number; sha256: string }>,
+) {
+  const allowed = new Set(manifest.map((x) => `${x.id}:${x.version}`));
+  for (const extraction of output.extractions)
+    if (!allowed.has(`${extraction.documentId}:${extraction.documentVersion}`))
+      throw new ConflictException(
+        "AI output referenced a document outside the exact CLEAN manifest",
+      );
+  for (const finding of output.checks)
+    for (const evidence of finding.evidenceReferences)
+      if (
+        evidence.documentId !== null &&
+        evidence.documentVersion !== null &&
+        !allowed.has(`${evidence.documentId}:${evidence.documentVersion}`)
+      )
+        throw new ConflictException(
+          "AI evidence referenced a document outside the exact CLEAN manifest",
+        );
+}
+
+export async function assertCurrentCleanManifest(
+  client: any,
+  requestId: string,
+  manifest: Array<{ id: string; version: number; sha256: string }>,
+  output: DocumentValidationOutput,
+) {
+  validateManifestReferences(output, manifest);
+  const current = await client.query(
+    "SELECT id,version,sha256 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' ORDER BY id FOR UPDATE",
+    [requestId],
+  );
+  const expected = manifest
+    .map((x) => `${x.id}:${x.version}:${x.sha256}`)
+    .sort();
+  const actual = current.rows
+    .map((x: any) => `${x.id}:${x.version}:${x.sha256}`)
+    .sort();
+  if (
+    expected.length !== actual.length ||
+    expected.some((value, index) => value !== actual[index])
+  )
+    throw new ConflictException(
+      "CLEAN document manifest changed before AI result acceptance",
+    );
+}
+
+function assertDocumentRowsBounded(rows: any[]) {
+  if (rows.length > AI_BOUNDS.maxDocuments)
+    throw new Error("Document count exceeds the authorized AI input bound");
+  let total = 0;
+  for (const row of rows) {
+    const size = Number(row.size_bytes);
+    if (
+      !Number.isSafeInteger(size) ||
+      size < 0 ||
+      size > AI_BOUNDS.maxDocumentBytes
+    )
+      throw new Error("Document exceeds the per-document AI byte bound");
+    total += size;
+  }
+  if (total > AI_BOUNDS.maxAggregateDocumentBytes)
+    throw new Error("Documents exceed the aggregate AI byte bound");
+}
+
+function providerFailure(error: unknown) {
+  return error instanceof AiProviderError
+    ? error.details.classification
+    : error instanceof Error
+      ? error.name.slice(0, 64)
+      : "UNKNOWN_PROVIDER_ERROR";
 }

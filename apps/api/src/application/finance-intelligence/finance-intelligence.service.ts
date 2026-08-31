@@ -12,6 +12,7 @@ import {
   AskAimsOutputSchema,
   FINANCE_ANALYTICS_VERSION,
   FINANCE_WATCH_PROMPT_VERSION,
+  FINANCE_INTELLIGENCE_RESPONSE_SCHEMA_VERSION,
   FinanceWatchOutputSchema,
   type InsightEvidence,
   payeeEvidenceReference,
@@ -77,7 +78,10 @@ export class FinanceIntelligenceService {
           items.push({
             metric: `financial.${k}`,
             reference: `FINANCIAL_POSITION:${position.currency}:AUTHORIZED_SCOPE`,
-            value: k === "utilisationBasisPoints" ? String(v) : `${position.currency} ${String(v)}`,
+            value:
+              k === "utilisationBasisPoints"
+                ? String(v)
+                : `${position.currency} ${String(v)}`,
           });
     for (const x of budget.items.slice(0, 20))
       items.push({
@@ -111,15 +115,20 @@ export class FinanceIntelligenceService {
         items.push({
           metric: `category.${metric}`,
           reference,
-          value: metric === "utilisationBasisPoints" || metric === "paymentCount"
-            ? String(x[metric] ?? "NO_DATA")
-            : `${String(x.currency)} ${String(x[metric] ?? "NO_DATA")}`,
+          value:
+            metric === "utilisationBasisPoints" || metric === "paymentCount"
+              ? String(x[metric] ?? "NO_DATA")
+              : `${String(x.currency)} ${String(x[metric] ?? "NO_DATA")}`,
         });
     }
     const totalPaidByCurrency = new Map<string, bigint>();
     for (const x of summary.vendors) {
       const currency = String(x.currency);
-      totalPaidByCurrency.set(currency, (totalPaidByCurrency.get(currency) ?? 0n) + decimalToMinor(String(x.amount)));
+      totalPaidByCurrency.set(
+        currency,
+        (totalPaidByCurrency.get(currency) ?? 0n) +
+          decimalToMinor(String(x.amount)),
+      );
     }
     for (const x of summary.vendors.slice(0, 20)) {
       const amount = decimalToMinor(String(x.amount));
@@ -142,7 +151,7 @@ export class FinanceIntelligenceService {
         value: totalPaid > 0n ? Number((amount * 10000n) / totalPaid) : 0,
       });
     }
-    return items.slice(0, 100);
+    return items.slice(0, 80);
   }
   async watch(actor: Principal, input: IntelligenceFilterDto) {
     const filter = this.filter(input),
@@ -174,10 +183,6 @@ export class FinanceIntelligenceService {
             status:
               trend.items.length < 2 ? "INSUFFICIENT_HISTORY" : "SUFFICIENT",
           },
-          summary,
-          budget: budget.items.slice(0, 20),
-          trend: trend.items.slice(0, 12),
-          workflow,
           evidenceCatalog: catalog,
           maxInsights: 20,
         },
@@ -208,12 +213,19 @@ export class FinanceIntelligenceService {
             JSON.stringify({
               period: summary.period,
               evidenceCatalog: catalog,
+              responseSchemaVersion:
+                FINANCE_INTELLIGENCE_RESPONSE_SCHEMA_VERSION,
+              correlationId: id,
+              actorId: actor.id,
+              aiMode: "AI_ENABLED",
+              providerAttempts: result.providerAttempts ?? 1,
+              cost: "UNKNOWN",
             }),
             JSON.stringify(output),
           ],
         );
         await c.query(
-          `INSERT INTO ai_usage_events(id,agent,provider,model,prompt_version,input_tokens,output_tokens,total_tokens,latency_ms,status,schema_valid,finance_insight_run_id)VALUES($1,'FINANCE_INSIGHT_AGENT',$2,$3,$4,$5,$6,$7,$8,'COMPLETED',true,$9)`,
+          `INSERT INTO ai_usage_events(id,agent,provider,model,prompt_version,input_tokens,output_tokens,total_tokens,latency_ms,status,schema_valid,finance_insight_run_id,retry_count,estimated_cost)VALUES($1,'FINANCE_INSIGHT_AGENT',$2,$3,$4,$5,$6,$7,$8,'COMPLETED',true,$9,$10,NULL)`,
           [
             randomUUID(),
             result.provider,
@@ -224,6 +236,7 @@ export class FinanceIntelligenceService {
             result.totalTokens,
             result.latencyMs,
             id,
+            result.retryCount ?? 0,
           ],
         );
       });
@@ -291,7 +304,10 @@ export class FinanceIntelligenceService {
             departmentId: scope.departmentId,
             departmentIds: scope.departmentIds,
           },
-          toolResults: tools.results,
+          authorizedProjection: {
+            toolNames: tools.names,
+            evidenceItemCount: catalog.length,
+          },
           evidenceCatalog: catalog,
           limits: { maxToolCalls: 3, maxRowsPerTool: 20, maxEvidenceItems: 20 },
           prohibited: [
@@ -330,7 +346,7 @@ export class FinanceIntelligenceService {
           ],
         );
         await c.query(
-          `INSERT INTO ai_usage_events(id,agent,provider,model,prompt_version,input_tokens,output_tokens,total_tokens,latency_ms,status,schema_valid,finance_ask_run_id)VALUES($1,'ASK_AIMS',$2,$3,$4,$5,$6,$7,$8,'COMPLETED',true,$9)`,
+          `INSERT INTO ai_usage_events(id,agent,provider,model,prompt_version,input_tokens,output_tokens,total_tokens,latency_ms,status,schema_valid,finance_ask_run_id,retry_count,estimated_cost)VALUES($1,'ASK_AIMS',$2,$3,$4,$5,$6,$7,$8,'COMPLETED',true,$9,$10,NULL)`,
           [
             randomUUID(),
             result.provider,
@@ -341,6 +357,7 @@ export class FinanceIntelligenceService {
             result.totalTokens,
             result.latencyMs,
             id,
+            result.retryCount ?? 0,
           ],
         );
       });
@@ -367,7 +384,6 @@ export class FinanceIntelligenceService {
     classification: string,
   ) {
     const names: string[] = [],
-      results: Record<string, unknown> = {},
       evidenceCatalog: InsightEvidence[] = [];
     if (
       ["BUDGET_PRESSURE", "DEPARTMENT_SPEND", "GENERAL"].includes(
@@ -376,7 +392,6 @@ export class FinanceIntelligenceService {
     ) {
       names.push("getBudgetSummary");
       const budget = await this.dashboard.budget(actor, filter);
-      results.budget = budget;
       for (const x of budget.items.slice(0, 20))
         evidenceCatalog.push({
           metric: "category.utilisationBasisPoints",
@@ -387,7 +402,6 @@ export class FinanceIntelligenceService {
     if (classification === "BIGGEST_PAYMENTS") {
       names.push("getPaymentList");
       const payments = await this.dashboard.paymentHighlights(actor, filter);
-      results.payments = payments;
       for (const x of payments)
         evidenceCatalog.push({
           metric: "payment.amount",
@@ -398,7 +412,6 @@ export class FinanceIntelligenceService {
     if (["VENDOR_SPEND", "GENERAL"].includes(classification)) {
       names.push("getPaymentSummary");
       const summary = await this.dashboard.summary(actor, filter);
-      results.summary = summary;
       for (const x of summary.vendors.slice(0, 20))
         evidenceCatalog.push({
           metric: "vendor.paidAmount",
@@ -409,7 +422,6 @@ export class FinanceIntelligenceService {
     if (["WORKFLOW_BOTTLENECK", "GENERAL"].includes(classification)) {
       names.push("getWorkflowMetrics");
       const workflow = await this.dashboard.workflow(actor, filter);
-      results.workflow = workflow;
       for (const [k, v] of Object.entries(workflow))
         evidenceCatalog.push({
           metric: `workflow.${k}`,
@@ -419,7 +431,6 @@ export class FinanceIntelligenceService {
     }
     return {
       names: names.slice(0, 3),
-      results,
       evidenceCatalog: evidenceCatalog.slice(0, 20),
     };
   }
@@ -459,11 +470,19 @@ export class FinanceIntelligenceService {
           failure,
           schemaValid,
           evidenceValid,
-          JSON.stringify({ evidenceCatalog: x.catalog, safeFailure: true }),
+          JSON.stringify({
+            evidenceCatalog: x.catalog,
+            safeFailure: true,
+            responseSchemaVersion: FINANCE_INTELLIGENCE_RESPONSE_SCHEMA_VERSION,
+            correlationId: x.id,
+            actorId: x.actor.id,
+            aiMode: "PROVIDER_FAILURE_FALLBACK",
+            cost: "UNKNOWN",
+          }),
         ],
       );
       await c.query(
-        `INSERT INTO ai_usage_events(id,agent,provider,model,prompt_version,input_tokens,output_tokens,total_tokens,latency_ms,status,schema_valid,finance_insight_run_id,failure_classification)VALUES($1,'FINANCE_INSIGHT_AGENT',$2,$3,$4,$5,$6,$7,$8,'FAILED',$9,$10,$11)`,
+        `INSERT INTO ai_usage_events(id,agent,provider,model,prompt_version,input_tokens,output_tokens,total_tokens,latency_ms,status,schema_valid,finance_insight_run_id,failure_classification,retry_count,estimated_cost)VALUES($1,'FINANCE_INSIGHT_AGENT',$2,$3,$4,$5,$6,$7,$8,'FAILED',$9,$10,$11,$12,NULL)`,
         [
           randomUUID(),
           x.attempt?.provider ?? "configured",
@@ -476,6 +495,7 @@ export class FinanceIntelligenceService {
           schemaValid,
           x.id,
           failure,
+          x.error instanceof AiProviderError ? x.error.retryCount : 0,
         ],
       );
     });
@@ -520,7 +540,7 @@ export class FinanceIntelligenceService {
         ],
       );
       await c.query(
-        `INSERT INTO ai_usage_events(id,agent,provider,model,prompt_version,input_tokens,output_tokens,total_tokens,latency_ms,status,schema_valid,finance_ask_run_id,failure_classification)VALUES($1,'ASK_AIMS',$2,$3,$4,$5,$6,$7,$8,'FAILED',$9,$10,$11)`,
+        `INSERT INTO ai_usage_events(id,agent,provider,model,prompt_version,input_tokens,output_tokens,total_tokens,latency_ms,status,schema_valid,finance_ask_run_id,failure_classification,retry_count,estimated_cost)VALUES($1,'ASK_AIMS',$2,$3,$4,$5,$6,$7,$8,'FAILED',$9,$10,$11,$12,NULL)`,
         [
           randomUUID(),
           x.attempt?.provider ?? "configured",
@@ -533,6 +553,7 @@ export class FinanceIntelligenceService {
           schemaValid,
           x.id,
           failure,
+          x.error instanceof AiProviderError ? x.error.retryCount : 0,
         ],
       );
     });

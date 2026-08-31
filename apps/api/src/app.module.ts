@@ -3,7 +3,10 @@ import path from "node:path";
 import { AuthGuard } from "./application/auth/auth.guard.js";
 import { LocalIdentityController } from "./application/auth/local-identity.controller.js";
 import { PaymentDocumentService } from "./application/documents/payment-document.service.js";
-import { DOCUMENT_MALWARE_SCANNER,DOCUMENT_STORAGE } from "./application/documents/tokens.js";
+import {
+  DOCUMENT_MALWARE_SCANNER,
+  DOCUMENT_STORAGE,
+} from "./application/documents/tokens.js";
 import { PaymentRequestController } from "./application/payment-requests/payment-request.controller.js";
 import { PaymentRequestService } from "./application/payment-requests/payment-request.service.js";
 import { FinanceContextController } from "./application/finance-context/finance-context.controller.js";
@@ -36,7 +39,7 @@ import {
   AI_PROVIDER,
   ValidationService,
 } from "./application/validation/validation.service.js";
-import { OpenAiCompatibleProvider } from "./infrastructure/ai/openai-compatible-provider.js";
+import { createAiProvider } from "./infrastructure/ai/ai-provider-factory.js";
 import { Postgres } from "./infrastructure/database/postgres.js";
 import { correlationMiddleware } from "./infrastructure/http/correlation.middleware.js";
 import {
@@ -96,14 +99,7 @@ import { DeterministicLocalMalwareScanner } from "./infrastructure/security/dete
     },
     {
       provide: AI_PROVIDER,
-      useFactory: () =>
-        process.env.OPENAI_API_KEY
-          ? new OpenAiCompatibleProvider(
-              process.env.OPENAI_API_KEY,
-              process.env.OPENAI_MODEL ?? "gpt-5-mini",
-              process.env.OPENAI_BASE_URL,
-            )
-          : null,
+      useFactory: () => createAiProvider(process.env),
     },
     {
       provide: DOCUMENT_STORAGE,
@@ -117,10 +113,14 @@ import { DeterministicLocalMalwareScanner } from "./infrastructure/security/dete
         );
       },
     },
-    {provide:DOCUMENT_MALWARE_SCANNER,useFactory:()=>{
-      if(process.env.MALWARE_SCANNER_DRIVER!=="deterministic-local")throw new Error("No approved malware scanner adapter is configured");
-      return new DeterministicLocalMalwareScanner();
-    }},
+    {
+      provide: DOCUMENT_MALWARE_SCANNER,
+      useFactory: () => {
+        if (process.env.MALWARE_SCANNER_DRIVER !== "deterministic-local")
+          throw new Error("No approved malware scanner adapter is configured");
+        return new DeterministicLocalMalwareScanner();
+      },
+    },
   ],
 })
 export class AppModule implements NestModule {
