@@ -28,9 +28,9 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | AI governance foundation | PASS | Provider deadlines/retry/response bounds, exact Validation manifests, Risk evidence catalogs, input/output limits, minimized projections and linked traceability are implemented. Production AI remains OFF. |
 | AI provider governance | DECISION REQUIRED | After code hardening, approve provider/model, permissible data, retention/training/residency/deletion terms, cost policy and operational ownership—or launch with AI OFF. |
 | Telegram | CODE FOUNDATION PASS / EXTERNAL GATES OPEN | P9 hardening and final review PASS. Keep OFF pending approved bot/token custody, privacy, monitoring and edge controls. |
-| Structured logging/redaction | BLOCKED | Central sink, access/retention, safe fields and automated redaction verification. |
-| Metrics/alerting | BLOCKED | Health, DB, outbox, storage, AI, Finance Control and Payment alerts with owners. |
-| Correlation and audit trace | PARTIAL | Correlation/audit exist; operational access, retention, export and monitoring remain. |
+| Structured logging/redaction | P10 DESIGN COMPLETE / IMPLEMENTATION BLOCKED | Implement vendor-neutral structured stdout/stderr, safe request/worker fields and boundary-level redaction tests; company collection/access/retention remains external. |
+| Metrics/alerting | P10 DESIGN COMPLETE / IMPLEMENTATION BLOCKED | Implement bounded API, DB, worker, outbox, document, AI, Finance Control and Payment signal inputs; P11 owns thresholds/routes/providers. |
+| Correlation and audit trace | PARTIAL | Correlation/audit exist; P10 must close application-controlled outbox gaps and test propagation. Audit remains authoritative; operational retention/export remains external. |
 | PostgreSQL backup/PITR | BLOCKED | Encrypted schedule, retention, off-host/managed protection and ownership. |
 | Object backup/versioning | BLOCKED | Version/replication/backup policy consistent with retention and legal hold. |
 | Restore rehearsal | BLOCKED | Isolated restore starts AIMS and reconciles document hashes and financial invariants. |

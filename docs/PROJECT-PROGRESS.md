@@ -1377,3 +1377,43 @@ monitoring/alerting and TLS/network gates remain open.
 P9 Final: PASS / FROZEN. Overall Production ready: NO. P10: NOT STARTED.
 
 Next: STOP. Wait for separate authorization; do not begin P10.
+
+### 2026-08-31 — P10 observability architecture and gap audit
+
+Status: DECISION COMPLETE / P10 CODE HARDENING REQUIRED
+
+Starting Commit: `82d37dd`
+
+Ending Commit: NOT COMMITTED
+
+Schema: 57 → 57; migration 058+: NONE
+
+Decision: P10 CODE HARDENING REQUIRED — NO PROVIDER SELECTION REQUIRED.
+
+Evidence and conclusions:
+- Baseline PASS: `main`, clean tree, P6/P7/P8/P9 repository-backed PASS/FROZEN,
+  Production AI and Telegram OFF, Redis/scheduler absent and P10 not started.
+- Existing foundation includes bounded correlation IDs, safe failure logs,
+  durable audit, API liveness/readiness, worker lifecycle logs, scan
+  backlog/lease health and durable AI/outbox outcome records.
+- High gaps are absent API access/latency and DB operational signals, plus no
+  production-consumable worker/outbox liveness, backlog and failure metrics.
+- Medium gaps are correlation discontinuity across outbox/autonomous events,
+  logging-boundary redaction coverage and centrally enforced safe categories /
+  cardinality.
+- Structured stdout/stderr plus a privately exposed Prometheus-compatible
+  metrics contract is the minimum. Correlation IDs are sufficient now;
+  OpenTelemetry/full tracing and a specific provider are optional.
+- P11 owns alert policy/routes/SLOs; P13 owns metrics network restriction;
+  company retention/platform/on-call decisions remain open.
+
+Risk: Critical 0; High 2; Medium 3; Low 1 optional capability class.
+
+Verification: `npm test` PASS — 15 frontend/auth and 138 API tests.
+
+Impact: documentation only. Runtime/tests/database/roles/migrations/frontend/
+Redis/scheduler/P6/P7/P8/P9 unchanged. P11 not started. Overall Production
+ready: NO.
+
+Next: freeze documentation and perform the mandatory independent read-only
+five-discipline review. Do not implement P10 or begin P11.
