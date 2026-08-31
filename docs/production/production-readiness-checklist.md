@@ -27,7 +27,7 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | Worker reliability | PARTIAL | Lease recovery, stale-worker rejection, poison handling and graceful shutdown pass; Production supervision, centralized telemetry/alerts and provider SLA evidence remain blocked. |
 | AI governance foundation | PASS | Provider deadlines/retry/response bounds, exact Validation manifests, Risk evidence catalogs, input/output limits, minimized projections and linked traceability are implemented. Production AI remains OFF. |
 | AI provider governance | DECISION REQUIRED | After code hardening, approve provider/model, permissible data, retention/training/residency/deletion terms, cost policy and operational ownership—or launch with AI OFF. |
-| Telegram | BLOCKED — P9 CODE HARDENING REQUIRED | Close master-OFF webhook gating, bounded provider I/O/retry/response handling, webhook input bounds, worker config parity, authority-revocation tests and destination/data policy before external setup. |
+| Telegram | CODE FOUNDATION PASS / EXTERNAL GATES OPEN | P9 hardening and final review PASS. Keep OFF pending approved bot/token custody, privacy, monitoring and edge controls. |
 | Structured logging/redaction | BLOCKED | Central sink, access/retention, safe fields and automated redaction verification. |
 | Metrics/alerting | BLOCKED | Health, DB, outbox, storage, AI, Finance Control and Payment alerts with owners. |
 | Correlation and audit trace | PARTIAL | Correlation/audit exist; operational access, retention, export and monitoring remain. |

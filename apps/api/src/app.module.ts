@@ -52,6 +52,7 @@ import { PortalController } from "./application/portal/portal.controller.js";
 import { PortalService } from "./application/portal/portal.service.js";
 import { SessionService } from "./application/auth/session.service.js";
 import { DeterministicLocalMalwareScanner } from "./infrastructure/security/deterministic-local-malware-scanner.js";
+import { loadTelegramConfig } from "./infrastructure/configuration/telegram-config.js";
 
 @Module({
   controllers: [
@@ -91,9 +92,9 @@ import { DeterministicLocalMalwareScanner } from "./infrastructure/security/dete
     {
       provide: APPROVAL_CHANNEL,
       useFactory: () => {
-        const token = process.env.TELEGRAM_BOT_TOKEN;
-        return process.env.TELEGRAM_APPROVAL_ENABLED === "true" && token
-          ? new TelegramApprovalChannel(token)
+        const config = loadTelegramConfig(process.env);
+        return config.enabled
+          ? new TelegramApprovalChannel(config.botToken!, config)
           : new DisabledApprovalChannel();
       },
     },

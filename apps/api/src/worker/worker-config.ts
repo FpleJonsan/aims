@@ -1,4 +1,5 @@
 import { isPlaceholderSecret } from "../infrastructure/configuration/secret-boundary.js";
+import { loadTelegramConfig } from "../infrastructure/configuration/telegram-config.js";
 
 export type WorkerConfig = {
   workerId: string;
@@ -11,6 +12,10 @@ export type WorkerConfig = {
   scannerTimeoutMs: number;
   shutdownGraceMs: number;
   telegramEnabled: boolean;
+  telegramRequestTimeoutMs?: number;
+  telegramResponseMaxBytes?: number;
+  telegramRetryMaxDelaySeconds?: number;
+  outboxLeaseSeconds?: number;
   scannerEnabled: boolean;
   databaseUrl?: string;
   documentDatabaseUrl?: string;
@@ -18,14 +23,13 @@ export type WorkerConfig = {
 
 export function loadWorkerConfig(environment:Readonly<Record<string,string|undefined>>=process.env):WorkerConfig{
   const production=environment.NODE_ENV==="production"||environment.AIMS_ENVIRONMENT==="production";
-  const telegramEnabled=environment.TELEGRAM_APPROVAL_ENABLED==="true";
+  const telegram=loadTelegramConfig(environment),telegramEnabled=telegram.enabled;
   const scannerEnabled=environment.DOCUMENT_SCAN_WORKER_ENABLED!=="false";
   const databaseUrl=environment.DATABASE_URL?.trim()||undefined;
   const documentDatabaseUrl=environment.DOCUMENT_WORKER_DATABASE_URL?.trim()||undefined;
   if(!telegramEnabled&&!scannerEnabled)throw new Error("At least one worker workload must be enabled");
   if(telegramEnabled){
     validateDatabaseUrl(databaseUrl,"DATABASE_URL",production,environment.AIMS_EXPECTED_DATABASE,"aims_app");
-    if(!environment.TELEGRAM_BOT_TOKEN)throw new Error("TELEGRAM_BOT_TOKEN is required when Telegram worker delivery is enabled");
   }
   if(scannerEnabled){
     validateDatabaseUrl(documentDatabaseUrl,"DOCUMENT_WORKER_DATABASE_URL",production,environment.AIMS_EXPECTED_DATABASE,"aims_document_worker_runtime");
@@ -49,7 +53,7 @@ export function loadWorkerConfig(environment:Readonly<Record<string,string|undef
     maximumAttempts:integer(environment.DOCUMENT_SCAN_MAX_ATTEMPTS,5,1,20,"DOCUMENT_SCAN_MAX_ATTEMPTS"),
     retryDelaySeconds:integer(environment.DOCUMENT_SCAN_RETRY_DELAY_SECONDS,300,1,86400,"DOCUMENT_SCAN_RETRY_DELAY_SECONDS"),
     storageTimeoutMs,scannerTimeoutMs,shutdownGraceMs,
-    telegramEnabled,scannerEnabled,databaseUrl,documentDatabaseUrl,
+    telegramEnabled,telegramRequestTimeoutMs:telegram.requestTimeoutMs,telegramResponseMaxBytes:telegram.responseMaxBytes,telegramRetryMaxDelaySeconds:telegram.retryMaxDelaySeconds,outboxLeaseSeconds:telegram.outboxLeaseSeconds,scannerEnabled,databaseUrl,documentDatabaseUrl,
   };
 }
 

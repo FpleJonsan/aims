@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import test from "node:test";
+import pg from "pg";
 import { ApprovalService } from "../src/application/approval/approval.service.js";
 import { ApprovalOutboxService } from "../src/application/approval/approval-outbox.service.js";
-import type { ApprovalChannel } from "../src/application/approval/telegram-approval.channel.js";
+import { type ApprovalChannel, TelegramDeliveryError } from "../src/application/approval/telegram-approval.channel.js";
 import { FinanceContextService } from "../src/application/finance-context/finance-context.service.js";
 import { FinancialAnalysisService } from "../src/application/financial-analysis/financial-analysis.service.js";
 import { PaymentRequestService } from "../src/application/payment-requests/payment-request.service.js";
@@ -11,6 +12,8 @@ import { PolicyService } from "../src/application/policy/policy.service.js";
 import { ValidationService } from "../src/application/validation/validation.service.js";
 import type { Principal } from "../src/domain/payment-request.js";
 import { Postgres } from "../src/infrastructure/database/postgres.js";
+
+process.env.TELEGRAM_APPROVAL_ENABLED = "true";
 
 const requester: Principal = {
   id: "10000000-0000-4000-8000-000000000001",
@@ -514,7 +517,7 @@ async function telegramToken(
   } = {},
 ) {
   const id = randomUUID(),
-    callback = `${id}.${randomUUID()}`,
+    callback = `${id}.${randomUUID().replaceAll("-", "").slice(0, 24)}`,
     recipient = options.recipient ?? approver;
   await db.pool.query(
     "INSERT INTO approval_action_tokens(id,token_hash,approval_case_id,approval_step_id,recipient_user_id,action,expires_at,status)VALUES($1,$2,$3,$4,$5,$6,CASE WHEN $8 THEN now()-interval '1 minute' ELSE now()+interval '10 minutes' END,$7)",
@@ -1644,6 +1647,144 @@ test("barrier G: final Approval and commitment versus invalidation stays consist
       false,
     );
   } finally {
+    await db.onModuleDestroy();
+  }
+});
+
+test("Telegram master OFF dominates stale secret, binding, and valid action token", async () => {
+  const oldEnabled = process.env.TELEGRAM_APPROVAL_ENABLED,
+    oldSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  process.env.TELEGRAM_WEBHOOK_SECRET = "off-matrix-secret";
+  const db = new Postgres(), base = Date.now();
+  try {
+    const fixture = await eligible(db),
+      service = new ApprovalService(db, fixture.requests),
+      view = await service.create(fixture.r.id, finance, "off-create"),
+      telegramId = String(base + 81001);
+    await service.bindTelegram({ userId: approver.id, telegramUserId: telegramId, telegramChatId: telegramId }, admin, "off-bind");
+    const token = await telegramToken(db, view, "APPROVE");
+    const webhookRowsBefore = Number((await db.pool.query("SELECT count(*) count FROM telegram_webhook_updates")).rows[0].count);
+    process.env.TELEGRAM_APPROVAL_ENABLED = "false";
+    let updateId = base;
+    for (const secret of [undefined, "off-matrix-secret", "stale-secret"])
+      assert.deepEqual(await service.telegramWebhook(secret, {
+        update_id: updateId++,
+        callback_query: { data: token, from: { id: Number(telegramId) } },
+      }), { ok: false, disabled: true });
+    assert.equal((await db.pool.query("SELECT count(*)::int count FROM approval_actions WHERE approval_case_id=$1", [view.case.id])).rows[0].count, 0);
+    assert.equal((await db.pool.query("SELECT status FROM approval_action_tokens WHERE token_hash=$1", [createHash("sha256").update(token).digest("hex")])).rows[0].status, "ACTIVE");
+    assert.equal(Number((await db.pool.query("SELECT count(*) count FROM telegram_webhook_updates")).rows[0].count), webhookRowsBefore);
+  } finally {
+    process.env.TELEGRAM_APPROVAL_ENABLED = oldEnabled;
+    process.env.TELEGRAM_WEBHOOK_SECRET = oldSecret;
+    await db.onModuleDestroy();
+  }
+});
+
+test("verified private-chat challenge binds once and explicit revoke invalidates tokens", async () => {
+  const oldSecret = process.env.TELEGRAM_WEBHOOK_SECRET,
+    oldCallback = process.env.TELEGRAM_CALLBACK_SECRET;
+  process.env.TELEGRAM_WEBHOOK_SECRET = "binding-webhook-secret";
+  process.env.TELEGRAM_CALLBACK_SECRET = "binding-callback-secret";
+  const db = new Postgres(), adminDb = new pg.Pool({ connectionString: process.env.AIMS_INTEGRATION_ADMIN_DATABASE_URL }), base = Date.now();
+  try {
+    await adminDb.query("INSERT INTO user_roles(user_id,role) VALUES($1,'ADMIN') ON CONFLICT DO NOTHING", [admin.id]);
+    const fixture = await eligible(db), service = new ApprovalService(db, fixture.requests),
+      challenge = await service.createTelegramBindingChallenge(approver.id, admin, "binding-challenge"),
+      telegramId = base + 82001;
+    await assert.rejects(() => service.telegramWebhook("binding-webhook-secret", {
+      update_id: base + 1,
+      message: { text: challenge.challenge, from: { id: telegramId }, chat: { id: telegramId, type: "group" } },
+    }), /private/);
+    await service.telegramWebhook("binding-webhook-secret", {
+      update_id: base + 2,
+      message: { text: challenge.challenge, from: { id: telegramId }, chat: { id: telegramId, type: "private" } },
+    });
+    await assert.rejects(() => service.telegramWebhook("binding-webhook-secret", {
+      update_id: base + 3,
+      message: { text: challenge.challenge, from: { id: telegramId }, chat: { id: telegramId, type: "private" } },
+    }), /already used/);
+    const view = await service.create(fixture.r.id, finance, "binding-case"), token = await telegramToken(db, view, "APPROVE");
+    await service.revokeTelegram(approver.id, admin, "binding-revoke");
+    await assert.rejects(() => service.telegramWebhook("binding-webhook-secret", {
+      update_id: base + 4,
+      callback_query: { data: token, from: { id: telegramId }, message: { chat: { id: telegramId, type: "private" } } },
+    }));
+    assert.equal((await db.pool.query("SELECT status FROM approval_action_tokens WHERE token_hash=$1", [createHash("sha256").update(token).digest("hex")])).rows[0].status, "REVOKED");
+    assert.equal((await db.pool.query("SELECT count(*)::int count FROM audit_events WHERE action='TELEGRAM_IDENTITY_REVOKED' AND safe_metadata->>'explicit'='true'")).rows[0].count, 1);
+  } finally {
+    process.env.TELEGRAM_WEBHOOK_SECRET = oldSecret;
+    process.env.TELEGRAM_CALLBACK_SECRET = oldCallback;
+    await adminDb.end();
+    await db.onModuleDestroy();
+  }
+});
+
+for (const change of ["REVOKED", "AMOUNT_REDUCED"] as const) test(`Telegram current authority wins after notification: ${change}`, async () => {
+  const oldSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  process.env.TELEGRAM_WEBHOOK_SECRET = "authority-current-secret";
+  const db = new Postgres(), adminDb = new pg.Pool({ connectionString: process.env.AIMS_INTEGRATION_ADMIN_DATABASE_URL }), base = Date.now() + (change === "REVOKED" ? 83000 : 84000);
+  try {
+    await adminDb.query("UPDATE approval_authorities SET active=true,maximum_amount_minor=NULL WHERE user_id=$1", [approver.id]);
+    const fixture = await eligible(db), service = new ApprovalService(db, fixture.requests), view = await service.create(fixture.r.id, finance, `authority-${change}`), telegramId = String(base + 1);
+    await service.bindTelegram({ userId: approver.id, telegramUserId: telegramId, telegramChatId: telegramId }, admin, `authority-bind-${change}`);
+    const token = await telegramToken(db, view, "APPROVE");
+    if (change === "REVOKED") await adminDb.query("UPDATE approval_authorities SET active=false WHERE user_id=$1", [approver.id]);
+    else await adminDb.query("UPDATE approval_authorities SET maximum_amount_minor=1 WHERE user_id=$1", [approver.id]);
+    await assert.rejects(() => service.telegramWebhook("authority-current-secret", {
+      update_id: base + 2,
+      callback_query: { data: token, from: { id: Number(telegramId) } },
+    }), /authority|authorized/i);
+    assert.equal((await db.pool.query("SELECT count(*)::int count FROM approval_actions WHERE approval_case_id=$1", [view.case.id])).rows[0].count, 0);
+    assert.equal((await db.pool.query("SELECT status FROM approval_steps WHERE id=$1", [view.steps[0].id])).rows[0].status, "ACTIVE");
+  } finally {
+    process.env.TELEGRAM_WEBHOOK_SECRET = oldSecret;
+    await adminDb.query("UPDATE approval_authorities SET active=true,maximum_amount_minor=NULL WHERE user_id=$1", [approver.id]);
+    await adminDb.end();
+    await db.onModuleDestroy();
+  }
+});
+
+test("Telegram webhook rejects unsafe identifiers, oversized fields, and deep structures before mutation", async () => {
+  const oldSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  process.env.TELEGRAM_WEBHOOK_SECRET = "bounds-secret";
+  const db = new Postgres(), service = new ApprovalService(db, new PaymentRequestService(db));
+  try {
+    for (const body of [
+      { update_id: Number.MAX_SAFE_INTEGER + 1 },
+      { update_id: 1, callback_query: { data: "x".repeat(65), from: { id: 1 } } },
+      { update_id: 2, message: { text: "x".repeat(2001), from: { id: 1 }, chat: { id: 1, type: "private" } } },
+      { update_id: 3, message: { text: "ok", from: { id: 1.5 }, chat: { id: 1, type: "private" } } },
+    ]) await assert.rejects(() => service.telegramWebhook("bounds-secret", body));
+    let deep: unknown = { value: true }; for (let i = 0; i < 10; i++) deep = { child: deep };
+    await assert.rejects(() => service.telegramWebhook("bounds-secret", { update_id: 4, message: deep }));
+    assert.equal((await db.pool.query("SELECT count(*)::int count FROM telegram_webhook_updates WHERE update_id BETWEEN 1 AND 4")).rows[0].count, 0);
+  } finally {
+    process.env.TELEGRAM_WEBHOOK_SECRET = oldSecret;
+    await db.onModuleDestroy();
+  }
+});
+
+test("Telegram 429 persists a bounded Retry-After without changing Approval", async () => {
+  const oldCallback = process.env.TELEGRAM_CALLBACK_SECRET;
+  process.env.TELEGRAM_CALLBACK_SECRET = "retry-after-callback-secret";
+  const db = new Postgres(), base = Date.now();
+  try {
+    const fixture = await eligible(db), service = new ApprovalService(db, fixture.requests), telegramId = String(base + 85001);
+    await service.bindTelegram({ userId: approver.id, telegramUserId: telegramId, telegramChatId: telegramId }, admin, "retry-after-bind");
+    const view = await service.create(fixture.r.id, finance, "retry-after-create");
+    await db.pool.query("UPDATE notification_outbox SET status='SENT' WHERE aggregate_id<>$1 AND status IN('PENDING','FAILED_RETRYABLE')", [view.steps[0].id]);
+    const channel: ApprovalChannel = { send: async () => { throw new TelegramDeliveryError("TELEGRAM_RATE_LIMITED", true, 7); } },
+      outbox = new ApprovalOutboxService(db, channel), before = Date.now();
+    const result = await outbox.dispatch();
+    assert.equal(result.results[0].status, "FAILED_RETRYABLE");
+    const row = (await db.pool.query("SELECT status,last_error_code,next_attempt_at FROM notification_outbox WHERE aggregate_id=$1", [view.steps[0].id])).rows[0], delay = new Date(row.next_attempt_at).getTime() - before;
+    assert.equal(row.status, "FAILED_RETRYABLE");
+    assert.equal(row.last_error_code, "TELEGRAM_RATE_LIMITED");
+    assert.ok(delay >= 5_000 && delay <= 10_000);
+    assert.equal((await db.pool.query("SELECT count(*)::int count FROM approval_actions WHERE approval_case_id=$1", [view.case.id])).rows[0].count, 0);
+  } finally {
+    process.env.TELEGRAM_CALLBACK_SECRET = oldCallback;
     await db.onModuleDestroy();
   }
 });

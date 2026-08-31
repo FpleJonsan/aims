@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -462,6 +462,15 @@ export class ApprovalService {
     correlationId: string,
   ) {
     this.admin(actor);
+    assertTelegramId(input.telegramUserId);
+    assertTelegramId(input.telegramChatId);
+    if (
+      isProductionRuntime() &&
+      input.telegramUserId !== input.telegramChatId
+    )
+      throw new BadRequestException(
+        "Telegram approval bindings require the user's private chat",
+      );
     return this.db.retryableTransaction(async (c) => {
       const user = await c.query("SELECT 1 FROM users WHERE id=$1 AND active", [
         input.userId,
@@ -524,17 +533,106 @@ export class ApprovalService {
           JSON.stringify({ userId: input.userId }),
         ],
       );
+      await c.query(
+        `UPDATE notification_outbox o SET status='FAILED_RETRYABLE',next_attempt_at=now(),
+         claimed_at=NULL,claim_token=NULL,claimed_by=NULL,last_error_code='IDENTITY_REBOUND'
+         FROM approval_steps s JOIN approval_cases ac ON ac.id=s.approval_case_id
+         WHERE o.aggregate_id=s.id AND o.recipient_user_id=$1 AND s.status='ACTIVE'
+           AND ac.is_current AND o.status='FAILED_TERMINAL' AND o.last_error_code='IDENTITY_REVOKED'`,
+        [input.userId],
+      );
       return { id, userId: input.userId, status: "ACTIVE" };
     });
   }
 
+  async createTelegramBindingChallenge(
+    userId: string,
+    actor: Principal,
+    correlationId: string,
+  ) {
+    this.admin(actor);
+    if (process.env.TELEGRAM_APPROVAL_ENABLED !== "true")
+      throw new ConflictException("Telegram approval channel is disabled");
+    const secret = process.env.TELEGRAM_CALLBACK_SECRET;
+    if (!secret)
+      throw new ConflictException("Telegram callback configuration is unavailable");
+    const user = await this.db.pool.query(
+      "SELECT 1 FROM users WHERE id=$1 AND active",
+      [userId],
+    );
+    if (!user.rowCount) throw new BadRequestException("Active user not found");
+    const id = randomUUID(),
+      token = `${id}.${createHmac("sha256", secret).update(id).digest("base64url").slice(0, 24)}`,
+      tokenHash = createHash("sha256").update(token).digest("hex"),
+      expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
+    await this.db.pool.query(
+      `INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,correlation_id,safe_metadata)
+       VALUES($1,$2,'TELEGRAM_BINDING_CHALLENGE_CREATED','TELEGRAM_IDENTITY_BINDING',$3,$4,$5)`,
+      [
+        randomUUID(),
+        actor.id,
+        id,
+        correlationId,
+        JSON.stringify({ userId, tokenHash, expiresAt }),
+      ],
+    );
+    return { challenge: `/bind ${token}`, expiresAt };
+  }
+
+  async revokeTelegram(
+    userId: string,
+    actor: Principal,
+    correlationId: string,
+  ) {
+    this.admin(actor);
+    return this.db.retryableTransaction(async (c) => {
+      const revoked = await c.query<any>(
+        "UPDATE telegram_identity_bindings SET status='REVOKED',revoked_at=now() WHERE user_id=$1 AND status='ACTIVE' RETURNING id",
+        [userId],
+      );
+      if (!revoked.rowCount)
+        throw new NotFoundException("Active Telegram binding not found");
+      for (const binding of revoked.rows)
+        await c.query(
+          "UPDATE telegram_pending_interactions SET status='CANCELLED' WHERE telegram_binding_id=$1 AND status='PENDING'",
+          [binding.id],
+        );
+      await c.query(
+        "UPDATE approval_action_tokens SET status='REVOKED' WHERE recipient_user_id=$1 AND status='ACTIVE'",
+        [userId],
+      );
+      await c.query(
+        `UPDATE notification_outbox o SET status='FAILED_TERMINAL',last_error_code='IDENTITY_REVOKED',
+         claimed_at=NULL,claim_token=NULL,claimed_by=NULL
+         FROM approval_steps s JOIN approval_cases ac ON ac.id=s.approval_case_id
+         WHERE o.aggregate_id=s.id AND o.recipient_user_id=$1 AND s.status='ACTIVE'
+           AND ac.is_current AND o.status IN('PENDING','FAILED_RETRYABLE','PROCESSING')`,
+        [userId],
+      );
+      for (const binding of revoked.rows)
+        await c.query(
+          `INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,correlation_id,safe_metadata)
+           VALUES($1,$2,'TELEGRAM_IDENTITY_REVOKED','TELEGRAM_IDENTITY_BINDING',$3,$4,$5)`,
+          [
+            randomUUID(),
+            actor.id,
+            binding.id,
+            correlationId,
+            JSON.stringify({ userId, explicit: true }),
+          ],
+        );
+      return { userId, status: "REVOKED" };
+    });
+  }
+
   async telegramWebhook(secret: string | undefined, body: unknown) {
+    if (process.env.TELEGRAM_APPROVAL_ENABLED !== "true")
+      return { ok: false, disabled: true };
     const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
     if (!expected || !secret || !safeEqual(secret, expected))
       throw new ForbiddenException("Invalid Telegram webhook secret");
-    const update = body as any,
-      updateId = update?.update_id;
-    if (typeof updateId !== "number") return { ok: true, ignored: true };
+    const update = validateTelegramUpdate(body),
+      updateId = update.update_id;
     const claim = await this.db.retryableTransaction(async (c) => {
       const existing = await c.query<any>(
         "SELECT * FROM telegram_webhook_updates WHERE update_id=$1 FOR UPDATE",
@@ -593,6 +691,8 @@ export class ApprovalService {
 
   private async processTelegramUpdate(update: any) {
     const message = update?.message;
+    if (typeof message?.text === "string" && message.text.startsWith("/bind "))
+      return this.consumeTelegramBindingChallenge(message);
     if (
       typeof message?.text === "string" &&
       typeof message?.from?.id === "number"
@@ -639,16 +739,27 @@ export class ApprovalService {
       typeof callback?.from?.id !== "number"
     )
       return { ok: true, ignored: true };
+    const callbackChat = callback.message?.chat;
+    if (
+      isProductionRuntime() &&
+      (!callbackChat ||
+        callbackChat.type !== "private" ||
+        callbackChat.id !== callback.from.id)
+    )
+      throw new ForbiddenException(
+        "Telegram approval actions require the bound private chat",
+      );
     const prepared = await this.db.retryableTransaction(async (c) => {
       const token = await c.query<any>(
         `SELECT t.*,ac.payment_request_id,b.id binding_id,b.user_id,u.department_id,ARRAY(SELECT ur.role FROM user_roles ur WHERE ur.user_id=u.id) roles
          FROM approval_action_tokens t JOIN approval_cases ac ON ac.id=t.approval_case_id
-         JOIN telegram_identity_bindings b ON b.telegram_user_id=$2 AND b.status='ACTIVE' AND b.user_id=t.recipient_user_id
+         JOIN telegram_identity_bindings b ON b.telegram_user_id=$2 AND ($3::bigint IS NULL OR b.telegram_chat_id=$3) AND b.status='ACTIVE' AND b.user_id=t.recipient_user_id
          JOIN users u ON u.id=b.user_id AND u.active
          WHERE t.token_hash=$1 FOR UPDATE OF t`,
         [
           createHash("sha256").update(callback.data).digest("hex"),
           callback.from.id,
+          callbackChat?.id ?? null,
         ],
       );
       if (!token.rowCount)
@@ -753,6 +864,82 @@ export class ApprovalService {
       [command.tokenId, command.principal.id],
     );
     return result;
+  }
+
+  private async consumeTelegramBindingChallenge(message: any) {
+    if (
+      message.chat?.type !== "private" ||
+      message.chat?.id !== message.from?.id
+    )
+      throw new ForbiddenException("Telegram binding requires a private chat");
+    const token = message.text.slice(6).trim();
+    if (!/^[0-9a-f-]{36}\.[A-Za-z0-9_-]{24}$/.test(token))
+      throw new BadRequestException("Invalid Telegram binding challenge");
+    const [id, signature] = token.split("."),
+      secret = process.env.TELEGRAM_CALLBACK_SECRET,
+      expected = secret
+        ? createHmac("sha256", secret)
+            .update(id)
+            .digest("base64url")
+            .slice(0, 24)
+        : "";
+    if (!secret || !safeEqual(signature, expected))
+      throw new ForbiddenException("Invalid Telegram binding challenge");
+    const created = await this.db.retryableTransaction(async (c) => {
+      await c.query("SELECT pg_advisory_xact_lock(hashtext($1))", [id]);
+      const q = await c.query<any>(
+        `SELECT ae.actor_id,ae.correlation_id,ae.safe_metadata,u.department_id
+         FROM audit_events ae JOIN users u ON u.id=ae.actor_id AND u.active
+         WHERE ae.action='TELEGRAM_BINDING_CHALLENGE_CREATED' AND ae.entity_id=$1
+           AND EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id=u.id AND ur.role='ADMIN')
+         ORDER BY occurred_at DESC LIMIT 1`,
+        [id],
+      );
+      if (!q.rowCount)
+        throw new ConflictException("Telegram binding challenge is invalid");
+      const metadata = q.rows[0].safe_metadata;
+      if (
+        metadata?.tokenHash !== createHash("sha256").update(token).digest("hex") ||
+        new Date(metadata?.expiresAt).getTime() <= Date.now()
+      )
+        throw new ConflictException("Telegram binding challenge is expired");
+      const consumed = await c.query(
+        "SELECT 1 FROM audit_events WHERE action='TELEGRAM_BINDING_CHALLENGE_CONSUMED' AND entity_id=$1",
+        [id],
+      );
+      if (consumed.rowCount)
+        throw new ConflictException("Telegram binding challenge is already used");
+      await c.query(
+        `INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,correlation_id,safe_metadata)
+         VALUES($1,$2,'TELEGRAM_BINDING_CHALLENGE_CONSUMED','TELEGRAM_IDENTITY_BINDING',$3,$4,$5)`,
+        [
+          randomUUID(),
+          q.rows[0].actor_id,
+          id,
+          q.rows[0].correlation_id,
+          JSON.stringify({ userId: metadata.userId }),
+        ],
+      );
+      return {
+        userId: metadata.userId as string,
+        actorId: q.rows[0].actor_id as string,
+        actorDepartmentId: q.rows[0].department_id as string,
+        correlationId: q.rows[0].correlation_id as string,
+      };
+    });
+    return this.bindTelegram(
+      {
+        userId: created.userId,
+        telegramUserId: String(message.from.id),
+        telegramChatId: String(message.chat.id),
+      },
+      {
+        id: created.actorId,
+        departmentId: created.actorDepartmentId,
+        roles: ["ADMIN"],
+      },
+      created.correlationId,
+    );
   }
 
   private async eligibility(c: PoolClient, id: string) {
@@ -1078,4 +1265,107 @@ function safeEqual(a: string, b: string) {
   const aa = Buffer.from(a),
     bb = Buffer.from(b);
   return aa.length === bb.length && timingSafeEqual(aa, bb);
+}
+
+function assertTelegramId(value: string): void {
+  if (!/^[1-9][0-9]{0,15}$/.test(value))
+    throw new BadRequestException("Telegram identifier is invalid");
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0)
+    throw new BadRequestException("Telegram identifier is outside the safe range");
+}
+
+function validateTelegramUpdate(body: unknown): any {
+  assertBoundedStructure(body, 0, { nodes: 0 });
+  if (!isRecord(body))
+    throw new BadRequestException("Telegram update must be an object");
+  assertSafeTelegramNumber(body.update_id, "update ID", true);
+  const message = body.message;
+  const callback = body.callback_query;
+  if (message !== undefined) validateTelegramMessage(message);
+  if (callback !== undefined) {
+    if (!isRecord(callback))
+      throw new BadRequestException("Telegram callback is malformed");
+    if (typeof callback.data !== "string" || Buffer.byteLength(callback.data) > 64)
+      throw new BadRequestException("Telegram callback data is invalid");
+    validateTelegramIdentity(callback.from, "callback user");
+    if (
+      isProductionRuntime() &&
+      !isRecord(callback.message)
+    )
+      throw new BadRequestException("Telegram callback message is required");
+    if (isRecord(callback.message)) validateTelegramChat(callback.message.chat);
+  }
+  return body;
+}
+
+function validateTelegramMessage(value: unknown): void {
+  if (!isRecord(value))
+    throw new BadRequestException("Telegram message is malformed");
+  if (typeof value.text !== "string" || value.text.length < 1 || value.text.length > 2_000)
+    throw new BadRequestException("Telegram message text is invalid");
+  validateTelegramIdentity(value.from, "message user");
+  validateTelegramChat(value.chat);
+}
+
+function validateTelegramIdentity(value: unknown, label: string): void {
+  if (!isRecord(value))
+    throw new BadRequestException(`Telegram ${label} is malformed`);
+  assertSafeTelegramNumber(value.id, label, false);
+}
+
+function validateTelegramChat(value: unknown): void {
+  if (!isRecord(value))
+    throw new BadRequestException("Telegram chat is malformed");
+  assertSafeTelegramNumber(value.id, "chat ID", false);
+  if (
+    isProductionRuntime() &&
+    value.type !== "private"
+  )
+    throw new ForbiddenException("Telegram approval supports private chats only");
+}
+
+function assertSafeTelegramNumber(
+  value: unknown,
+  label: string,
+  allowZero: boolean,
+): void {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    (allowZero ? value < 0 : value <= 0)
+  )
+    throw new BadRequestException(`Telegram ${label} is invalid`);
+}
+
+function assertBoundedStructure(
+  value: unknown,
+  depth: number,
+  counter: { nodes: number },
+): void {
+  counter.nodes += 1;
+  if (depth > 8 || counter.nodes > 128)
+    throw new BadRequestException("Telegram update structure is too complex");
+  if (Array.isArray(value)) {
+    if (value.length > 32)
+      throw new BadRequestException("Telegram update array is too large");
+    for (const child of value) assertBoundedStructure(child, depth + 1, counter);
+  } else if (isRecord(value)) {
+    const entries = Object.entries(value);
+    if (entries.length > 32)
+      throw new BadRequestException("Telegram update object is too large");
+    for (const [, child] of entries)
+      assertBoundedStructure(child, depth + 1, counter);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isProductionRuntime(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.AIMS_ENVIRONMENT === "production"
+  );
 }

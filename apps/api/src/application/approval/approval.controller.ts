@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Headers,
@@ -17,7 +18,7 @@ import {
   ApprovalActionDto,
   ApprovalClarificationResponseDto,
   ApprovalInboxDto,
-  TelegramBindingDto,
+  TelegramBindingChallengeDto,
 } from "./approval.dto.js";
 import { ApprovalOutboxService } from "./approval-outbox.service.js";
 import { ApprovalService } from "./approval.service.js";
@@ -69,9 +70,19 @@ export class ApprovalController {
   }
   @Post("integrations/telegram/bindings") bind(
     @Req() r: Request,
-    @Body() b: TelegramBindingDto,
+    @Body() b: TelegramBindingChallengeDto,
   ) {
-    return this.approvals.bindTelegram(b, r.principal, r.correlationId);
+    return this.approvals.createTelegramBindingChallenge(
+      b.userId,
+      r.principal,
+      r.correlationId,
+    );
+  }
+  @Delete("integrations/telegram/bindings/:userId") revoke(
+    @Req() r: Request,
+    @Param("userId", ParseUUIDPipe) userId: string,
+  ) {
+    return this.approvals.revokeTelegram(userId, r.principal, r.correlationId);
   }
   @Post("approval-notifications/dispatch") dispatch(@Req() r: Request) {
     if (!r.principal.roles.includes("FINANCE"))

@@ -5,6 +5,7 @@ import { Postgres } from "../../infrastructure/database/postgres.js";
 import {
   APPROVAL_CHANNEL,
   type ApprovalChannel,
+  TelegramDeliveryError,
 } from "./telegram-approval.channel.js";
 @Injectable()
 export class ApprovalOutboxService {
@@ -23,15 +24,12 @@ export class ApprovalOutboxService {
     return { processed: results.length, results };
   }
   private async claim() {
-    const configuredLease = Number(
-        process.env.OUTBOX_PROCESSING_LEASE_SECONDS ?? "120",
+    const leaseSeconds = boundedInteger(
+        process.env.OUTBOX_PROCESSING_LEASE_SECONDS,
+        120,
+        1,
+        3600,
       ),
-      leaseSeconds =
-        Number.isInteger(configuredLease) &&
-        configuredLease >= 1 &&
-        configuredLease <= 3600
-          ? configuredLease
-          : 120,
       claimToken = randomUUID();
     return this.db.transaction(async (c) => {
       const q = await c.query<any>(
@@ -133,12 +131,27 @@ export class ApprovalOutboxService {
       ).slice(0, 64);
       if (code === "STALE_OUTBOX_CLAIM")
         return { id: row.id, status: "STALE_CLAIM" };
-      const terminal =
+      const deliveryError =
+          error instanceof TelegramDeliveryError ? error : undefined,
+        terminal =
           row.attempts >= 5 ||
+          deliveryError?.retryable === false ||
           (/^TELEGRAM_HTTP_4\d\d$/.test(code) && code !== "TELEGRAM_HTTP_429") ||
           code === "RECIPIENT_OR_STEP_NOT_ACTIVE",
+        retryDelay = Math.max(
+          1,
+          Math.min(
+            deliveryError?.retryAfterSeconds ?? 300,
+            boundedInteger(
+              process.env.TELEGRAM_RETRY_MAX_DELAY_SECONDS,
+              3_600,
+              1,
+              86_400,
+            ),
+          ),
+        ),
         failed = await this.db.pool.query(
-          `UPDATE notification_outbox SET status=$3::varchar,next_attempt_at=CASE WHEN $3::varchar='FAILED_RETRYABLE' THEN now()+interval '5 minutes' ELSE next_attempt_at END,
+          `UPDATE notification_outbox SET status=$3::varchar,next_attempt_at=CASE WHEN $3::varchar='FAILED_RETRYABLE' THEN now()+make_interval(secs=>$5) ELSE next_attempt_at END,
            last_error_code=$4,claimed_at=NULL,claim_token=NULL,claimed_by=NULL
            WHERE id=$1 AND status='PROCESSING' AND claim_token=$2`,
           [
@@ -146,6 +159,7 @@ export class ApprovalOutboxService {
             row.claim_token,
             terminal ? "FAILED_TERMINAL" : "FAILED_RETRYABLE",
             code,
+            retryDelay,
           ],
         );
       if (!failed.rowCount)
@@ -178,4 +192,16 @@ export class ApprovalOutboxService {
       ],
     );
   }
+}
+
+function boundedInteger(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const parsed = value === undefined ? fallback : Number(value);
+  return Number.isInteger(parsed) && parsed >= minimum && parsed <= maximum
+    ? parsed
+    : fallback;
 }

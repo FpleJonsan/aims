@@ -10,9 +10,9 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P9 — Telegram Production Hardening Decision / Gap Audit |
-| Current status | P9 DECISION COMPLETE; CODE HARDENING REQUIRED; no external Telegram setup authorized |
-| Last completed phase | P8 — AI Governance Hardening and Final Review |
+| Current Production phase | P9 — Telegram Production Hardening |
+| Current status | P9 PASS / FROZEN; Production Telegram remains OFF and external setup unauthorized |
+| Last completed phase | P9 — Telegram Production Hardening and Final Review |
 | Overall Production ready | NO |
 | Current schema | 57 |
 | Latest migration | `057_p7_document_scan_worker_leases` |
@@ -38,10 +38,11 @@ I/O/shutdown deadlines. P7 correction is frozen. The P8 audit selected code
 hardening before Production AI may be enabled. That hardening, the AI-OFF
 configuration correction and the five-discipline final read-only review now
 PASS and are frozen. Production AI remains OFF; provider/model, privacy,
-contract, cost and operational gates remain open. The P9 audit found shared
-Approval authority and replay controls sound, but Telegram OFF webhook gating,
-provider reliability, bounds, worker configuration, destination lifecycle and
-data projection require hardening before external setup.
+contract, cost and operational gates remain open. P9 now closes the audited
+Telegram OFF webhook, provider reliability, input/configuration, destination
+lifecycle, authority-proof and data-projection findings without changing
+Approval authority. The five-discipline final frozen review PASS; Telegram
+remains OFF pending external company, privacy, monitoring and network gates.
 
 ## 2. Locked Product Architecture
 
@@ -208,7 +209,7 @@ risk register. Overall Production readiness remains NO.
 | P6 | COMPLETED / FROZEN | PostgreSQL and runtime roles |
 | P7 | COMPLETED / FROZEN | No Redis; PostgreSQL-backed reliable worker |
 | P8 | COMPLETED / FROZEN | Production AI governance hardening and final review; AI OFF and no provider selected |
-| P9 | DECISION COMPLETE / HARDENING REQUIRED | Telegram remains optional; no external setup until code gaps close |
+| P9 | COMPLETED / FROZEN | Telegram remains optional; code hardening and final review pass; no external setup authorized |
 | P10 | PENDING | Structured logs, metrics, dashboards |
 | P11 | PENDING | Alerts, SLO/SLA, on-call |
 | P12 | PENDING | Backup, PITR, restore, DR |
@@ -242,10 +243,10 @@ At the P8 final read-only review checkpoint (`fdc7bb6`):
 
 ## 11. Next Authorized Action
 
-Wait for explicit P9 implementation authorization. Do not configure an external
-Telegram bot or Production credentials, create migration 058, change database
-roles, modify P7/P8, add Redis/scheduler, or start P10. Production AI remains
-OFF and its external provider/privacy/contract approval remains open.
+Stop after P9. Do not configure an external Telegram bot or Production
+credentials, create migration 058, change database roles, modify P7/P8, add
+Redis/scheduler, or start P10 without separate authorization. Production AI and
+Telegram remain OFF.
 
 ## 12. Append-Only Progress History
 
@@ -1317,3 +1318,62 @@ OFF. P10 NOT STARTED.
 P9 Final: NO. Overall Production ready: NO.
 
 Next: WAIT FOR EXPLICIT P9 IMPLEMENTATION AUTHORIZATION.
+
+### 2026-08-31 — P9 Telegram Production hardening implementation
+
+Status: IMPLEMENTATION AND REGRESSION COMPLETE / FINAL REVIEW PENDING
+
+Starting Commit: `901a8c8`
+
+Ending Commit: NOT COMMITTED
+
+Schema: 57 → 57; migration 058+: NONE
+
+Summary:
+- Closed the master-OFF webhook before secret, update, token or domain work and
+  unified API/worker/readiness configuration with ON fail-closed and OFF
+  secret-independent semantics.
+- Added bounded abortable provider I/O, response ceilings, safe provider error
+  classes, bounded persisted Retry-After handling and shutdown cancellation
+  coherent with the PostgreSQL outbox lease.
+- Added bounded webhook contracts, one-time verified private-chat binding,
+  explicit audited revoke/rebind invalidation and deterministic 160-code-point
+  purpose projection using plain text.
+- Added executable proof for OFF zero mutation, binding/revoke/private-chat,
+  unsafe input rejection, provider reliability, and current authority after
+  notification revocation or amount-limit reduction.
+
+Verification: 15 frontend/auth and 138 API tests PASS; Approval/Telegram 26/26,
+P7 worker 13/13, Finance Control/Payment 35/35, all other repository integration
+suites, P6 role proof, four-scenario UAT, isolation, lint, typecheck, frontend
+and API builds, and diff checks PASS.
+
+Impact: schema/database/roles/frontend/Redis/scheduler/P7/P8/financial logic/
+workflow unchanged. Production Telegram OFF and not externally configured.
+
+Next: mandatory five-discipline frozen read-only review. Do not start P10.
+
+### 2026-08-31 — P9 Telegram final frozen review
+
+Status: PASS / FROZEN
+
+Starting Commit: `901a8c8`
+
+Ending Commit: NOT COMMITTED
+
+Schema: 57 → 57; migration 058+: NONE
+
+Review: Senior Application Security, Backend Architecture,
+PostgreSQL/Concurrency, Production/SRE and Data Governance/Privacy all PASS.
+Critical, High, Medium and Low findings requiring correction: NONE.
+
+Frozen-review mutation statement: code NO; database NO; documentation NO;
+tests NO; migrations NO; privileges NO.
+
+Production Telegram remains OFF and no bot, token, webhook or external
+infrastructure was configured. External ownership/custody, privacy/retention,
+monitoring/alerting and TLS/network gates remain open.
+
+P9 Final: PASS / FROZEN. Overall Production ready: NO. P10: NOT STARTED.
+
+Next: STOP. Wait for separate authorization; do not begin P10.

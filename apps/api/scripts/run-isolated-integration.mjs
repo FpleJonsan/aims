@@ -55,7 +55,7 @@ try{
   const urls=[url("aims_app",credentials.app),url("aims_finance_runtime",credentials.finance),url("aims_payment_runtime",credentials.payment)];
   assertDisposableIntegrationDatabase({databaseName:database,urls});
   run("npx",["tsc","-p","tsconfig.test.json"],{cwd:apiRoot});
-  const env={...process.env,AIMS_ENVIRONMENT:"local",DATABASE_URL:urls[0],FINANCE_DATABASE_URL:urls[1],PAYMENT_DATABASE_URL:urls[2],DOCUMENT_WORKER_DATABASE_URL:url("aims_document_worker_runtime",credentials.worker),AIMS_INTEGRATION_DATABASE:database,AIMS_INTEGRATION_DISPOSABLE:"true"};
+  const env={...process.env,AIMS_ENVIRONMENT:"local",DATABASE_URL:urls[0],FINANCE_DATABASE_URL:urls[1],PAYMENT_DATABASE_URL:urls[2],DOCUMENT_WORKER_DATABASE_URL:url("aims_document_worker_runtime",credentials.worker),AIMS_INTEGRATION_ADMIN_DATABASE_URL:url("postgres",credentials.admin),AIMS_INTEGRATION_DATABASE:database,AIMS_INTEGRATION_DISPOSABLE:"true"};
   run(process.execPath,["--env-file=../../.env","--test","--test-concurrency=1",...requested],{cwd:apiRoot,env});
   console.log(JSON.stringify({result:"PASS",database:"isolated-disposable",schema:57,tests:requested.length,cleanup:"pending"}));
 }finally{

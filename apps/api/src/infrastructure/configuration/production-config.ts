@@ -3,6 +3,7 @@ import {
   isAiMasterEnabled,
   loadAiReliabilityConfig,
 } from "../ai/ai-governance.js";
+import { loadTelegramConfig } from "./telegram-config.js";
 
 const MIN_SECRET_LENGTH = 32;
 
@@ -39,7 +40,8 @@ export function validateProductionConfig(
     );
   const production = mode === "production" || aimsEnvironment === "production";
   const expectedDatabase = environment.AIMS_EXPECTED_DATABASE;
-  const telegramEnabled = environment.TELEGRAM_APPROVAL_ENABLED === "true";
+  const telegram = loadTelegramConfig(environment);
+  const telegramEnabled = telegram.enabled;
   const storage = environment.STORAGE_DRIVER ?? "";
   const malwareScanner = environment.MALWARE_SCANNER_DRIVER ?? "";
 
@@ -109,21 +111,6 @@ export function validateProductionConfig(
     );
 
   if (telegramEnabled) {
-    requireSecret(
-      environment.TELEGRAM_BOT_TOKEN,
-      "TELEGRAM_BOT_TOKEN",
-      production,
-    );
-    requireSecret(
-      environment.TELEGRAM_WEBHOOK_SECRET,
-      "TELEGRAM_WEBHOOK_SECRET",
-      production,
-    );
-    requireSecret(
-      environment.TELEGRAM_CALLBACK_SECRET,
-      "TELEGRAM_CALLBACK_SECRET",
-      production,
-    );
     if (production)
       requireHttpsUrl(environment.TELEGRAM_WEBHOOK_URL, "TELEGRAM_WEBHOOK_URL");
   }
