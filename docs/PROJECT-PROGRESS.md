@@ -10,14 +10,14 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P11 — Provider-Neutral Alerting Foundation |
-| Current status | P11 PASS/FROZEN; provider-neutral alerting foundation complete; external deployment gates remain open |
+| Current Production phase | P12 — Backup / Restore / Disaster Recovery |
+| Current status | P12 decision audit complete; provider-neutral application/documentation hardening pending; no provider selected |
 | Last completed phase | P11 — Provider-Neutral Alerting Foundation and Frozen Review |
 | Overall Production ready | NO |
 | Current schema | 58 |
 | Latest migration | `058_p10_observability_claim_recovery_and_outbox_index` |
 | Current branch | `main` |
-| Last verified commit | `5a7c51e` |
+| Last verified commit | `a9c19ce` |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -212,7 +212,7 @@ risk register. Overall Production readiness remains NO.
 | P9 | COMPLETED / FROZEN | Telegram remains optional; code hardening and final review pass; no external setup authorized |
 | P10 | COMPLETED / FROZEN | Vendor-neutral structured logs, metrics and health contracts; correction and five-discipline final review PASS |
 | P11 | COMPLETED / FROZEN | Provider-neutral alert specification, catalogue, runbooks, rule tests and five-discipline frozen review PASS; provider/on-call/deployment gates remain open |
-| P12 | PENDING | Backup, PITR, restore, DR |
+| P12 | DECISION AUDIT COMPLETE / IMPLEMENTATION PENDING | Decision B: restore checker, manifest, reconciliation specification and runbook hardening required; provider/RPO/RTO/retention and rehearsal gates remain open |
 | P13 | PENDING | Deployment, TLS, network, CI/CD |
 | P14 | PENDING | Production security red-team |
 | P15 | PENDING | Capacity and performance |
@@ -1635,3 +1635,32 @@ routing remain external gates; P13 owns private evaluation/collection/routing,
 P15 owns evidence-based numeric thresholds, and P17 owns staging exercise.
 Schema remains 58; migration 059 does not exist. P12 remains NOT STARTED and
 overall Production ready remains NO.
+
+### 2026-09-01 — P12 backup, restore and DR decision audit
+
+Status: DECISION AUDIT COMPLETE / APPLICATION-DOCUMENTATION HARDENING PENDING
+
+Baseline Commit: `a9c19ce`
+
+Decision: B — P12 application/documentation hardening is required without
+provider selection. PostgreSQL remains the financial/business authority and
+Production recovery must coordinate its restore point with versioned object
+evidence, preserve roles/triggers/history, fail closed on document mismatch and
+reconcile historical AIMS state with current external payment and identity
+reality. Backup is not recovery, PITR is not complete DR, and recovery is not a
+financial correction mechanism.
+
+Required future repository scope is a read-only restore checker/reconciliation
+report, recovery-manifest contract, restore-safe token/session/claim design,
+runbooks and disposable verification tests. No numeric RPO/RTO or retention was
+invented. Company/platform decisions block Production but do not block this
+provider-neutral hardening.
+
+Impact: documentation/governance only. Runtime, tests, frontend, database,
+schema 58, migrations, roles/grants, Production AI/Telegram OFF, Redis,
+scheduler and P11 remain unchanged. Migration 059 does not exist. P13 is NOT
+STARTED and overall Production ready remains NO.
+
+Next: complete the required frozen read-only decision review. If it passes,
+wait for separate narrow authorization before any P12 implementation. Do not
+configure backup/PITR/object replication or start P13.

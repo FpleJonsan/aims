@@ -31,10 +31,10 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | Structured logging/redaction | P10 PASS / FROZEN | Structured stdout/stderr, safe request/worker fields, fixed taxonomy and representative AI/document/Payment/Telegram redaction canaries pass; company collection/access/retention remains external. |
 | Metrics/alerting | P11 PASS / FROZEN; DEPLOYMENT BLOCKED | Provider-neutral specifications, catalogue, runbooks, tests and five-discipline frozen review PASS. Company platform/on-call decisions and P13 private collection/evaluation/routing remain open. |
 | Correlation and audit trace | P10 PASS / FROZEN | HTTP/domain/audit and existing-payload outbox/worker correlation pass. Audit remains authoritative; operational retention/export remains external. |
-| PostgreSQL backup/PITR | BLOCKED | Encrypted schedule, retention, off-host/managed protection and ownership. |
-| Object backup/versioning | BLOCKED | Version/replication/backup policy consistent with retention and legal hold. |
-| Restore rehearsal | BLOCKED | Isolated restore starts AIMS and reconciles document hashes and financial invariants. |
-| RPO/RTO | DECISION REQUIRED | Business-approved targets demonstrated by rehearsal. |
+| PostgreSQL backup/PITR | P12 DECISION COMPLETE / BLOCKED | PITR is required capability, but provider-neutral checker/manifest hardening, encrypted schedule, retention, isolated protection and ownership remain incomplete. |
+| Object backup/versioning | P12 DECISION COMPLETE / BLOCKED | DB/object recovery must be manifest-bound and fail closed on missing/version/hash mismatch; provider versioning/backup/immutability and policy remain absent. |
+| Restore rehearsal | P12 DECISION COMPLETE / BLOCKED | Implement read-only verification/reconciliation and complete an isolated restore that validates schema, privileges, finances, documents, application, workers and current external reality. |
+| RPO/RTO | COMPANY DECISION REQUIRED | No numeric target is approved or invented; Finance, business continuity, SRE and provider evidence must define and prove targets. |
 | Deployment artifacts | BLOCKED | Versioned immutable web/API/worker artifacts and production manifests. |
 | CI/CD gates | BLOCKED | Lint, types, unit, PostgreSQL integration, build, scans, migration validation, staging smoke and approval. |
 | TLS / trusted proxy | BLOCKED | HTTPS, header stripping/trust chain, secure cookies if used, HSTS decision and tests. |
