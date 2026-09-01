@@ -10,14 +10,14 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P10 complete; P11 not started |
-| Current status | P10 PASS / FROZEN; awaiting separate P11 authorization |
+| Current Production phase | P11 — Alerting / Operational Response Decision |
+| Current status | P11 decision complete; provider-neutral code/documentation hardening required; no provider selected |
 | Last completed phase | P10 — Vendor-Neutral Observability Foundation and Final Review |
 | Overall Production ready | NO |
 | Current schema | 58 |
 | Latest migration | `058_p10_observability_claim_recovery_and_outbox_index` |
 | Current branch | `main` |
-| Last verified commit | `e97f9dc` |
+| Last verified commit | `d9d7545` |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -211,7 +211,7 @@ risk register. Overall Production readiness remains NO.
 | P8 | COMPLETED / FROZEN | Production AI governance hardening and final review; AI OFF and no provider selected |
 | P9 | COMPLETED / FROZEN | Telegram remains optional; code hardening and final review pass; no external setup authorized |
 | P10 | COMPLETED / FROZEN | Vendor-neutral structured logs, metrics and health contracts; correction and five-discipline final review PASS |
-| P11 | PENDING | Alerts, SLO/SLA, on-call |
+| P11 | DECISION COMPLETE / HARDENING PENDING | Provider-neutral alert catalogue, severity, recovery, ownership, runbook and SLI/SLO decision; provider/on-call/deployment gates remain open |
 | P12 | PENDING | Backup, PITR, restore, DR |
 | P13 | PENDING | Deployment, TLS, network, CI/CD |
 | P14 | PENDING | Production security red-team |
@@ -1557,3 +1557,39 @@ P11 is NOT STARTED. Overall Production ready remains NO.
 Next: commit the P10 governance closure, then rerun the separately authorized
 P11 Alerting Decision Gate from a clean repository. Do not begin P11 in this
 task.
+
+### 2026-09-01 — P11 alerting and operational-response decision audit
+
+Status: DECISION COMPLETE / P11 CODE-DOCUMENTATION HARDENING REQUIRED
+
+Baseline Commit: `d9d7545`
+
+Schema: 58; latest migration
+`058_p10_observability_claim_recovery_and_outbox_index`; migration 059+: NONE.
+
+The separate strict Pre-P11 conformance audit returned decision B with Critical
+0, High 0 and Medium 0, confirming that P11 may begin while the unused stage
+rail and rendered-QA evidence findings remain non-blocking and untouched.
+
+Decision: P11 must complete a provider-neutral alert specification, bounded
+severity contract, firing/recovery/grouping rules, runbooks, ownership matrix
+and rule/security tests. No alerting provider is required for that foundation.
+Company platform, named on-call, response targets and notification routing are
+external decisions; P13 owns private collection/evaluation deployment, P15
+owns evidence-based performance thresholds, and P17 owns staging exercise.
+
+The audit maps current P10 inputs for API/readiness/schema, database, worker,
+documents, optional Telegram/AI, auth/security, Approval, Finance Control and
+Payment. Normal business rejection, clarification, deterministic Finance
+Control FAIL, document rejection and Payment idempotent replay remain
+non-incidents. Alerts notify humans only and cannot mutate AIMS state or become
+financial truth. AI OFF and Telegram OFF create no provider-down alert.
+
+Impact: documentation/governance only. Runtime, tests, migrations, database,
+roles, grants, configuration, dependencies, frontend, Redis and scheduler
+unchanged. Production AI and Telegram remain OFF. P10 remains PASS/FROZEN. P12
+is NOT STARTED. Overall Production ready remains NO.
+
+Next: wait for explicit authorization to perform P11 provider-neutral
+alert-specification/runbook/governance hardening with tests. Do not configure a
+provider, paging route or frontend, and do not start P12.
