@@ -4,6 +4,7 @@ import type { Request, Response } from "express";
 import type { Principal, Role } from "../../domain/payment-request.js";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import { aimsEnvironment } from "./auth-environment.js";
+import {metrics} from "../../infrastructure/observability/telemetry.js";
 
 export const SESSION_COOKIE = "aims_session";
 export const CSRF_COOKIE = "aims_csrf";
@@ -24,7 +25,7 @@ export class SessionService {
       LEFT JOIN user_roles ur ON ur.user_id=u.id
       WHERE x.provider='local' AND x.issuer='aims-local' AND x.subject=$1
     `,[subject]);
-    if(!identity.rowCount){await this.audit("LOCAL_AUTHENTICATION_FAILURE",request,null,null);throw new UnauthorizedException("Unknown or inactive local identity");}
+    if(!identity.rowCount){metrics.counter("aims_domain_operations_total",{operation:"LOGIN",outcome:"FAILURE",failure_category:"AUTHENTICATION",channel:"WEB"});await this.audit("LOCAL_AUTHENTICATION_FAILURE",request,null,null);throw new UnauthorizedException("Unknown or inactive local identity");}
     const token=randomBytes(32).toString("base64url"), csrf=randomBytes(24).toString("base64url");
     const lifetime=this.localLifetimeSeconds();
     const sessionId=randomUUID(), row=identity.rows[0];
@@ -34,19 +35,20 @@ export class SessionService {
       [sessionId,this.hash(token),this.hash(csrf),row.user_id,row.identity_id,String(lifetime)]);
     this.setCookies(response,token,csrf,lifetime);
     await this.audit("LOCAL_AUTHENTICATION_SUCCESS",request,row.user_id,row.identity_id);
+    metrics.counter("aims_domain_operations_total",{operation:"LOGIN",outcome:"SUCCESS",failure_category:"NONE",channel:"WEB"});
     return {id:row.user_id,departmentId:row.department_id,roles:identity.rows.flatMap(value=>value.role?[value.role]:[])};
   }
 
   async authenticate(request:Request):Promise<AuthenticatedSession> {
     const token=this.cookies(request)[SESSION_COOKIE];
-    if(!token)throw new UnauthorizedException("Authentication required");
+    if(!token){metrics.counter("aims_domain_operations_total",{operation:"SESSION_AUTHENTICATE",outcome:"FAILURE",failure_category:"AUTHENTICATION",channel:"WEB"});throw new UnauthorizedException("Authentication required")}
     const result=await this.database.pool.query<{session_id:string;csrf_token_hash:string;user_id:string;department_id:string;active:boolean;role:Role|null}>(`
       SELECT s.id session_id,s.csrf_token_hash,u.id user_id,u.department_id,u.active,ur.role
       FROM aims_sessions s JOIN users u ON u.id=s.user_id
       LEFT JOIN user_roles ur ON ur.user_id=u.id
       WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
     `,[this.hash(token)]);
-    if(!result.rowCount)throw new UnauthorizedException("Session is invalid or expired");
+    if(!result.rowCount){metrics.counter("aims_domain_operations_total",{operation:"SESSION_AUTHENTICATE",outcome:"FAILURE",failure_category:"AUTHENTICATION",channel:"WEB"});throw new UnauthorizedException("Session is invalid or expired")}
     if(!result.rows[0].active){await this.audit("INACTIVE_USER_REJECTED",request,result.rows[0].user_id,null);throw new UnauthorizedException("Unknown or inactive user");}
     return {sessionId:result.rows[0].session_id,csrfTokenHash:result.rows[0].csrf_token_hash,principal:{
       id:result.rows[0].user_id,departmentId:result.rows[0].department_id,
@@ -58,8 +60,10 @@ export class SessionService {
     if(["GET","HEAD","OPTIONS"].includes(request.method.toUpperCase()))return;
     this.requireAllowedOrigin(request);
     const cookie=this.cookies(request)[CSRF_COOKIE], header=request.header("x-aims-csrf");
-    if(!cookie||!header||!this.equal(cookie,header)||!this.equal(this.hash(cookie),expectedHash))
+    if(!cookie||!header||!this.equal(cookie,header)||!this.equal(this.hash(cookie),expectedHash)){
+      metrics.counter("aims_domain_operations_total",{operation:"CSRF_ORIGIN",outcome:"FAILURE",failure_category:"AUTHENTICATION",channel:"WEB"});
       throw new UnauthorizedException("CSRF validation failed");
+    }
   }
 
   async logout(request:Request,response:Response):Promise<void>{
@@ -96,7 +100,7 @@ export class SessionService {
   private cookies(request:Request):Record<string,string>{return Object.fromEntries((request.headers.cookie??"").split(";").map(value=>value.trim().split("=")).filter(parts=>parts.length===2).map(([key,value])=>[key,decodeURIComponent(value)]));}
   private hash(value:string){return createHash("sha256").update(value).digest("hex");}
   private equal(left:string,right:string){const a=Buffer.from(left),b=Buffer.from(right);return a.length===b.length&&timingSafeEqual(a,b);}
-  private requireAllowedOrigin(request:Request){const allowed=process.env.WEB_ORIGIN??"http://localhost:3000";const origin=request.header("origin");if(origin!==allowed)throw new UnauthorizedException("Request origin is not allowed");}
+  private requireAllowedOrigin(request:Request){const allowed=process.env.WEB_ORIGIN??"http://localhost:3000";const origin=request.header("origin");if(origin!==allowed){metrics.counter("aims_domain_operations_total",{operation:"CSRF_ORIGIN",outcome:"FAILURE",failure_category:"AUTHENTICATION",channel:"WEB"});throw new UnauthorizedException("Request origin is not allowed")}}
   private async audit(eventType:string,request:Request,userId:string|null,identityId:string|null){
     await this.database.pool.query(`INSERT INTO authentication_audit_events
       (id,user_id,external_identity_id,authentication_method,source_channel,event_type,correlation_id)

@@ -1,8 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import { isAiMasterEnabled } from "../../infrastructure/ai/ai-governance.js";
+import {metrics,operationalLog} from "../../infrastructure/observability/telemetry.js";
 
-export const EXPECTED_SCHEMA_VERSION = 57;
+export const EXPECTED_SCHEMA_VERSION = 58;
 
 @Injectable()
 export class HealthService {
@@ -42,7 +43,10 @@ export class HealthService {
       : { status: "disabled", detail: "Telegram approval is disabled" };
 
     const required = [checks.postgresql, checks.schema, checks.financeExecutor, checks.paymentExecutor, checks.storage,checks.malwareScanner, checks.ai, checks.telegram];
-    return { status: required.some((x) => x.status === "not_ready") ? "not_ready" as const : "ready" as const, checks };
+    const status=required.some((x) => x.status === "not_ready") ? "not_ready" as const : "ready" as const;
+    for(const [component,value] of Object.entries(checks))metrics.gauge("aims_readiness_status",{component},value.status==="ready"?1:value.status==="disabled"?2:0);
+    if(status==="not_ready")operationalLog("warn","readiness_failed",{operation:"API_READINESS",status:"NOT_READY",failure_category:"CONFIGURATION"});
+    return { status, checks };
   }
 
   private async databaseCheck(pool: { query(query: string): Promise<unknown> }) {

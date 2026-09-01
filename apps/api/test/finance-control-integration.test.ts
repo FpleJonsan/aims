@@ -13,6 +13,7 @@ import { PolicyService } from "../src/application/policy/policy.service.js";
 import { ValidationService } from "../src/application/validation/validation.service.js";
 import type { Principal } from "../src/domain/payment-request.js";
 import { Postgres } from "../src/infrastructure/database/postgres.js";
+import {metrics,observePaymentRecord} from "../src/infrastructure/observability/telemetry.js";
 
 const requester: Principal = {
     id: "10000000-0000-4000-8000-000000000001",
@@ -1527,30 +1528,37 @@ test("DAY_8_2_PAYMENT_ATOMIC_FAILURE_INJECTION_MATRIX rolls back every posting b
 test("PAYMENT_POST_COMMIT_RESPONSE_LOSS returns the original identity without duplicate effects", async () => {
   const db = new Postgres();
   try {
+    metrics.reset();
     const f = await readyPayment(db, "response-loss"),
-      first = (await f.service.record(
+      first = (await observePaymentRecord("response-lost",report=>f.service.record(
         f.fixture.request.id,
         f.command,
         finance,
         "response-lost",
-      )) as any;
-    const replay = (await f.service.record(
+        report,
+      ))) as any;
+    const replay = (await observePaymentRecord("response-retry",report=>f.service.record(
       f.fixture.request.id,
       f.command,
       finance,
       "response-retry",
-    )) as any;
+      report,
+    ))) as any;
     assert.equal(replay.id, first.id);
     await assert.rejects(
-      () =>
+      () => observePaymentRecord("response-conflict",report=>
         f.service.record(
           f.fixture.request.id,
           { ...f.command, bankReference: `${f.command.bankReference}-changed` },
           finance,
           "response-conflict",
-        ),
+          report,
+        )),
       /IDEMPOTENCY_CONFLICT/,
     );
+    const telemetry=metrics.exposition();
+    for(const outcome of ["SUCCESS","IDEMPOTENT_REPLAY","PAYLOAD_MISMATCH"])assert.match(telemetry,new RegExp(`outcome="${outcome}"`));
+    assert.doesNotMatch(telemetry,new RegExp(f.command.bankReference));
     const facts = (
       await db.pool.query(
         `SELECT

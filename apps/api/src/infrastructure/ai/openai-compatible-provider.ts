@@ -27,6 +27,7 @@ import {
   assertBoundedText,
   type AiReliabilityConfig,
 } from "./ai-governance.js";
+import {failureCategory,metrics} from "../observability/telemetry.js";
 
 export type AiProviderFailureCode =
   | "AUTHENTICATION_ERROR"
@@ -310,6 +311,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
     retryCount: number;
     providerAttempts: number;
   }> {
+    const started=performance.now();
     for (let attempt = 0; attempt <= this.reliability.maxRetries; attempt++) {
       const controller = new AbortController();
       const timer = setTimeout(
@@ -347,14 +349,21 @@ export class OpenAiCompatibleProvider implements AiProvider {
           response,
           this.reliability.maxResponseBytes,
         );
+        metrics.counter("aims_provider_operations_total",{provider:"OPENAI_COMPATIBLE",surface:"RESPONSES",outcome:"SUCCESS",failure_category:"NONE"});
+        if(payload.usage?.input_tokens)metrics.counter("aims_ai_tokens_total",{surface:"RESPONSES",direction:"INPUT"},payload.usage.input_tokens);
+        if(payload.usage?.output_tokens)metrics.counter("aims_ai_tokens_total",{surface:"RESPONSES",direction:"OUTPUT"},payload.usage.output_tokens);
+        metrics.histogram("aims_provider_operation_duration_seconds",{provider:"OPENAI_COMPATIBLE",surface:"RESPONSES"},(performance.now()-started)/1000);
         return { payload, retryCount: attempt, providerAttempts: attempt + 1 };
       } catch (error) {
         const normalized = normalizeProviderFailure(
           error,
           controller.signal.aborted,
         );
-        if (!retryable(normalized) || attempt === this.reliability.maxRetries)
+        if (!retryable(normalized) || attempt === this.reliability.maxRetries){
+          metrics.counter("aims_provider_operations_total",{provider:"OPENAI_COMPATIBLE",surface:"RESPONSES",outcome:"FAILURE",failure_category:failureCategory(normalized)});
+          metrics.histogram("aims_provider_operation_duration_seconds",{provider:"OPENAI_COMPATIBLE",surface:"RESPONSES"},(performance.now()-started)/1000);
           throw attempted(normalized, attempt);
+        }
         await this.backoff(attempt);
       } finally {
         clearTimeout(timer);

@@ -12,6 +12,7 @@ import { PolicyService } from "../src/application/policy/policy.service.js";
 import { ValidationService } from "../src/application/validation/validation.service.js";
 import type { Principal } from "../src/domain/payment-request.js";
 import { Postgres } from "../src/infrastructure/database/postgres.js";
+import {metrics} from "../src/infrastructure/observability/telemetry.js";
 
 process.env.TELEGRAM_APPROVAL_ENABLED = "true";
 
@@ -996,6 +997,8 @@ test("barrier I: expired-token rotation and retry preserve one active set", asyn
       finance,
       "rotation-create",
     );
+    const correlatedOutbox=await db.pool.query("SELECT payload->>'correlationId' correlation_id FROM notification_outbox WHERE aggregate_id=$1",[view.steps[0].id]);
+    assert.equal(correlatedOutbox.rows[0].correlation_id,"rotation-create");
     await db.pool.query(
       "UPDATE notification_outbox SET status='SENT' WHERE aggregate_id<>$1 AND status IN('PENDING','FAILED_RETRYABLE')",
       [view.steps[0].id],
@@ -1062,6 +1065,7 @@ test("outbox lease recovery rejects stale workers and permits one reclaimer", as
     base = Date.now();
   let releaseSlow: (() => void) | undefined;
   try {
+    metrics.reset();
     const fixture = await eligible(db),
       approval = new ApprovalService(db, fixture.requests);
     await approval.bindTelegram(
@@ -1124,6 +1128,7 @@ test("outbox lease recovery rejects stale workers and permits one reclaimer", as
       ).claim(),
     ]);
     assert.equal(reclaimed.filter(Boolean).length, 1);
+    assert.match(metrics.exposition(),/aims_worker_lease_recoveries_total\{workload="TELEGRAM_DELIVERY"\} 1/);
     const claimB = reclaimed.find(Boolean)!;
     assert.notEqual(claimB.claim_token, claimA.claim_token);
     const fastResult = await (

@@ -12,7 +12,7 @@ import type {WorkerConfig} from "../src/worker/worker-config.js";
 const appUrl=process.env.DATABASE_URL,workerUrl=process.env.DOCUMENT_WORKER_DATABASE_URL;
 if(!appUrl||!workerUrl)throw new Error("isolated application and document worker database URLs are required");
 const app=new pg.Pool({connectionString:appUrl}),workerA=new pg.Pool({connectionString:workerUrl}),workerB=new pg.Pool({connectionString:workerUrl});
-type Claim={document_id:string;document_version:number;document_sha256:string;scan_attempt:number;claim_token:string};
+type Claim={document_id:string;document_version:number;document_sha256:string;scan_attempt:number;claim_token:string;expired_lease_recovered:boolean};
 async function insertDocument(){
  const base=await app.query<{request_id:string;user_id:string}>("SELECT pr.id request_id,pr.created_by user_id FROM payment_requests pr JOIN users u ON u.id=pr.created_by LIMIT 1");
  assert.ok(base.rowCount);const id=randomUUID(),logical=randomUUID(),sha=randomUUID().replaceAll("-","").padEnd(64,"0");
@@ -27,6 +27,7 @@ async function scanState(id:string){return(await app.query("SELECT security_stat
 test("document workers prevent duplicate claim and stale/duplicate finalization",async()=>{
  const created=await insertDocument(),[a,b]=await Promise.all([claim(workerA,"worker-a"),claim(workerB,"worker-b")]),current=a??b;
  assert.ok(current);assert.equal([a,b].filter(Boolean).length,1);assert.equal(current.document_id,created.id);
+ assert.equal(current.expired_lease_recovered,false);
  await assert.rejects(()=>complete(workerB,{...current,claim_token:randomUUID()},"CLEAN"),/stale/);
  await complete(a?workerA:workerB,current,"CLEAN");
  await assert.rejects(()=>complete(a?workerA:workerB,current,"CLEAN"),/stale/);
@@ -35,9 +36,17 @@ test("document workers prevent duplicate claim and stale/duplicate finalization"
 
 test("expired lease is reclaimed and old worker cannot finalize",async()=>{
  const created=await insertDocument(),old=await claim(workerA,"worker-old",5,3);assert.equal(old.document_id,created.id);
- await app.query("SELECT pg_sleep(5.1)");const fresh=await claim(workerB,"worker-new",5,3);assert.equal(fresh.document_id,created.id);assert.equal(fresh.scan_attempt,old.scan_attempt+1);
+ await app.query("SELECT pg_sleep(5.1)");const fresh=await claim(workerB,"worker-new",5,3);assert.equal(fresh.document_id,created.id);assert.equal(fresh.scan_attempt,old.scan_attempt+1);assert.equal(fresh.expired_lease_recovered,true);
  await assert.rejects(()=>complete(workerA,old,"REJECTED"),/attempt is stale|claim is stale/);
  await complete(workerB,fresh,"REJECTED");
+});
+
+test("two workers racing an expired lease produce one authoritative recovery result",async()=>{
+ const created=await insertDocument(),old=await claim(workerA,"recovery-race-old",5,3);assert.equal(old.document_id,created.id);assert.equal(old.expired_lease_recovered,false);
+ await app.query("SELECT pg_sleep(5.1)");
+ const results=await Promise.all([claim(workerA,"recovery-race-a",5,3),claim(workerB,"recovery-race-b",5,3)]),reclaims=results.filter(value=>value?.document_id===created.id);
+ assert.equal(reclaims.length,1);assert.equal(reclaims[0].expired_lease_recovered,true);
+ await complete(results[0]?.document_id===created.id?workerA:workerB,reclaims[0],"REJECTED");
 });
 
 for(const attack of ["version","sha256"] as const)test(`trusted finalization rejects stale document ${attack} without changing claim or trust`,async()=>{
@@ -52,7 +61,7 @@ for(const attack of ["version","sha256"] as const)test(`trusted finalization rej
 
 test("retryable failure becomes eligible and terminal poison cannot be reclaimed",async()=>{
  const created=await insertDocument(),first=await claim(workerA,"worker-a",5,2);assert.equal(first.document_id,created.id);await complete(workerA,first,"SCAN_FAILED","RETRYABLE",1);
- await app.query("SELECT pg_sleep(1.1)");const second=await claim(workerB,"worker-b",5,2);assert.equal(second.document_id,created.id);await complete(workerB,second,"SCAN_FAILED","TERMINAL",0);
+ await app.query("SELECT pg_sleep(1.1)");const second=await claim(workerB,"worker-b",5,2);assert.equal(second.document_id,created.id);assert.equal(second.expired_lease_recovered,false);await complete(workerB,second,"SCAN_FAILED","TERMINAL",0);
  const next=await claim(workerA,"worker-a",5,2);assert.ok(!next||next.document_id!==created.id);
  const row=await app.query("SELECT security_status,scan_failure_disposition,scan_attempt,scan_claim_token FROM payment_documents WHERE id=$1",[created.id]);assert.deepEqual(row.rows[0],{security_status:"SCAN_FAILED",scan_failure_disposition:"TERMINAL",scan_attempt:2,scan_claim_token:null});
 });

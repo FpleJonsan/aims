@@ -41,7 +41,7 @@ Finance executor receives direct Finance Control working-table privileges requir
 
 The application uses UUIDs for nearly all identities. The one owned sequence is migration-created and remains owner-controlled; legitimate runtime operations depend on explicit migration grants rather than ownership or future blanket sequence defaults.
 
-## P7 worker SECURITY DEFINER inventory at schema 57
+## P7/P10 worker SECURITY DEFINER inventory at schema 58
 
 Document-worker callable only:
 
@@ -116,9 +116,9 @@ New installation:
 
 1. Create an isolated database with the operational bootstrap identity.
 2. Run `bootstrap-roles.sql` with an explicit target database; assign generated credentials through the approved secret channel.
-3. Connect as `aims_migrator`, explicitly `SET ROLE aims_owner`, and apply reviewed migrations 001–057 in lexical order with `ON_ERROR_STOP`.
+3. Connect as `aims_migrator`, explicitly `SET ROLE aims_owner`, and apply reviewed migrations 001–058 in lexical order with `ON_ERROR_STOP`.
 4. Run `post-migration-hardening.sql` and `privilege-manifest.sql`.
-5. Verify singleton schema version 57 and exact migration ID `057_p7_document_scan_worker_leases`.
+5. Verify singleton schema version 58 and exact migration ID `058_p10_observability_claim_recovery_and_outbox_index`.
 6. Start the API with its three existing runtime credentials and the independent worker with its dedicated document-worker credential; verify readiness and representative workflow.
 
 Existing installation at schema 56 performs a no-op version check, then privilege verification. It must not replay historical migrations or synthetic data. Production bootstrap/master-data strategy remains D-015/PG-026; the current historical chain contains explicitly local synthetic fixtures and is therefore a proven schema/bootstrap artifact, not yet an approved Production data-loading policy.
@@ -133,7 +133,7 @@ Password/credential rotation follows the P5 runbook. Database release rollback d
 
 ## Disposable proof and future roles
 
-Run `npm run test:p6:database-proof --workspace @aims/api`. It creates and destroys an isolated container, applies untouched migrations 001–057, checks the schema-56 upgrade preservation boundary, defaults/manifest/attacks and UAT with generated disposable credentials. It never uses local `aims`.
+Run `npm run test:p6:database-proof --workspace @aims/api`. It creates and destroys an isolated container, applies migrations 001–058, checks the forward-upgrade preservation boundary, defaults/manifest/attacks and UAT with generated disposable credentials. It never uses local `aims`.
 
 Mutating integration scripts also run through the repository's isolated database
 runner. The runner creates a uniquely named `aims_test_*` database/container,

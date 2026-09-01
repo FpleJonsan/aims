@@ -17,6 +17,7 @@ export type WorkerConfig = {
   telegramRetryMaxDelaySeconds?: number;
   outboxLeaseSeconds?: number;
   scannerEnabled: boolean;
+  healthPort?:number;
   databaseUrl?: string;
   documentDatabaseUrl?: string;
 };
@@ -52,7 +53,7 @@ export function loadWorkerConfig(environment:Readonly<Record<string,string|undef
     leaseSeconds,
     maximumAttempts:integer(environment.DOCUMENT_SCAN_MAX_ATTEMPTS,5,1,20,"DOCUMENT_SCAN_MAX_ATTEMPTS"),
     retryDelaySeconds:integer(environment.DOCUMENT_SCAN_RETRY_DELAY_SECONDS,300,1,86400,"DOCUMENT_SCAN_RETRY_DELAY_SECONDS"),
-    storageTimeoutMs,scannerTimeoutMs,shutdownGraceMs,
+    storageTimeoutMs,scannerTimeoutMs,shutdownGraceMs,healthPort:integer(environment.WORKER_HEALTH_PORT,3002,1024,65535,"WORKER_HEALTH_PORT"),
     telegramEnabled,telegramRequestTimeoutMs:telegram.requestTimeoutMs,telegramResponseMaxBytes:telegram.responseMaxBytes,telegramRetryMaxDelaySeconds:telegram.retryMaxDelaySeconds,outboxLeaseSeconds:telegram.outboxLeaseSeconds,scannerEnabled,databaseUrl,documentDatabaseUrl,
   };
 }

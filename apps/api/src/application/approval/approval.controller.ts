@@ -22,6 +22,7 @@ import {
 } from "./approval.dto.js";
 import { ApprovalOutboxService } from "./approval-outbox.service.js";
 import { ApprovalService } from "./approval.service.js";
+import {observeOperation} from "../../infrastructure/observability/telemetry.js";
 
 @UseGuards(AuthGuard)
 @Controller()
@@ -34,7 +35,7 @@ export class ApprovalController {
     @Req() r: Request,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.approvals.create(id, r.principal, r.correlationId);
+    return observeOperation("APPROVAL_CREATE","WEB",r.correlationId,()=>this.approvals.create(id, r.principal, r.correlationId));
   }
   @Get("payment-requests/:id/approval") get(
     @Req() r: Request,
@@ -51,7 +52,7 @@ export class ApprovalController {
     @Param("stepId", ParseUUIDPipe) stepId: string,
     @Body() b: ApprovalActionDto,
   ) {
-    return this.approvals.act(id, stepId, b, r.principal, r.correlationId);
+    return observeOperation("APPROVAL_ACTION","WEB",r.correlationId,()=>this.approvals.act(id, stepId, b, r.principal, r.correlationId));
   }
   @Post("payment-requests/:id/approval-clarifications/:clarificationId/respond")
   respond(
@@ -98,6 +99,6 @@ export class TelegramWebhookController {
     @Headers("x-telegram-bot-api-secret-token") secret: string | undefined,
     @Body() body: unknown,
   ) {
-    return this.approvals.telegramWebhook(secret, body);
+    return observeOperation("TELEGRAM_WEBHOOK","TELEGRAM",undefined,()=>this.approvals.telegramWebhook(secret, body));
   }
 }

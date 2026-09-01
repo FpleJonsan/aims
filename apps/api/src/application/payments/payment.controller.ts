@@ -19,6 +19,7 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { PaymentListDto, RecordPaymentDto } from "./payment.dto.js";
 import { DashboardFilterDto } from "../dashboard/dashboard.dto.js";
 import { PaymentService } from "./payment.service.js";
+import {observeOperation,observePaymentRecord} from "../../infrastructure/observability/telemetry.js";
 
 @UseGuards(AuthGuard)
 @Controller()
@@ -37,14 +38,14 @@ export class PaymentController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     if (!file) throw new BadRequestException("A payment slip is required");
-    return this.service.uploadSlip(id, file, r.principal, r.correlationId);
+    return observeOperation("PAYMENT_SLIP_UPLOAD","WEB",r.correlationId,()=>this.service.uploadSlip(id, file, r.principal, r.correlationId));
   }
   @Post("payment-requests/:id/payment") record(
     @Req() r: Request,
     @Param("id", ParseUUIDPipe) id: string,
     @Body() body: RecordPaymentDto,
   ) {
-    return this.service.record(id, body, r.principal, r.correlationId);
+    return observePaymentRecord(r.correlationId,report=>this.service.record(id, body, r.principal, r.correlationId,report));
   }
   @Get("payments") list(@Req() r: Request, @Query() q: PaymentListDto) {
     return this.service.list(r.principal, q);

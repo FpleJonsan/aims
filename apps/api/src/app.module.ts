@@ -53,6 +53,8 @@ import { PortalService } from "./application/portal/portal.service.js";
 import { SessionService } from "./application/auth/session.service.js";
 import { DeterministicLocalMalwareScanner } from "./infrastructure/security/deterministic-local-malware-scanner.js";
 import { loadTelegramConfig } from "./infrastructure/configuration/telegram-config.js";
+import { httpObservabilityMiddleware } from "./infrastructure/observability/http-observability.middleware.js";
+import { MetricsController } from "./application/health/metrics.controller.js";
 
 @Module({
   controllers: [
@@ -70,6 +72,7 @@ import { loadTelegramConfig } from "./infrastructure/configuration/telegram-conf
     FinanceIntelligenceController,
     HealthController,
     PortalController,
+    MetricsController,
   ],
   providers: [
     Postgres,
@@ -126,6 +129,6 @@ import { loadTelegramConfig } from "./infrastructure/configuration/telegram-conf
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(correlationMiddleware).forRoutes("*");
+    consumer.apply(correlationMiddleware, httpObservabilityMiddleware).forRoutes("*");
   }
 }

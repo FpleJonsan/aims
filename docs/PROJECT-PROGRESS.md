@@ -10,12 +10,12 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P9 — Telegram Production Hardening |
-| Current status | P9 PASS / FROZEN; Production Telegram remains OFF and external setup unauthorized |
+| Current Production phase | P10 — Vendor-Neutral Observability Foundation |
+| Current status | P10 correction implemented and regression complete; new frozen read-only review pending |
 | Last completed phase | P9 — Telegram Production Hardening and Final Review |
 | Overall Production ready | NO |
-| Current schema | 57 |
-| Latest migration | `057_p7_document_scan_worker_leases` |
+| Current schema | 58 |
+| Latest migration | `058_p10_observability_claim_recovery_and_outbox_index` |
 | Current branch | `main` |
 | Last verified commit | `fdc7bb6` |
 | P6 database architecture | PASS |
@@ -81,7 +81,7 @@ Preserve these invariants:
   closed until an approved corporate identity adapter exists.
 - **Sessions:** only hashes of opaque session/CSRF tokens are stored; origin,
   CSRF, expiry, revocation, logout, and current-user status are enforced.
-- **Database:** schema 57 is authoritative. Runtime roles must not own schema
+- **Database:** schema 58 is authoritative. Runtime roles must not own schema
   objects or obtain DDL, role administration, or cross-executor authority.
 - **Finance executor:** only the approved Finance Control capabilities and two
   trusted functions are available to the dedicated executor.
@@ -100,10 +100,10 @@ Preserve these invariants:
 
 | Item | State |
 | --- | --- |
-| Schema version | 57 |
-| Latest migration | `057_p7_document_scan_worker_leases.sql` |
-| Historical migration chain | `001`–`057`, immutable |
-| Migration 058+ | NONE / NOT AUTHORIZED |
+| Schema version | 58 |
+| Latest migration | `058_p10_observability_claim_recovery_and_outbox_index.sql` |
+| Historical migration chain | `001`–`058`, immutable after P10 correction |
+| Migration 059+ | NONE / NOT AUTHORIZED |
 | Local database | Schema 56; P6 ownership/role posture verified PASS and frozen |
 | Target owner | `aims_owner` (`NOLOGIN`) |
 | Target migrator | `aims_migrator` (`LOGIN`, `NOINHERIT`, explicit owner-role entry) |
@@ -159,7 +159,7 @@ corrective findings and remains frozen.
 
 ## 7. Frozen / Do Not Change
 
-- Historical migrations 001–057 and schema 57.
+- Historical migrations 001–058 and schema 58.
 - The 12-stage workflow and distinct stage semantics.
 - Deterministic financial equation and Policy behavior.
 - Approval, Finance Control, Payment, segregation-of-duties, and authority rules.
@@ -210,7 +210,7 @@ risk register. Overall Production readiness remains NO.
 | P7 | COMPLETED / FROZEN | No Redis; PostgreSQL-backed reliable worker |
 | P8 | COMPLETED / FROZEN | Production AI governance hardening and final review; AI OFF and no provider selected |
 | P9 | COMPLETED / FROZEN | Telegram remains optional; code hardening and final review pass; no external setup authorized |
-| P10 | PENDING | Structured logs, metrics, dashboards |
+| P10 | CORRECTION IMPLEMENTED / REVIEW PENDING | Vendor-neutral structured logs, metrics and health contracts |
 | P11 | PENDING | Alerts, SLO/SLA, on-call |
 | P12 | PENDING | Backup, PITR, restore, DR |
 | P13 | PENDING | Deployment, TLS, network, CI/CD |
@@ -1417,3 +1417,98 @@ ready: NO.
 
 Next: freeze documentation and perform the mandatory independent read-only
 five-discipline review. Do not implement P10 or begin P11.
+
+### 2026-08-31 — P10 vendor-neutral observability foundation implementation
+
+Status: IMPLEMENTED AND REGRESSION COMPLETE / FINAL FROZEN REVIEW PENDING
+
+Starting Commit: `12eba5a`
+
+Ending Commit: NOT COMMITTED
+
+Schema: 57 → 57; migration 058+: NONE
+
+Summary:
+- Added defensive structured JSON operational logging with centralized field
+  allowlisting/redaction, safe taxonomy and no raw request/response/provider
+  payloads.
+- Added an internal counter/gauge/histogram registry with fixed buckets,
+  centrally enforced label schemas and Prometheus-compatible API/worker
+  exposition. No vendor SDK or remote exporter exists.
+- Added safe route-template HTTP count/duration/status signals, bounded DB
+  pool/transaction/executor/retry signals, worker lifecycle/workload/backlog,
+  document scan, Telegram, AI, authentication, Approval, Finance Control and
+  Payment operational signals.
+- Added loopback worker liveness/readiness/metrics and hardened API readiness
+  signals while retaining AI-OFF and Telegram-OFF semantics.
+- Closed Telegram request-to-outbox-to-worker correlation through the existing
+  JSONB payload; no migration was needed.
+- Added executable access-log, unknown-route, correlation, redaction,
+  500-unique-ID cardinality, metrics, database, failure-isolation and worker
+  health tests plus Approval integration proof of outbox correlation.
+
+Verification:
+- `npm test`: PASS — 15 frontend/auth + 148 API tests.
+- Isolated PostgreSQL: request 1, Validation 2, Finance Context 3, Financial
+  Analysis 2, Policy 11, Approval/Telegram 26, Finance Control/Payment 35,
+  Dashboard/Intelligence 11, Document Security 1, Worker 13, UAT 4 — PASS.
+- P6 disposable proof: schema 57, migrations 001–057, role manifest, defaults,
+  attacks and UAT PASS.
+- Integration isolation 7/7, lint, typecheck, API/frontend builds and
+  `git diff --check`: PASS.
+
+Impact: telemetry authority NONE; audit/financial truth/workflow/P6/P7/P8/P9
+semantics unchanged. Database, roles, migration, frontend, Redis and scheduler
+unchanged. Production AI and Telegram remain OFF. Provider selected: NO.
+Alerts/thresholds configured: NO. P11: NOT STARTED.
+
+Next: freeze all files and perform the mandatory five-discipline read-only
+review. Do not begin P11.
+
+### 2026-09-01 — P10 frozen review and narrow migration 058 correction
+
+Status: CORRECTION IMPLEMENTED AND REGRESSION COMPLETE / NEW FROZEN REVIEW PENDING
+
+Starting Commit: `12eba5a`
+
+Ending Commit: NOT COMMITTED
+
+Schema: 57 → 58; latest migration
+`058_p10_observability_claim_recovery_and_outbox_index`; migration 059+: NONE.
+
+History: the first P10 frozen review blocked with three Medium findings:
+Payment replay/mismatch outcomes were collapsed, expired-lease recovery was not
+distinct, and Telegram terminal backlog lacked bounded index-supported
+collection. The first correction preflight made no changes and correctly
+stopped for missing migration authority.
+
+Correction:
+- Migration 058 recreates only the existing trusted document claim function
+  return contract to expose the locked pre-update expired-recovery fact and
+  adds one partial `FAILED_TERMINAL` outbox index. It creates no business or
+  telemetry state and preserves P6/P7 ownership and grants.
+- Payment `SUCCESS`, `IDEMPOTENT_REPLAY`, and `PAYLOAD_MISMATCH` now derive from
+  the authoritative returned Payment identity and stable
+  `IDEMPOTENCY_CONFLICT` outcome without changing financial semantics.
+- Document and Telegram successful lease recovery increment a bounded counter.
+  Telegram backlog sampling is at most once per process minute with active and
+  terminal top-level predicates that exclude historical `SENT` rows.
+- Explicit cardinality attacks cover request, user, document, raw-path,
+  correlation, Telegram and Payment identifiers. Representative AI, document,
+  Payment and Telegram/provider redaction canaries pass.
+
+Verification: repository tests 15 frontend/auth + 153 API PASS; schema-58
+Payment 35, Approval/Telegram 26, worker 14, Request 1, Validation 2, Finance
+Context 3, Financial Analysis 2, Policy 11, Dashboard/Intelligence 11,
+Document Security 1 and UAT 4 PASS. P10 query-plan proof with 20,000 historical
+`SENT` rows uses the active and terminal partial indexes. P6 clean/forward
+001–058 proof, role manifest, defaults, attacks and UAT PASS. Isolation 7/7.
+
+Impact: P7/P9 claim and delivery semantics, Approval, Finance Control, Payment,
+ledger, commitment, PAID, workflow and AI authority unchanged. Shared local
+`aims`, competition, staging and Production unchanged. Frontend unchanged.
+Production AI/Telegram OFF; no provider, alerts, Redis or scheduler. P11 not
+started.
+
+Next: complete lint/type/build/diff gates, freeze all files and perform the new
+five-discipline read-only review. Do not begin P11.

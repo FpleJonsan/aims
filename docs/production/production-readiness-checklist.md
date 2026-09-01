@@ -19,7 +19,7 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | Malware protection | BLOCKED | Real scanner, durable verdict, retry/error handling and promotion-only-after-CLEAN proof. |
 | Secret-management foundation | PASS | Provider-independent inventory, classification, environment validation, redaction, ownership, rotation and incident contracts are tested/documented. |
 | Production secret integration | BLOCKED | Selected store, workload identity/runtime injection, independent rotation and operational audit. |
-| PostgreSQL role/runtime foundation | PASS | Disposable clean bootstrap, NOLOGIN ownership, executor separation including the document worker, defaults, drift checks, TLS/database identity validation and schema-57 UAT pass. |
+| PostgreSQL role/runtime foundation | PASS | Disposable clean bootstrap, NOLOGIN ownership, executor separation including the document worker, defaults, drift checks, TLS/database identity validation and schema-58 UAT pass. |
 | Production PostgreSQL deployment | BLOCKED | Selected service/version, private TLS/CA distribution, HA, capacity, role/secret provisioning and monitoring. |
 | Migration/bootstrap | BLOCKED | Production-safe migration path excludes fixtures; checksum/manifest and clean rehearsal pass. |
 | Redis decision | PASS | P7 confirms Redis is not required for Production v1; P15 may reopen only with measured evidence. |
@@ -28,9 +28,9 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | AI governance foundation | PASS | Provider deadlines/retry/response bounds, exact Validation manifests, Risk evidence catalogs, input/output limits, minimized projections and linked traceability are implemented. Production AI remains OFF. |
 | AI provider governance | DECISION REQUIRED | After code hardening, approve provider/model, permissible data, retention/training/residency/deletion terms, cost policy and operational ownership—or launch with AI OFF. |
 | Telegram | CODE FOUNDATION PASS / EXTERNAL GATES OPEN | P9 hardening and final review PASS. Keep OFF pending approved bot/token custody, privacy, monitoring and edge controls. |
-| Structured logging/redaction | P10 DESIGN COMPLETE / IMPLEMENTATION BLOCKED | Implement vendor-neutral structured stdout/stderr, safe request/worker fields and boundary-level redaction tests; company collection/access/retention remains external. |
-| Metrics/alerting | P10 DESIGN COMPLETE / IMPLEMENTATION BLOCKED | Implement bounded API, DB, worker, outbox, document, AI, Finance Control and Payment signal inputs; P11 owns thresholds/routes/providers. |
-| Correlation and audit trace | PARTIAL | Correlation/audit exist; P10 must close application-controlled outbox gaps and test propagation. Audit remains authoritative; operational retention/export remains external. |
+| Structured logging/redaction | P10 CORRECTION COMPLETE / NEW REVIEW PENDING | Structured stdout/stderr, safe request/worker fields, fixed taxonomy and representative AI/document/Payment/Telegram redaction canaries pass; company collection/access/retention remains external. |
+| Metrics/alerting | P10 CORRECTION COMPLETE / P11 BLOCKED | Bounded API, DB, worker, outbox, document, AI, auth, Finance Control and distinct Payment/recovery inputs exist; Telegram backlog queries are index-supported and sampled. P11 owns thresholds/routes and P13 owns private exposure. |
+| Correlation and audit trace | P10 CORRECTION COMPLETE / NEW REVIEW PENDING | HTTP/domain/audit and existing-payload outbox/worker correlation pass. Audit remains authoritative; operational retention/export remains external. |
 | PostgreSQL backup/PITR | BLOCKED | Encrypted schedule, retention, off-host/managed protection and ownership. |
 | Object backup/versioning | BLOCKED | Version/replication/backup policy consistent with retention and legal hold. |
 | Restore rehearsal | BLOCKED | Isolated restore starts AIMS and reconciles document hashes and financial invariants. |

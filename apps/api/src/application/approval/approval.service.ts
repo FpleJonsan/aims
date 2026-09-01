@@ -158,6 +158,7 @@ export class ApprovalService {
                 minimum_amount_minor: p.minimumAmountMinor ?? null,
                 maximum_amount_minor: p.maximumAmountMinor ?? null,
               },
+              correlationId,
             );
             await this.requests.audit(
               c,
@@ -1056,7 +1057,7 @@ export class ApprovalService {
           [s.finance_context_snapshot_id],
         )
       ).rows[0].request_amount_minor;
-      await this.queueStep(c, id, requesterId, departmentId, amount, next);
+      await this.queueStep(c, id, requesterId, departmentId, amount, next, correlationId);
       await this.requests.audit(
         c,
         a.id,
@@ -1171,6 +1172,7 @@ export class ApprovalService {
     departmentId: string,
     amount: string,
     s: any,
+    correlationId: string,
   ) {
     const users = await c.query(
       `SELECT DISTINCT aa.user_id FROM approval_authorities aa JOIN users u ON u.id=aa.user_id AND u.active JOIN telegram_identity_bindings t ON t.user_id=u.id AND t.status='ACTIVE' WHERE aa.active AND aa.authority_role=$1 AND aa.authority_scope=$2 AND (aa.authority_scope='ORGANIZATION' OR aa.department_id=$3) AND aa.user_id<>$4 AND (aa.minimum_amount_minor IS NULL OR aa.minimum_amount_minor<=$5) AND (aa.maximum_amount_minor IS NULL OR aa.maximum_amount_minor>=$5)`,
@@ -1187,6 +1189,7 @@ export class ApprovalService {
             requestId,
             approvalCaseId: s.approval_case_id,
             stepId: s.id,
+            correlationId,
           }),
         ],
       );

@@ -19,6 +19,7 @@ import { DOCUMENT_STORAGE } from "../documents/tokens.js";
 import { PaymentRequestService } from "../payment-requests/payment-request.service.js";
 import { assertAllowedDocumentExtension } from "../documents/payment-document.service.js";
 import type { PaymentListDto, RecordPaymentDto } from "./payment.dto.js";
+import type { PaymentTelemetryOutcome } from "../../infrastructure/observability/telemetry.js";
 
 @Injectable()
 export class PaymentService {
@@ -130,6 +131,7 @@ export class PaymentService {
     input: RecordPaymentDto,
     actor: Principal,
     correlationId: string,
+    reportOutcome?: (outcome: PaymentTelemetryOutcome) => void,
   ) {
     let amount: bigint;
     try {
@@ -165,8 +167,10 @@ export class PaymentService {
           ]),
         input.commandKey,
       );
+      reportOutcome?.(q.rows[0].id === id ? "SUCCESS" : "IDEMPOTENT_REPLAY");
       return this.get(q.rows[0].id, actor);
     } catch (error) {
+      if(error instanceof Error&&error.message==="IDEMPOTENCY_CONFLICT")reportOutcome?.("PAYLOAD_MISMATCH");
       throw this.controlled(error);
     }
   }

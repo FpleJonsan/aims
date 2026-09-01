@@ -7,14 +7,17 @@ import {
   type ApprovalChannel,
   TelegramDeliveryError,
 } from "./telegram-approval.channel.js";
+import {metrics,operationalLog} from "../../infrastructure/observability/telemetry.js";
 @Injectable()
 export class ApprovalOutboxService {
   private readonly workerId = randomUUID();
+  private lastHealthSampleAt = 0;
   constructor(
     private readonly db: Postgres,
     @Inject(APPROVAL_CHANNEL) private readonly channel: ApprovalChannel,
   ) {}
   async dispatch(limit = 20) {
+    await this.updateHealth();
     const results = [];
     for (let i = 0; i < Math.min(limit, 100); i++) {
       const claimed = await this.claim();
@@ -22,6 +25,18 @@ export class ApprovalOutboxService {
       results.push(await this.deliver(claimed));
     }
     return { processed: results.length, results };
+  }
+  private async updateHealth(){
+    if(Date.now()-this.lastHealthSampleAt<60_000)return;
+    this.lastHealthSampleAt=Date.now();
+    try{
+      const [active,terminal]=await Promise.all([
+        this.db.pool.query(`SELECT count(*)FILTER(WHERE status='PENDING')::int pending,count(*)FILTER(WHERE status='FAILED_RETRYABLE')::int retrying,count(*)FILTER(WHERE status='PROCESSING')::int claimed,COALESCE(extract(epoch FROM now()-min(created_at)FILTER(WHERE status IN('PENDING','FAILED_RETRYABLE'))),0)::bigint oldest FROM notification_outbox WHERE status IN('PENDING','FAILED_RETRYABLE','PROCESSING')`),
+        this.db.pool.query(`SELECT count(*)::int terminal FROM notification_outbox WHERE status='FAILED_TERMINAL'`),
+      ]),row={...(active.rows[0]??{}),...(terminal.rows[0]??{})};
+      for(const [key,state] of [["pending","PENDING"],["retrying","RETRYING"],["claimed","CLAIMED"],["terminal","TERMINAL"]] as const)metrics.gauge("aims_worker_backlog",{workload:"TELEGRAM_DELIVERY",state},Number(row[key]??0));
+      metrics.gauge("aims_worker_oldest_pending_seconds",{workload:"TELEGRAM_DELIVERY"},Number(row.oldest??0));
+    }catch{/* normal dispatch remains authoritative */}
   }
   private async claim() {
     const leaseSeconds = boundedInteger(
@@ -31,7 +46,7 @@ export class ApprovalOutboxService {
         3600,
       ),
       claimToken = randomUUID();
-    return this.db.transaction(async (c) => {
+    const claimed=await this.db.transaction(async (c) => {
       const q = await c.query<any>(
         `SELECT * FROM notification_outbox
          WHERE
@@ -41,14 +56,16 @@ export class ApprovalOutboxService {
         [leaseSeconds],
       );
       if (!q.rowCount) return null;
-      const claimed = await c.query<any>(
+      const result = await c.query<any>(
         `UPDATE notification_outbox SET status='PROCESSING',attempts=attempts+1,
          claimed_at=now(),claim_token=$2,claimed_by=$3,last_error_code=NULL
          WHERE id=$1 RETURNING *`,
         [q.rows[0].id, claimToken, this.workerId],
       );
-      return claimed.rows[0];
+      return {row:result.rows[0],expiredLeaseRecovered:q.rows[0].status==="PROCESSING"};
     });
+    if(claimed?.expiredLeaseRecovered)metrics.counter("aims_worker_lease_recoveries_total",{workload:"TELEGRAM_DELIVERY"});
+    return claimed?.row??null;
   }
   private callback(id: string) {
     const secret =
@@ -58,6 +75,8 @@ export class ApprovalOutboxService {
     return `${id}.${createHmac("sha256", secret).update(id).digest("base64url").slice(0, 24)}`;
   }
   private async deliver(row: any) {
+    const started=performance.now(),correlationId=typeof row.payload?.correlationId==="string"?row.payload.correlationId:randomUUID();
+    metrics.counter("aims_worker_work_total",{workload:"TELEGRAM_DELIVERY",outcome:"CLAIMED",failure_category:"NONE"});
     try {
       const prepared = await this.db.transaction(async (c) => {
         const info = await c.query<any>(
@@ -124,11 +143,11 @@ export class ApprovalOutboxService {
       if (!completed.rowCount)
         return { id: row.id, status: "STALE_CLAIM" };
       await this.audit(row, "APPROVAL_NOTIFICATION_SENT", null);
+      metrics.counter("aims_worker_work_total",{workload:"TELEGRAM_DELIVERY",outcome:"SUCCESS",failure_category:"NONE"});
+      metrics.counter("aims_provider_operations_total",{provider:"TELEGRAM",surface:"APPROVAL",outcome:"SUCCESS",failure_category:"NONE"});
       return { id: row.id, status: "SENT" };
     } catch (error) {
-      const code = (
-        error instanceof Error ? error.message : "DELIVERY_FAILED"
-      ).slice(0, 64);
+      const code = safeDeliveryCode(error);
       if (code === "STALE_OUTBOX_CLAIM")
         return { id: row.id, status: "STALE_CLAIM" };
       const deliveryError =
@@ -171,12 +190,16 @@ export class ApprovalOutboxService {
           : "APPROVAL_NOTIFICATION_FAILED",
         code,
       );
+      const category=terminal?"TERMINAL":deliveryError?.message==="TELEGRAM_TIMEOUT"?"TIMEOUT":deliveryError?.message==="TELEGRAM_RATE_LIMITED"?"RATE_LIMIT":"PROVIDER";
+      metrics.counter("aims_worker_work_total",{workload:"TELEGRAM_DELIVERY",outcome:terminal?"TERMINAL_FAILURE":"RETRYABLE_FAILURE",failure_category:category});
+      metrics.counter("aims_provider_operations_total",{provider:"TELEGRAM",surface:"APPROVAL",outcome:"FAILURE",failure_category:category});
+      operationalLog("warn","provider_operation_failed",{provider:"TELEGRAM",surface:"APPROVAL",channel:"TELEGRAM",correlation_id:correlationId,failure_category:category,safe_error_code:code});
       return {
         id: row.id,
         status: terminal ? "FAILED_TERMINAL" : "FAILED_RETRYABLE",
         code,
       };
-    }
+    } finally {metrics.histogram("aims_worker_work_duration_seconds",{workload:"TELEGRAM_DELIVERY"},(performance.now()-started)/1000);metrics.histogram("aims_provider_operation_duration_seconds",{provider:"TELEGRAM",surface:"APPROVAL"},(performance.now()-started)/1000)}
   }
   private async audit(row: any, action: string, errorCode: string | null) {
     const requestId = row.payload?.requestId;
@@ -187,11 +210,16 @@ export class ApprovalOutboxService {
         randomUUID(),
         action,
         requestId,
-        randomUUID(),
+        typeof row.payload?.correlationId==="string"?row.payload.correlationId:randomUUID(),
         JSON.stringify({ outboxId: row.id, channel: "TELEGRAM", errorCode }),
       ],
     );
   }
+}
+
+export function safeDeliveryCode(error:unknown){
+  const raw=error instanceof Error?error.message:"DELIVERY_FAILED";
+  return (error instanceof TelegramDeliveryError||["STALE_OUTBOX_CLAIM","RECIPIENT_OR_STEP_NOT_ACTIVE","TELEGRAM_CALLBACK_SECRET_NOT_CONFIGURED"].includes(raw))&&/^[A-Z0-9_]{1,64}$/.test(raw)?raw:"DELIVERY_FAILED";
 }
 
 function boundedInteger(

@@ -18,6 +18,7 @@ import {
 } from "./finance-control.dto.js";
 import { FinanceControlService } from "./finance-control.service.js";
 import { DashboardFilterDto } from "../dashboard/dashboard.dto.js";
+import {observeOperation} from "../../infrastructure/observability/telemetry.js";
 
 @UseGuards(AuthGuard)
 @Controller()
@@ -30,7 +31,7 @@ export class FinanceControlController {
     @Req() r: Request,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    return this.service.start(id, r.principal, r.correlationId);
+    return observeOperation("FINANCE_CONTROL_START","WEB",r.correlationId,()=>this.service.start(id, r.principal, r.correlationId));
   }
   @Get("payment-requests/:id/finance-control") get(
     @Req() r: Request,
@@ -49,20 +50,20 @@ export class FinanceControlController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body() body: FinanceConfirmationDto,
   ) {
-    return this.service.confirm(id, body, r.principal, r.correlationId);
+    return observeOperation("FINANCE_CONTROL_CONFIRM","WEB",r.correlationId,()=>this.service.confirm(id, body, r.principal, r.correlationId));
   }
   @Post("finance-control/:id/finalize") finalize(
     @Req() r: Request,
     @Param("id", ParseUUIDPipe) id: string,
     @Body() body: FinanceFinalizeDto,
   ) {
-    return this.service.finalize(id, body, r.principal, r.correlationId);
+    return observeOperation("FINANCE_CONTROL_FINALIZE","WEB",r.correlationId,()=>this.service.finalize(id, body, r.principal, r.correlationId));
   }
   @Post("finance-control/:id/hold/resolve") resolve(
     @Req() r: Request,
     @Param("id", ParseUUIDPipe) id: string,
     @Body() body: FinanceHoldResolutionDto,
   ) {
-    return this.service.resolve(id, body, r.principal, r.correlationId);
+    return observeOperation("FINANCE_CONTROL_HOLD_RESOLVE","WEB",r.correlationId,()=>this.service.resolve(id, body, r.principal, r.correlationId));
   }
 }

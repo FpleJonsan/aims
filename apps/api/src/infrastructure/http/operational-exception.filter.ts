@@ -1,11 +1,10 @@
-import { ArgumentsHost, Catch, HttpException, HttpStatus, Logger } from "@nestjs/common";
+import { ArgumentsHost, Catch, HttpException, HttpStatus } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { redactSensitiveText } from "../configuration/secret-boundary.js";
+import {failureCategory,metrics,operationalLog,safeErrorCode} from "../observability/telemetry.js";
 
 @Catch()
 export class OperationalExceptionFilter {
-  private readonly logger = new Logger("RequestFailure");
-
   catch(error: unknown, host: ArgumentsHost): void {
     const request = host.switchToHttp().getRequest<Request>();
     const response = host.switchToHttp().getResponse<Response>();
@@ -14,14 +13,9 @@ export class OperationalExceptionFilter {
     const safeMessage = error instanceof HttpException
       ? redactSensitiveText(error.message)
       : "Internal server error";
-    this.logger.error(JSON.stringify({
-      event: "request_failure",
-      correlationId: request.correlationId,
-      method: request.method,
-      path: request.path,
-      status,
-      code,
-    }));
+    const category=failureCategory(error),operation=status===401?"AUTHENTICATION":status===403?"AUTHORIZATION":"HTTP_FAILURE";
+    metrics.counter("aims_domain_operations_total",{operation,outcome:"FAILURE",failure_category:category,channel:"WEB"});
+    operationalLog("error","api_request_failed",{correlation_id:request.correlationId,operation,method:request.method,status_code:status,status:"FAILURE",safe_error_code:safeErrorCode(error),failure_category:category});
     response.status(status).json({ statusCode: status, code, message: safeMessage, correlationId: request.correlationId });
   }
 }
