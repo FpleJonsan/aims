@@ -24,10 +24,11 @@ test("local login resolves the namespaced mapping and stores only token hashes",
 });
 
 test("session authentication rejects missing, expired, revoked, and inactive sessions",async()=>{
-  const missing=new SessionService({pool:{query:async()=>({rowCount:0,rows:[]})}} as never);
+  const database=(query:(sql:string)=>Promise<unknown>)=>({pool:{query},transaction:async(operation:(client:{query:typeof query})=>Promise<unknown>)=>operation({query})});
+  const missing=new SessionService(database(async(sql:string)=>sql.trim().startsWith("SELECT generation FROM aims_recovery_generation")?{rowCount:1,rows:[{generation:"g"}]}:{rowCount:0,rows:[]}) as never);
   await assert.rejects(()=>missing.authenticate(request()),UnauthorizedException);
   await assert.rejects(()=>missing.authenticate(request({cookie:`${SESSION_COOKIE}=expired`})),/invalid or expired/);
-  const inactive=new SessionService({pool:{query:async(sql:string)=>sql.includes("authentication_audit_events")?{rowCount:1,rows:[]}:{rowCount:1,rows:[{session_id:"s",csrf_token_hash:hash("csrf"),user_id:"u",department_id:"d",active:false,role:null}]}}} as never);
+  const inactive=new SessionService(database(async(sql:string)=>sql.trim().startsWith("SELECT generation FROM aims_recovery_generation")?{rowCount:1,rows:[{generation:"g"}]}:sql.includes("authentication_audit_events")?{rowCount:1,rows:[]}:{rowCount:1,rows:[{session_id:"s",csrf_token_hash:hash("csrf"),user_id:"u",department_id:"d",active:false,role:null}]}) as never);
   await assert.rejects(()=>inactive.authenticate(request({cookie:`${SESSION_COOKIE}=valid`})),/inactive/);
 });
 

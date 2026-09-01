@@ -42,12 +42,16 @@ export class SessionService {
   async authenticate(request:Request):Promise<AuthenticatedSession> {
     const token=this.cookies(request)[SESSION_COOKIE];
     if(!token){metrics.counter("aims_domain_operations_total",{operation:"SESSION_AUTHENTICATE",outcome:"FAILURE",failure_category:"AUTHENTICATION",channel:"WEB"});throw new UnauthorizedException("Authentication required")}
-    const result=await this.database.pool.query<{session_id:string;csrf_token_hash:string;user_id:string;department_id:string;active:boolean;role:Role|null}>(`
-      SELECT s.id session_id,s.csrf_token_hash,u.id user_id,u.department_id,u.active,ur.role
-      FROM aims_sessions s JOIN users u ON u.id=s.user_id
-      LEFT JOIN user_roles ur ON ur.user_id=u.id
-      WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
-    `,[this.hash(token)]);
+    const result=await this.database.transaction(async(c)=>{
+      await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
+      return c.query<{session_id:string;csrf_token_hash:string;user_id:string;department_id:string;active:boolean;role:Role|null}>(`
+        SELECT s.id session_id,s.csrf_token_hash,u.id user_id,u.department_id,u.active,ur.role
+        FROM aims_sessions s JOIN users u ON u.id=s.user_id
+        LEFT JOIN user_roles ur ON ur.user_id=u.id
+        WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
+          AND s.issued_generation=(SELECT generation FROM aims_recovery_generation WHERE singleton)
+      `,[this.hash(token)]);
+    });
     if(!result.rowCount){metrics.counter("aims_domain_operations_total",{operation:"SESSION_AUTHENTICATE",outcome:"FAILURE",failure_category:"AUTHENTICATION",channel:"WEB"});throw new UnauthorizedException("Session is invalid or expired")}
     if(!result.rows[0].active){await this.audit("INACTIVE_USER_REJECTED",request,result.rows[0].user_id,null);throw new UnauthorizedException("Unknown or inactive user");}
     return {sessionId:result.rows[0].session_id,csrfTokenHash:result.rows[0].csrf_token_hash,principal:{

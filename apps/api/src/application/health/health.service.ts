@@ -3,7 +3,7 @@ import { Postgres } from "../../infrastructure/database/postgres.js";
 import { isAiMasterEnabled } from "../../infrastructure/ai/ai-governance.js";
 import {metrics,operationalLog} from "../../infrastructure/observability/telemetry.js";
 
-export const EXPECTED_SCHEMA_VERSION = 58;
+export const EXPECTED_SCHEMA_VERSION = 59;
 
 @Injectable()
 export class HealthService {

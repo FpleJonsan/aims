@@ -79,6 +79,7 @@ export class ApprovalOutboxService {
     metrics.counter("aims_worker_work_total",{workload:"TELEGRAM_DELIVERY",outcome:"CLAIMED",failure_category:"NONE"});
     try {
       const prepared = await this.db.transaction(async (c) => {
+        await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
         const info = await c.query<any>(
           `SELECT t.telegram_chat_id,pr.ticket_number,pr.amount,pr.currency,pr.purpose,s.id step_id,s.approval_case_id FROM telegram_identity_bindings t JOIN notification_outbox o ON o.recipient_user_id=t.user_id JOIN approval_steps s ON s.id=o.aggregate_id JOIN approval_cases ac ON ac.id=s.approval_case_id JOIN payment_requests pr ON pr.id=ac.payment_request_id WHERE o.id=$1 AND t.status='ACTIVE' AND s.status='ACTIVE' AND ac.is_current FOR UPDATE OF o`,
           [row.id],
@@ -86,7 +87,7 @@ export class ApprovalOutboxService {
         if (!info.rowCount || row.claim_token === null)
           throw new Error("RECIPIENT_OR_STEP_NOT_ACTIVE");
         const owned = await c.query(
-          "SELECT 1 FROM notification_outbox WHERE id=$1 AND status='PROCESSING' AND claim_token=$2",
+          "SELECT 1 FROM notification_outbox WHERE id=$1 AND status='PROCESSING' AND claim_token=$2 AND claim_generation=(SELECT generation FROM aims_recovery_generation WHERE singleton)",
           [row.id, row.claim_token],
         );
         if (!owned.rowCount) throw new Error("STALE_OUTBOX_CLAIM");
@@ -134,12 +135,16 @@ export class ApprovalOutboxService {
           clarify: prepared.callbacks.REQUEST_CLARIFICATION,
         },
       });
-      const completed = await this.db.pool.query(
-        `UPDATE notification_outbox SET status='SENT',sent_at=now(),last_error_code=NULL,
-         claimed_at=NULL,claim_token=NULL,claimed_by=NULL
-         WHERE id=$1 AND status='PROCESSING' AND claim_token=$2`,
-        [row.id, row.claim_token],
-      );
+      const completed = await this.db.transaction(async(c)=>{
+        await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
+        return c.query(
+          `UPDATE notification_outbox SET status='SENT',sent_at=now(),last_error_code=NULL,
+           claimed_at=NULL,claim_token=NULL,claimed_by=NULL
+           WHERE id=$1 AND status='PROCESSING' AND claim_token=$2
+             AND claim_generation=(SELECT generation FROM aims_recovery_generation WHERE singleton)`,
+          [row.id,row.claim_token],
+        );
+      });
       if (!completed.rowCount)
         return { id: row.id, status: "STALE_CLAIM" };
       await this.audit(row, "APPROVAL_NOTIFICATION_SENT", null);
@@ -169,18 +174,22 @@ export class ApprovalOutboxService {
             ),
           ),
         ),
-        failed = await this.db.pool.query(
-          `UPDATE notification_outbox SET status=$3::varchar,next_attempt_at=CASE WHEN $3::varchar='FAILED_RETRYABLE' THEN now()+make_interval(secs=>$5) ELSE next_attempt_at END,
-           last_error_code=$4,claimed_at=NULL,claim_token=NULL,claimed_by=NULL
-           WHERE id=$1 AND status='PROCESSING' AND claim_token=$2`,
-          [
+        failed = await this.db.transaction(async(c)=>{
+          await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
+          return c.query(
+            `UPDATE notification_outbox SET status=$3::varchar,next_attempt_at=CASE WHEN $3::varchar='FAILED_RETRYABLE' THEN now()+make_interval(secs=>$5) ELSE next_attempt_at END,
+             last_error_code=$4,claimed_at=NULL,claim_token=NULL,claimed_by=NULL
+             WHERE id=$1 AND status='PROCESSING' AND claim_token=$2
+               AND claim_generation=(SELECT generation FROM aims_recovery_generation WHERE singleton)`,
+            [
             row.id,
             row.claim_token,
             terminal ? "FAILED_TERMINAL" : "FAILED_RETRYABLE",
             code,
             retryDelay,
-          ],
-        );
+            ],
+          );
+        });
       if (!failed.rowCount)
         return { id: row.id, status: "STALE_CLAIM" };
       await this.audit(

@@ -193,8 +193,14 @@ export class ApprovalService {
     actor: Principal,
     correlationId: string,
     channel: "WEB" | "TELEGRAM" = "WEB",
+    recoveryGeneration?: string,
   ) {
     return this.db.retryableTransaction(async (c) => {
+      if(recoveryGeneration){
+        await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
+        const generation=await c.query("SELECT 1 FROM aims_recovery_generation WHERE singleton AND generation=$1",[recoveryGeneration]);
+        if(!generation.rowCount)throw new ForbiddenException("Stale recovery generation authority");
+      }
       const duplicate = await c.query<any>(
         "SELECT * FROM approval_actions WHERE command_key=$1",
         [input.commandKey],
@@ -557,26 +563,21 @@ export class ApprovalService {
     const secret = process.env.TELEGRAM_CALLBACK_SECRET;
     if (!secret)
       throw new ConflictException("Telegram callback configuration is unavailable");
-    const user = await this.db.pool.query(
-      "SELECT 1 FROM users WHERE id=$1 AND active",
-      [userId],
-    );
-    if (!user.rowCount) throw new BadRequestException("Active user not found");
     const id = randomUUID(),
       token = `${id}.${createHmac("sha256", secret).update(id).digest("base64url").slice(0, 24)}`,
       tokenHash = createHash("sha256").update(token).digest("hex"),
       expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
-    await this.db.pool.query(
-      `INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,correlation_id,safe_metadata)
-       VALUES($1,$2,'TELEGRAM_BINDING_CHALLENGE_CREATED','TELEGRAM_IDENTITY_BINDING',$3,$4,$5)`,
-      [
-        randomUUID(),
-        actor.id,
-        id,
-        correlationId,
-        JSON.stringify({ userId, tokenHash, expiresAt }),
-      ],
-    );
+    await this.db.retryableTransaction(async(c)=>{
+      await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
+      const generation=await c.query<{generation:string}>("SELECT generation FROM aims_recovery_generation WHERE singleton");
+      const user=await c.query("SELECT 1 FROM users WHERE id=$1 AND active",[userId]);
+      if(!user.rowCount)throw new BadRequestException("Active user not found");
+      await c.query(
+        `INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,correlation_id,safe_metadata)
+         VALUES($1,$2,'TELEGRAM_BINDING_CHALLENGE_CREATED','TELEGRAM_IDENTITY_BINDING',$3,$4,$5)`,
+        [randomUUID(),actor.id,id,correlationId,JSON.stringify({userId,tokenHash,expiresAt,recoveryGeneration:generation.rows[0].generation})],
+      );
+    });
     return { challenge: `/bind ${token}`, expiresAt };
   }
 
@@ -699,6 +700,8 @@ export class ApprovalService {
       typeof message?.from?.id === "number"
     ) {
       const pending = await this.db.retryableTransaction(async (c) => {
+        await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
+        const generation=await c.query<{generation:string}>("SELECT generation FROM aims_recovery_generation WHERE singleton");
         const q = await c.query<any>(
           `SELECT i.*,b.telegram_chat_id,u.department_id,ARRAY(SELECT ur.role FROM user_roles ur WHERE ur.user_id=u.id)roles,ac.payment_request_id FROM telegram_pending_interactions i JOIN telegram_identity_bindings b ON b.id=i.telegram_binding_id AND b.status='ACTIVE' JOIN users u ON u.id=i.recipient_user_id AND u.active JOIN approval_cases ac ON ac.id=i.approval_case_id WHERE b.telegram_user_id=$1 AND b.telegram_chat_id=$2 AND i.status='PENDING' AND i.expires_at>now() FOR UPDATE OF i`,
           [message.from.id, message.chat?.id],
@@ -706,7 +709,7 @@ export class ApprovalService {
         if (!q.rowCount)
           throw new ConflictException("No active Telegram interaction");
         const row = q.rows[0];
-        return row;
+        return {...row,recovery_generation:generation.rows[0].generation};
       });
       const result = await this.act(
         pending.payment_request_id,
@@ -727,6 +730,7 @@ export class ApprovalService {
         },
         randomUUID(),
         "TELEGRAM",
+        pending.recovery_generation,
       );
       await this.db.pool.query(
         "UPDATE telegram_pending_interactions SET status='CONSUMED',consumed_at=now() WHERE id=$1 AND status='PENDING'",
@@ -751,12 +755,14 @@ export class ApprovalService {
         "Telegram approval actions require the bound private chat",
       );
     const prepared = await this.db.retryableTransaction(async (c) => {
+      await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
+      const generation=await c.query<{generation:string}>("SELECT generation FROM aims_recovery_generation WHERE singleton");
       const token = await c.query<any>(
         `SELECT t.*,ac.payment_request_id,b.id binding_id,b.user_id,u.department_id,ARRAY(SELECT ur.role FROM user_roles ur WHERE ur.user_id=u.id) roles
          FROM approval_action_tokens t JOIN approval_cases ac ON ac.id=t.approval_case_id
          JOIN telegram_identity_bindings b ON b.telegram_user_id=$2 AND ($3::bigint IS NULL OR b.telegram_chat_id=$3) AND b.status='ACTIVE' AND b.user_id=t.recipient_user_id
          JOIN users u ON u.id=b.user_id AND u.active
-         WHERE t.token_hash=$1 FOR UPDATE OF t`,
+         WHERE t.token_hash=$1 AND t.issued_generation=(SELECT generation FROM aims_recovery_generation WHERE singleton) FOR UPDATE OF t`,
         [
           createHash("sha256").update(callback.data).digest("hex"),
           callback.from.id,
@@ -788,6 +794,7 @@ export class ApprovalService {
             departmentId: row.department_id,
             roles: row.roles,
           } as Principal,
+          recoveryGeneration:generation.rows[0].generation,
         };
       }
       if (row.status !== "ACTIVE" || new Date(row.expires_at) <= new Date())
@@ -834,6 +841,7 @@ export class ApprovalService {
           departmentId: row.department_id,
           roles: row.roles,
         } as Principal,
+        recoveryGeneration:generation.rows[0].generation,
       };
     });
     if ((prepared as any).pending)
@@ -851,6 +859,7 @@ export class ApprovalService {
       stepId: string;
       tokenId: string;
       principal: Principal;
+      recoveryGeneration:string;
     };
     const result = await this.act(
       command.requestId,
@@ -859,6 +868,7 @@ export class ApprovalService {
       command.principal,
       randomUUID(),
       "TELEGRAM",
+      command.recoveryGeneration,
     );
     await this.db.pool.query(
       "UPDATE approval_action_tokens SET used_at=COALESCE(used_at,now()),used_by=COALESCE(used_by,$2),status='CONSUMED' WHERE id=$1 AND status='ACTIVE'",
@@ -888,6 +898,8 @@ export class ApprovalService {
       throw new ForbiddenException("Invalid Telegram binding challenge");
     const created = await this.db.retryableTransaction(async (c) => {
       await c.query("SELECT pg_advisory_xact_lock(hashtext($1))", [id]);
+      await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
+      const generation=await c.query<{generation:string}>("SELECT generation FROM aims_recovery_generation WHERE singleton");
       const q = await c.query<any>(
         `SELECT ae.actor_id,ae.correlation_id,ae.safe_metadata,u.department_id
          FROM audit_events ae JOIN users u ON u.id=ae.actor_id AND u.active
@@ -901,6 +913,7 @@ export class ApprovalService {
       const metadata = q.rows[0].safe_metadata;
       if (
         metadata?.tokenHash !== createHash("sha256").update(token).digest("hex") ||
+        metadata?.recoveryGeneration !== generation.rows[0].generation ||
         new Date(metadata?.expiresAt).getTime() <= Date.now()
       )
         throw new ConflictException("Telegram binding challenge is expired");

@@ -1793,3 +1793,23 @@ test("Telegram 429 persists a bounded Retry-After without changing Approval", as
     await db.onModuleDestroy();
   }
 });
+
+test("recovery generation fences Approval tokens, Telegram interactions, and binding challenges",async()=>{
+  const oldWebhook=process.env.TELEGRAM_WEBHOOK_SECRET,oldCallback=process.env.TELEGRAM_CALLBACK_SECRET;
+  process.env.TELEGRAM_WEBHOOK_SECRET="p12-webhook-secret";process.env.TELEGRAM_CALLBACK_SECRET="p12-callback-secret";
+  const db=new Postgres(),migrator=new pg.Pool({connectionString:process.env.AIMS_INTEGRATION_MIGRATOR_DATABASE_URL}),base=Date.now()+86000;
+  try{
+    const fixture=await eligible(db),service=new ApprovalService(db,fixture.requests),telegramId=String(base+1);
+    const challenge=await service.createTelegramBindingChallenge(approver.id,admin,"p12-stale-challenge");
+    await service.bindTelegram({userId:approver.id,telegramUserId:telegramId,telegramChatId:telegramId},admin,"p12-bind");
+    const view=await service.create(fixture.r.id,finance,"p12-case"),approveToken=await telegramToken(db,view,"APPROVE"),rejectToken=await telegramToken(db,view,"REJECT");
+    const pending=await service.telegramWebhook("p12-webhook-secret",{update_id:base+2,callback_query:{data:rejectToken,from:{id:Number(telegramId)},message:{chat:{id:Number(telegramId),type:"private"}}}});
+    assert.equal((pending as {method?:string}).method,"sendMessage");
+    await migrator.query("SELECT * FROM advance_aims_recovery_generation($1,$2)",["P12_APPROVAL_TELEGRAM_FENCE",randomUUID()]);
+    await assert.rejects(()=>service.telegramWebhook("p12-webhook-secret",{update_id:base+3,callback_query:{data:approveToken,from:{id:Number(telegramId)},message:{chat:{id:Number(telegramId),type:"private"}}}}),/invalid|expired|used/i);
+    await assert.rejects(()=>service.telegramWebhook("p12-webhook-secret",{update_id:base+4,message:{text:"stale reason",from:{id:Number(telegramId)},chat:{id:Number(telegramId),type:"private"}}}),/No active Telegram interaction/);
+    await assert.rejects(()=>service.telegramWebhook("p12-webhook-secret",{update_id:base+5,message:{text:challenge.challenge,from:{id:Number(telegramId)},chat:{id:Number(telegramId),type:"private"}}}),/expired/);
+    assert.equal((await db.pool.query("SELECT count(*)::int count FROM approval_actions WHERE approval_case_id=$1",[view.case.id])).rows[0].count,0);
+    const fresh=await service.createTelegramBindingChallenge(approver.id,admin,"p12-fresh-challenge");assert.notEqual(fresh.challenge,challenge.challenge);
+  }finally{process.env.TELEGRAM_WEBHOOK_SECRET=oldWebhook;process.env.TELEGRAM_CALLBACK_SECRET=oldCallback;await migrator.end();await db.onModuleDestroy();}
+});

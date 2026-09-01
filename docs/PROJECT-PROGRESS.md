@@ -11,11 +11,11 @@ in this document.
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
 | Current Production phase | P12 — Backup / Restore / Disaster Recovery |
-| Current status | P12 decision audit complete; provider-neutral application/documentation hardening pending; no provider selected |
+| Current status | P12 implementation in progress; recovery-generation prerequisite PASS / FROZEN; general P12 implementation remains paused pending separate authorization |
 | Last completed phase | P11 — Provider-Neutral Alerting Foundation and Frozen Review |
 | Overall Production ready | NO |
-| Current schema | 58 |
-| Latest migration | `058_p10_observability_claim_recovery_and_outbox_index` |
+| Current schema | 59 |
+| Latest migration | `059_p12_recovery_generation_fencing` |
 | Current branch | `main` |
 | Last verified commit | `a9c19ce` |
 | P6 database architecture | PASS |
@@ -81,7 +81,7 @@ Preserve these invariants:
   closed until an approved corporate identity adapter exists.
 - **Sessions:** only hashes of opaque session/CSRF tokens are stored; origin,
   CSRF, expiry, revocation, logout, and current-user status are enforced.
-- **Database:** schema 58 is authoritative. Runtime roles must not own schema
+- **Database:** schema 59 is authoritative. Runtime roles must not own schema
   objects or obtain DDL, role administration, or cross-executor authority.
 - **Finance executor:** only the approved Finance Control capabilities and two
   trusted functions are available to the dedicated executor.
@@ -100,10 +100,10 @@ Preserve these invariants:
 
 | Item | State |
 | --- | --- |
-| Schema version | 58 |
-| Latest migration | `058_p10_observability_claim_recovery_and_outbox_index.sql` |
-| Historical migration chain | `001`–`058`, immutable after P10 correction |
-| Migration 059+ | NONE / NOT AUTHORIZED |
+| Schema version | 59 |
+| Latest migration | `059_p12_recovery_generation_fencing.sql` |
+| Historical migration chain | `001`–`059`; 001–058 remain immutable |
+| Migration 060+ | NONE / NOT AUTHORIZED |
 | Local database | Schema 56; P6 ownership/role posture verified PASS and frozen |
 | Target owner | `aims_owner` (`NOLOGIN`) |
 | Target migrator | `aims_migrator` (`LOGIN`, `NOINHERIT`, explicit owner-role entry) |
@@ -159,7 +159,7 @@ corrective findings and remains frozen.
 
 ## 7. Frozen / Do Not Change
 
-- Historical migrations 001–058 and schema 58.
+- Historical migrations 001–058 and the migration-059 recovery-generation scope.
 - The 12-stage workflow and distinct stage semantics.
 - Deterministic financial equation and Policy behavior.
 - Approval, Finance Control, Payment, segregation-of-duties, and authority rules.
@@ -212,7 +212,7 @@ risk register. Overall Production readiness remains NO.
 | P9 | COMPLETED / FROZEN | Telegram remains optional; code hardening and final review pass; no external setup authorized |
 | P10 | COMPLETED / FROZEN | Vendor-neutral structured logs, metrics and health contracts; correction and five-discipline final review PASS |
 | P11 | COMPLETED / FROZEN | Provider-neutral alert specification, catalogue, runbooks, rule tests and five-discipline frozen review PASS; provider/on-call/deployment gates remain open |
-| P12 | DECISION AUDIT COMPLETE / IMPLEMENTATION PENDING | Decision B: restore checker, manifest, reconciliation specification and runbook hardening required; provider/RPO/RTO/retention and rehearsal gates remain open |
+| P12 | IMPLEMENTATION IN PROGRESS — RECOVERY-GENERATION PREREQUISITE PASS / FROZEN | Migration 059 fences restored ephemeral authority; five-discipline frozen review PASS. General restore checker, manifest, reconciliation and runbook work has not resumed and requires separate authorization. |
 | P13 | PENDING | Deployment, TLS, network, CI/CD |
 | P14 | PENDING | Production security red-team |
 | P15 | PENDING | Capacity and performance |
@@ -1664,3 +1664,36 @@ STARTED and overall Production ready remains NO.
 Next: complete the required frozen read-only decision review. If it passes,
 wait for separate narrow authorization before any P12 implementation. Do not
 configure backup/PITR/object replication or start P13.
+
+### 2026-09-01 — P12 recovery-generation prerequisite correction
+
+Status: PASS / FROZEN PREREQUISITE; GENERAL P12 NOT RESUMED
+
+Baseline commit: `056e5ed0a0b1202b8bb40118b883c2c47c1aeb11`
+
+Migration 059 introduces a PostgreSQL-owned opaque recovery generation, a
+monotonic sequence and append-only operator evidence. Sessions, Approval action
+tokens, Telegram pending interactions and binding challenges, document scan
+claims and outbox claims are bound or invalidated. Payments, idempotency,
+ledger, commitments, budgets, Approval/Finance Control history, document hashes
+and business audit history remain authoritative and unchanged.
+
+Focused stale-authority and concurrency attacks PASS, including an unexpired
+document lease, both advance/finalization orderings, session resurrection,
+Approval/Telegram replay and stale outbox finalization. Clean 001–059 and
+058→059 proofs, P6 privilege/default/attack proof, all repository integration
+suites, four-scenario UAT, repository tests, lint, typecheck, API/frontend builds
+and diff checks PASS. Integration mutations remained isolated to `aims_test_*`.
+No shared local, competition, staging or Production database was changed.
+
+PostgreSQL/DB Security, Application Security, Backend/Distributed Systems,
+Finance Systems/Controls and SRE/DR frozen read-only reviews all PASS. Critical,
+High, Medium and Low findings requiring correction: 0. Code, database,
+migrations, privileges, test code and frontend were unchanged during review;
+only this permitted post-review governance update followed.
+
+Current schema is 59; migration 060+ does not exist. P12 remains IMPLEMENTATION
+IN PROGRESS because restore checker, manifest, reconciliation and full runbook
+work has not resumed. Production backup/PITR/provider configuration and P13 are
+not authorized. Production AI and Telegram remain OFF. Overall Production ready
+remains NO.

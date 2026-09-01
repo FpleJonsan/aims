@@ -40,12 +40,12 @@ try{
   const bootstrap=(await readFile(path.join(apiRoot,"database/production/bootstrap-roles.sql"),"utf8")).replaceAll(':"DBNAME"',`"${database}"`);
   adminPsql(bootstrap);
   adminPsql(`ALTER ROLE aims_migrator PASSWORD ${literal(credentials.migrator)};ALTER ROLE aims_app PASSWORD ${literal(credentials.app)};ALTER ROLE aims_finance_runtime PASSWORD ${literal(credentials.finance)};ALTER ROLE aims_payment_runtime PASSWORD ${literal(credentials.payment)};ALTER ROLE aims_document_worker_runtime PASSWORD ${literal(credentials.worker)};`);
-  const migrations=(await readdir(path.join(apiRoot,"migrations"))).filter(name=>/^\d{3}_.*\.sql$/.test(name)&&Number(name.slice(0,3))<=58).sort();
-  if(migrations.length!==58||!migrations[0].startsWith("001_")||!migrations.at(-1).startsWith("058_"))throw new Error("expected immutable migration chain 001-058");
+  const migrations=(await readdir(path.join(apiRoot,"migrations"))).filter(name=>/^\d{3}_.*\.sql$/.test(name)&&Number(name.slice(0,3))<=59).sort();
+  if(migrations.length!==59||!migrations[0].startsWith("001_")||!migrations.at(-1).startsWith("059_"))throw new Error("expected immutable migration chain 001-059");
   for(const name of migrations)adminPsql(`SET ROLE aims_owner;\n${await readFile(path.join(apiRoot,"migrations",name),"utf8")}`);
   adminPsql(await readFile(path.join(apiRoot,"database/production/post-migration-hardening.sql"),"utf8"));
   adminPsql(await readFile(path.join(apiRoot,"database/production/privilege-manifest.sql"),"utf8"));
-  if(requested.includes(".test-dist/test/document-worker-integration.test.js"))adminPsql(`
+  if(requested.some(name=>[".test-dist/test/document-worker-integration.test.js",".test-dist/test/recovery-generation-integration.test.js"].includes(name)))adminPsql(`
     INSERT INTO departments(id,code,name)VALUES('71000000-0000-4000-8000-000000000001','P7-WORKER','P7 Disposable Worker')ON CONFLICT DO NOTHING;
     INSERT INTO users(id,external_subject,email,display_name,department_id)VALUES('72000000-0000-4000-8000-000000000001','p7-worker-fixture','p7-worker@example.invalid','P7 Worker Fixture','71000000-0000-4000-8000-000000000001')ON CONFLICT DO NOTHING;
     INSERT INTO payment_requests(id,status,department_id,created_by)VALUES('73000000-0000-4000-8000-000000000001','DRAFT','71000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000001')ON CONFLICT DO NOTHING;
@@ -55,9 +55,9 @@ try{
   const urls=[url("aims_app",credentials.app),url("aims_finance_runtime",credentials.finance),url("aims_payment_runtime",credentials.payment)];
   assertDisposableIntegrationDatabase({databaseName:database,urls});
   run("npx",["tsc","-p","tsconfig.test.json"],{cwd:apiRoot});
-  const env={...process.env,AIMS_ENVIRONMENT:"local",DATABASE_URL:urls[0],FINANCE_DATABASE_URL:urls[1],PAYMENT_DATABASE_URL:urls[2],DOCUMENT_WORKER_DATABASE_URL:url("aims_document_worker_runtime",credentials.worker),AIMS_INTEGRATION_ADMIN_DATABASE_URL:url("postgres",credentials.admin),AIMS_INTEGRATION_DATABASE:database,AIMS_INTEGRATION_DISPOSABLE:"true"};
+  const env={...process.env,AIMS_ENVIRONMENT:"local",DATABASE_URL:urls[0],FINANCE_DATABASE_URL:urls[1],PAYMENT_DATABASE_URL:urls[2],DOCUMENT_WORKER_DATABASE_URL:url("aims_document_worker_runtime",credentials.worker),AIMS_INTEGRATION_MIGRATOR_DATABASE_URL:url("aims_migrator",credentials.migrator),AIMS_INTEGRATION_ADMIN_DATABASE_URL:url("postgres",credentials.admin),AIMS_INTEGRATION_DATABASE:database,AIMS_INTEGRATION_DISPOSABLE:"true"};
   run(process.execPath,["--env-file=../../.env","--test","--test-concurrency=1",...requested],{cwd:apiRoot,env});
-  console.log(JSON.stringify({result:"PASS",database:"isolated-disposable",schema:58,tests:requested.length,cleanup:"pending"}));
+  console.log(JSON.stringify({result:"PASS",database:"isolated-disposable",schema:59,tests:requested.length,cleanup:"pending"}));
 }finally{
   spawnSync("docker",["rm","-f",container],{encoding:"utf8"});
   await rm(envFile,{force:true});
