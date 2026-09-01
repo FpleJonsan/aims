@@ -1,7 +1,6 @@
 # AIMS P11 Alerting and Operational Response Decision
 
-Status: DECISION COMPLETE — P11 CODE/DOCUMENTATION HARDENING REQUIRED; NO
-PROVIDER SELECTION REQUIRED YET.
+Status: PASS / FROZEN — FIVE-DISCIPLINE READ-ONLY REVIEW PASS; NO PROVIDER SELECTED.
 
 Baseline: `main` at `d9d7545`, clean worktree, schema 58,
 `058_p10_observability_claim_recovery_and_outbox_index`, no migration 059+, P6
@@ -189,11 +188,11 @@ business outcomes. Provider integration tests wait for provider selection.
 | Capability | Classification |
 | --- | --- |
 | Severity model and candidate catalogue | READY decision foundation; company alignment open |
-| API/DB/worker/document/control/Payment candidates | READY inputs; NEEDS P11 specification/runbooks |
-| Telegram/AI candidates | OPTIONAL while OFF; NEEDS P11 specification before enablement |
-| Recovery/grouping/cardinality/privacy contract | READY decision foundation; NEEDS P11 hardening tests |
+| API/DB/worker/document/control/Payment candidates | IMPLEMENTED provider-neutral specification and runbooks |
+| Telegram/AI candidates | IMPLEMENTED optional specifications; inactive while feature is OFF |
+| Recovery/grouping/cardinality/privacy contract | IMPLEMENTED and rule-tested |
 | Thresholds and performance SLOs | P15 PERFORMANCE EVIDENCE / BUSINESS DECISION |
-| Runbooks and role ownership matrix | NEEDS P11 DOCUMENTATION HARDENING |
+| Runbooks and role ownership matrix | IMPLEMENTED; named company assignments remain external |
 | Named owners, on-call and escalation targets | EXTERNAL COMPANY DECISION |
 | Alert/observability provider and notification routes | EXTERNAL COMPANY DECISION / P13 INFRASTRUCTURE |
 | Staging exercise | P17 STAGING VALIDATION |
@@ -213,7 +212,7 @@ No runtime, tests, migration, database, role, grant, frontend, provider, Redis,
 scheduler, P10 or P12 change was made. Production AI and Telegram remain OFF.
 The Pre-P11 frontend findings `PC-LOW-001` and `PC-INF-001` remain untouched.
 
-Next authorization required: explicitly authorize P11 provider-neutral
-alert-specification, runbook and governance hardening with tests, while keeping
-provider deployment, notification routing, runtime changes, database changes,
-frontend work and P12 out of scope.
+The frozen SRE/Incident, Backend, Application Security, PostgreSQL/DBA and
+Finance Operations/Controls reviews all PASS with no correction-required
+finding. Provider deployment, notification routing, runtime evaluation,
+database changes, frontend work and P12 remain out of scope.

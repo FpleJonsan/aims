@@ -29,7 +29,7 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | AI provider governance | DECISION REQUIRED | After code hardening, approve provider/model, permissible data, retention/training/residency/deletion terms, cost policy and operational ownership—or launch with AI OFF. |
 | Telegram | CODE FOUNDATION PASS / EXTERNAL GATES OPEN | P9 hardening and final review PASS. Keep OFF pending approved bot/token custody, privacy, monitoring and edge controls. |
 | Structured logging/redaction | P10 PASS / FROZEN | Structured stdout/stderr, safe request/worker fields, fixed taxonomy and representative AI/document/Payment/Telegram redaction canaries pass; company collection/access/retention remains external. |
-| Metrics/alerting | P11 DECISION COMPLETE / HARDENING AND DEPLOYMENT BLOCKED | P10 inputs are sufficient for a provider-neutral catalogue. P11 must complete specifications/runbooks/tests; company platform/on-call decisions and P13 private collection/evaluation/routing remain open. |
+| Metrics/alerting | P11 PASS / FROZEN; DEPLOYMENT BLOCKED | Provider-neutral specifications, catalogue, runbooks, tests and five-discipline frozen review PASS. Company platform/on-call decisions and P13 private collection/evaluation/routing remain open. |
 | Correlation and audit trace | P10 PASS / FROZEN | HTTP/domain/audit and existing-payload outbox/worker correlation pass. Audit remains authoritative; operational retention/export remains external. |
 | PostgreSQL backup/PITR | BLOCKED | Encrypted schedule, retention, off-host/managed protection and ownership. |
 | Object backup/versioning | BLOCKED | Version/replication/backup policy consistent with retention and legal hold. |
@@ -50,7 +50,7 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | Production security red-team | BLOCKED | New identity/storage/secrets/network/worker/AI tests plus existing control regressions. |
 | Staging RC | BLOCKED | Production-like environment passes all gates using immutable artifacts. |
 | Rollback/forward-fix | BLOCKED | Application rollback and safe schema forward-fix rehearsed; no destructive assumption. |
-| Incident response | P11 FOUNDATION DEFINED / BLOCKED | Proposed severity, ownership and runbook contracts exist; company alignment, named on-call, communications, response targets and financial stop-the-line exercises remain required. |
+| Incident response | P11 PASS / FROZEN; EXTERNAL GATES BLOCKED | Severity, ownership and runbook contracts passed frozen review; company alignment, named on-call, communications, response targets and financial stop-the-line exercises remain required. |
 | Go-live approval | BLOCKED | P19 review accepted by Finance, Security, Architecture, SRE/DBA and business owners. |
 | Opening reconciliation | BLOCKED | Post-deploy budgets, commitments, payments, ledger, documents and authorities reconcile. |
 

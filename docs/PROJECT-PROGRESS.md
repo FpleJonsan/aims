@@ -10,14 +10,14 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P11 — Alerting / Operational Response Decision |
-| Current status | P11 decision complete; provider-neutral code/documentation hardening required; no provider selected |
-| Last completed phase | P10 — Vendor-Neutral Observability Foundation and Final Review |
+| Current Production phase | P11 — Provider-Neutral Alerting Foundation |
+| Current status | P11 PASS/FROZEN; provider-neutral alerting foundation complete; external deployment gates remain open |
+| Last completed phase | P11 — Provider-Neutral Alerting Foundation and Frozen Review |
 | Overall Production ready | NO |
 | Current schema | 58 |
 | Latest migration | `058_p10_observability_claim_recovery_and_outbox_index` |
 | Current branch | `main` |
-| Last verified commit | `d9d7545` |
+| Last verified commit | `5a7c51e` |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -211,7 +211,7 @@ risk register. Overall Production readiness remains NO.
 | P8 | COMPLETED / FROZEN | Production AI governance hardening and final review; AI OFF and no provider selected |
 | P9 | COMPLETED / FROZEN | Telegram remains optional; code hardening and final review pass; no external setup authorized |
 | P10 | COMPLETED / FROZEN | Vendor-neutral structured logs, metrics and health contracts; correction and five-discipline final review PASS |
-| P11 | DECISION COMPLETE / HARDENING PENDING | Provider-neutral alert catalogue, severity, recovery, ownership, runbook and SLI/SLO decision; provider/on-call/deployment gates remain open |
+| P11 | COMPLETED / FROZEN | Provider-neutral alert specification, catalogue, runbooks, rule tests and five-discipline frozen review PASS; provider/on-call/deployment gates remain open |
 | P12 | PENDING | Backup, PITR, restore, DR |
 | P13 | PENDING | Deployment, TLS, network, CI/CD |
 | P14 | PENDING | Production security red-team |
@@ -1593,3 +1593,45 @@ is NOT STARTED. Overall Production ready remains NO.
 Next: wait for explicit authorization to perform P11 provider-neutral
 alert-specification/runbook/governance hardening with tests. Do not configure a
 provider, paging route or frontend, and do not start P12.
+
+### 2026-09-01 — P11 provider-neutral alerting implementation checkpoint
+
+Status: IMPLEMENTED / FROZEN READ-ONLY REVIEW PENDING
+
+Baseline Commit: `5a7c51e`
+
+Implemented a static provider-neutral 22-alert specification, bounded severity,
+classification, threshold-source, feature-gating, recovery, grouping, privacy,
+ownership and runbook-reference contracts. Added an operator catalogue and
+runbooks covering API/readiness, schema, database, workers, document/scanner,
+authentication/security, Finance Control, Payment, and optional Telegram/AI.
+No evaluator, provider, notification route, scheduler, Redis, database change,
+migration 059, role/grant, frontend change or P12 work was introduced.
+
+Verification: focused P11 tests PASS (8/8); full repository tests and the P10,
+worker, Approval, Payment, P6 disposable database proof, UAT and integration
+isolation suites PASS. Lint, typecheck, API build, full build and
+`git diff --check` PASS. Production AI and Telegram remain OFF; normal business
+outcomes remain non-incidents; alert specifications cannot mutate workflow or
+financial state.
+
+Next: implementation is frozen. Perform the required SRE/Incident, Backend,
+Application Security, PostgreSQL/DBA and Finance Operations read-only reviews.
+Only a zero-correction-finding PASS may advance P11 governance to PASS/FROZEN.
+
+### 2026-09-01 — P11 five-discipline frozen review closure
+
+Status: PASS / FROZEN
+
+SRE/Incident Response, Backend, Application Security, PostgreSQL/DBA and Finance
+Operations/Controls independently reviewed the frozen P11 implementation and
+all PASS. Critical, High, Medium and Low findings requiring correction: 0.
+Implementation code, test code, database, migrations, privileges and frontend
+were unchanged during review. Only this permitted post-review governance status
+update followed the review.
+
+P11 is complete and frozen. Provider/platform selection, named on-call and
+routing remain external gates; P13 owns private evaluation/collection/routing,
+P15 owns evidence-based numeric thresholds, and P17 owns staging exercise.
+Schema remains 58; migration 059 does not exist. P12 remains NOT STARTED and
+overall Production ready remains NO.
