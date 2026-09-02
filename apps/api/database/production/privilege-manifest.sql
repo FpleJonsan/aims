@@ -37,21 +37,20 @@ $$;
 
 -- Exact executor allowlists.
 DO $$
-DECLARE unexpected text;
 BEGIN
- SELECT string_agg(p.oid::regprocedure::text,',') INTO unexpected FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
- WHERE n.nspname='public' AND has_function_privilege('aims_finance_executor',p.oid,'EXECUTE')
- AND p.oid::regprocedure::text NOT IN('aims_authenticated_finance_actor()','complete_finance_control_pass(uuid,uuid)');
- IF unexpected IS NOT NULL THEN RAISE EXCEPTION 'Finance executor function drift: %',unexpected;END IF;
- SELECT string_agg(p.oid::regprocedure::text,',') INTO unexpected FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
- WHERE n.nspname='public' AND has_function_privilege('aims_payment_executor',p.oid,'EXECUTE')
- AND p.oid::regprocedure::text NOT IN('aims_authenticated_payment_actor()','attach_payment_slip(uuid,uuid,uuid,text,text,text,bigint,text)','record_payment(uuid,uuid,uuid,date,bigint,text,text,uuid,boolean)','begin_payment_slip_security_scan(uuid,uuid,integer,text)','complete_payment_slip_security_scan(uuid,uuid,integer,text,integer,text,text,text,text)');
- IF unexpected IS NOT NULL THEN RAISE EXCEPTION 'Payment executor function drift: %',unexpected;END IF;
- SELECT string_agg(p.oid::regprocedure::text,',') INTO unexpected FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
- WHERE n.nspname='public' AND has_function_privilege('aims_document_worker_executor',p.oid,'EXECUTE')
- AND p.oid::regprocedure::text NOT IN('claim_next_payment_document_scan(text,integer,integer,uuid)','complete_payment_document_scan(uuid,integer,text,integer,uuid,text,text,integer,text,text,text,text)','payment_document_scan_worker_health()');
- IF unexpected IS NOT NULL THEN RAISE EXCEPTION 'Document worker executor function drift: %',unexpected;END IF;
+ IF EXISTS(WITH expected(signature)AS(VALUES('aims_authenticated_finance_actor()'),('complete_finance_control_pass(uuid,uuid)')),actual AS(SELECT p.oid::regprocedure::text signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND has_function_privilege('aims_finance_executor',p.oid,'EXECUTE'))SELECT 1 FROM expected e FULL JOIN actual a USING(signature) WHERE e.signature IS NULL OR a.signature IS NULL) THEN RAISE EXCEPTION 'Finance executor function drift';END IF;
+ IF EXISTS(WITH expected(signature)AS(VALUES('aims_authenticated_payment_actor()'),('attach_payment_slip(uuid,uuid,uuid,text,text,text,bigint,text)'),('record_payment(uuid,uuid,uuid,date,bigint,text,text,uuid,boolean)'),('begin_payment_slip_security_scan(uuid,uuid,integer,text)'),('complete_payment_slip_security_scan(uuid,uuid,integer,text,integer,text,text,text,text)')),actual AS(SELECT p.oid::regprocedure::text signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND has_function_privilege('aims_payment_executor',p.oid,'EXECUTE'))SELECT 1 FROM expected e FULL JOIN actual a USING(signature) WHERE e.signature IS NULL OR a.signature IS NULL) THEN RAISE EXCEPTION 'Payment executor function drift';END IF;
+ IF EXISTS(WITH expected(signature)AS(VALUES('claim_next_payment_document_scan(text,integer,integer,uuid)'),('complete_payment_document_scan(uuid,integer,text,integer,uuid,text,text,integer,text,text,text,text)'),('payment_document_scan_worker_health()')),actual AS(SELECT p.oid::regprocedure::text signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND has_function_privilege('aims_document_worker_executor',p.oid,'EXECUTE'))SELECT 1 FROM expected e FULL JOIN actual a USING(signature) WHERE e.signature IS NULL OR a.signature IS NULL) THEN RAISE EXCEPTION 'Document worker executor function drift';END IF;
  IF has_table_privilege('aims_document_worker_runtime','payment_documents','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN RAISE EXCEPTION 'document worker raw table mutation drift';END IF;
  IF has_function_privilege('aims_document_worker_runtime','record_payment(uuid,uuid,uuid,date,bigint,text,text,uuid,boolean)','EXECUTE') OR has_function_privilege('aims_document_worker_runtime','complete_finance_control_pass(uuid,uuid)','EXECUTE') THEN RAISE EXCEPTION 'document worker financial function drift';END IF;
+END
+$$;
+
+-- Exact aims_owner default ACL. PostgreSQL implicit object defaults are not
+-- pg_default_acl rows; the only explicit frozen state is the global function
+-- default with PUBLIC EXECUTE removed and owner EXECUTE retained.
+DO $$
+BEGIN
+ IF EXISTS(WITH expected(owner_name,schema_name,object_type,grantee_name,privilege_type,is_grantable)AS(VALUES('aims_owner',NULL::text,'f','aims_owner','EXECUTE',false)),actual AS(SELECT owner_role.rolname owner_name,n.nspname schema_name,d.defaclobjtype object_type,CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE grantee_role.rolname END grantee_name,a.privilege_type,a.is_grantable FROM pg_default_acl d JOIN pg_roles owner_role ON owner_role.oid=d.defaclrole LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace CROSS JOIN LATERAL aclexplode(COALESCE(d.defaclacl,'{}'::aclitem[]))a LEFT JOIN pg_roles grantee_role ON grantee_role.oid=a.grantee WHERE owner_role.rolname='aims_owner')SELECT 1 FROM expected e FULL JOIN actual a ON a.owner_name=e.owner_name AND a.schema_name IS NOT DISTINCT FROM e.schema_name AND a.object_type=e.object_type AND a.grantee_name=e.grantee_name AND a.privilege_type=e.privilege_type AND a.is_grantable=e.is_grantable WHERE e.owner_name IS NULL OR a.owner_name IS NULL) THEN RAISE EXCEPTION 'aims_owner default privilege drift';END IF;
 END
 $$;

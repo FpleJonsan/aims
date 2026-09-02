@@ -11,13 +11,13 @@ in this document.
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
 | Current Production phase | P12 — Backup / Restore / Disaster Recovery |
-| Current status | P12 implementation in progress; recovery-generation prerequisite PASS / FROZEN; general P12 implementation remains paused pending separate authorization |
+| Current status | P12 final bounded local-enumeration correction implemented; five-discipline final frozen review pending |
 | Last completed phase | P11 — Provider-Neutral Alerting Foundation and Frozen Review |
 | Overall Production ready | NO |
 | Current schema | 59 |
 | Latest migration | `059_p12_recovery_generation_fencing` |
 | Current branch | `main` |
-| Last verified commit | `a9c19ce` |
+| Last verified commit | `651ac880` |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -212,7 +212,7 @@ risk register. Overall Production readiness remains NO.
 | P9 | COMPLETED / FROZEN | Telegram remains optional; code hardening and final review pass; no external setup authorized |
 | P10 | COMPLETED / FROZEN | Vendor-neutral structured logs, metrics and health contracts; correction and five-discipline final review PASS |
 | P11 | COMPLETED / FROZEN | Provider-neutral alert specification, catalogue, runbooks, rule tests and five-discipline frozen review PASS; provider/on-call/deployment gates remain open |
-| P12 | IMPLEMENTATION IN PROGRESS — RECOVERY-GENERATION PREREQUISITE PASS / FROZEN | Migration 059 fences restored ephemeral authority; five-discipline frozen review PASS. General restore checker, manifest, reconciliation and runbook work has not resumed and requires separate authorization. |
+| P12 | CORRECTION IMPLEMENTED / REVIEW PENDING | Recovery-generation prerequisite remains PASS/FROZEN. Local enumeration is incremental, cancellation-responsive and bounded to page candidates plus traversal depth while preserving global lossless pagination; all earlier deadline/financial/P6 corrections remain passing. Five-discipline final frozen review pending. |
 | P13 | PENDING | Deployment, TLS, network, CI/CD |
 | P14 | PENDING | Production security red-team |
 | P15 | PENDING | Capacity and performance |
@@ -1697,3 +1697,207 @@ IN PROGRESS because restore checker, manifest, reconciliation and full runbook
 work has not resumed. Production backup/PITR/provider configuration and P13 are
 not authorized. Production AI and Telegram remain OFF. Overall Production ready
 remains NO.
+
+### 2026-09-01 — P12 provider-neutral recovery implementation checkpoint
+
+Status: IMPLEMENTED / REVIEW PENDING
+
+Baseline commit: `651ac880e5533a33df2bcf1de3a243f9da9afd61`
+
+The separately authorized general P12 work resumed after the recovery-generation
+prerequisite froze. A versioned, bounded and privacy-restricted recovery
+manifest; offline read-only restore checker; financial/document/privilege/
+generation reconciliation; provider-neutral DR runbook; evidence template; and
+disposable restore-verification tests are implemented. The checker performs no
+generation advance, repair, business mutation or outbound call and cannot
+authorize resume.
+
+Focused restore verification, recovery-generation fencing, P6 database proof,
+document/worker/Payment/Finance Control/Approval-Telegram/P10/P11/UAT/isolation
+regressions, repository tests, lint, typecheck, API/frontend builds and diff
+checks pass. Mutating fixtures used only disposable `aims_test_*` databases.
+Schema remains 59, migration 060+ does not exist, roles/grants and frontend are
+unchanged, and Production AI/Telegram remain OFF.
+
+Implementation is now frozen pending the required independent read-only DBA,
+Finance Controls, SRE/DR, Application Security and Backend/Data Integrity
+reviews. Do not mark P12 PASS/FROZEN until all five reviews pass with no
+correction-required finding.
+
+### 2026-09-01 — P12 frozen-review Medium correction checkpoint
+
+Status: CORRECTION IMPLEMENTED / REVIEW PENDING
+
+The five narrowly authorized frozen-review Medium findings are corrected. All
+eligible manifest references reject credential-bearing or secret-like content
+without echoing values; recovery-generation reconciliation binds the singleton
+to its exact append-only event; FULL document verification reports explicit
+complete coverage without a silent document cap; storage reconciliation uses a
+bounded cursor-pagination and overall execution-deadline contract; and isolated
+savepoints allow independent read-only checks to continue after a query failure.
+
+Focused M1–M5 tests and the complete required P12/P6/document/worker/financial/
+Approval-Telegram/P10/P11/UAT/isolation regression matrix pass. Repository tests,
+lint, typecheck, API/frontend builds and `git diff --check` pass. Schema remains
+59, migration 060+ does not exist, database objects, roles, grants, privileges,
+frontend, financial authority and provider configuration are unchanged. The
+corrected tree is frozen for five new independent read-only reviews; P12 is not
+PASS/FROZEN unless all five reviews pass without a correction-required finding.
+
+### 2026-09-02 — P12 financial lineage and restored-P6 correction checkpoint
+
+Status: CORRECTION IMPLEMENTED / REVIEW PENDING
+
+The narrowly authorized frozen-review findings are corrected. Restore validation
+now checks the complete Request/Approval/Finance Control/commitment/Payment/
+ledger/budget/currency graph, current terminal authority, deterministic Payment
+command fingerprints, scoped normalized bank-reference uniqueness, and the
+authoritative per-budget/per-currency Available components without double
+reduction. It also evaluates the restored database against the frozen P6 catalog
+contract for roles, memberships, CONNECT, schema and object ownership/privileges,
+executor allowlists, recovery-generation authority, SECURITY DEFINER safety and
+default privileges.
+
+Focused healthy-graph, cross-wire and privilege-drift attacks pass, as do P12
+manifest/checker/generation, P6, document, worker, Payment/Finance Control,
+Approval/Telegram, P10, P11, UAT, integration-isolation and repository regressions.
+All corrupt fixtures used disposable `aims_test_*` databases. Schema remains 59;
+migration 060+ does not exist; database objects, roles, grants, memberships,
+privileges, frontend, financial authority and provider configuration are
+unchanged. The candidate is not PASS/FROZEN until all five new independent
+read-only reviews pass with no correction-required finding.
+
+### 2026-09-02 — P12 final reverse financial-lineage correction checkpoint
+
+Status: CORRECTION IMPLEMENTED / REVIEW PENDING
+
+The final narrowly authorized reverse-lineage correction is implemented. The
+restore checker now enforces both directions of the Payment-to-`PAYMENT` ledger
+and Payment-to-Payment-linked `CONSUMED` commitment relationships. Orphan,
+extra, cross-wired, request-mismatched, amount-mismatched and currency-mismatched
+effects fail closed while healthy schema-59 financial history passes.
+
+Focused reverse-bijection tests pass 19/19. The complete required P12 recovery,
+P6 disposable proof, document, worker, Payment/Finance Control,
+Approval/Telegram, P10, P11, UAT, integration-isolation and repository regression
+matrix passes, together with lint, typecheck and API/frontend builds. Corruption
+fixtures were confined to disposable `aims_test_*` databases. Schema remains 59;
+migration 060+ does not exist; database objects, roles, grants, memberships,
+privileges, frontend, financial authority and provider configuration are
+unchanged. The implementation is frozen for five new independent read-only
+reviews and P12 remains REVIEW PENDING until every review passes without a
+correction-required finding.
+
+### 2026-09-02 — P12 final four-finding correction checkpoint
+
+Status: CORRECTION IMPLEMENTED / REVIEW PENDING
+
+The separately authorized final correction closes the four frozen-review gaps.
+Authoritative Available verification now begins with every active budget and
+requires exactly one active version before calculating revised budget minus
+ACTUAL ledger minus ACTIVE commitments. Every CONSUMED commitment now requires
+its exact Payment link. Finance, Payment and document-worker executor function
+authority is compared as an exact effective set, while recovery advancement
+continues to require the migrator and deny runtimes. The complete explicit
+`aims_owner` default ACL is compared across schema, object class, grantee,
+privilege and grant-option dimensions.
+
+Focused disposable corruption tests pass 20/20, including missing and multiple
+active versions, null-linked consumption, missing and unexpected executor grants,
+missing recovery authority, unexpected non-PUBLIC defaults, grant option drift
+and missing required default state. The full P12/P6/document/worker/financial/
+Approval/P10/P11/UAT/isolation and repository regression matrix passes with lint,
+typecheck and API/frontend builds. All corruption remained inside disposable
+`aims_test_*` databases. Schema remains 59; migration 060+ does not exist; shared
+database objects, roles, grants, privileges, frontend and provider configuration
+are unchanged. The implementation is frozen for five fresh independent read-only
+reviews and is not PASS/FROZEN until all five pass without a correction-required
+finding.
+
+### 2026-09-02 — P12 final SRE deadline and pagination correction checkpoint
+
+Status: CORRECTION IMPLEMENTED / REVIEW PENDING
+
+The two separately authorized SRE findings are corrected. One authoritative
+tool-safety deadline now bounds connection acquisition and every PostgreSQL
+recovery operation. Each statement receives the remaining duration through a
+transaction-local statement timeout, is checked again after completion, and an
+in-flight timeout destroys the affected pooled connection so session state
+cannot leak. A delayed final SQL operation cannot produce a successful result.
+
+Local object pagination now compares complete normalized keys globally and
+retains only a bounded next-page candidate set. It is independent of filesystem
+walk and creation order and remains lossless for directory/file prefix
+collisions, page-size-one traversal and cursor resumption on a frozen restored
+dataset. Focused restore tests pass 22/22 and local-storage tests pass 16/16.
+The complete required P12/P6/document/worker/financial/Approval/P10/P11/UAT/
+isolation and repository regression matrix passes with lint, typecheck and both
+builds. One repository test initially failed while multiple commands concurrently
+rewrote the shared test-output directory; the required isolated rerun passed
+177/177 without code changes. Schema remains 59; migration 060+ does not exist;
+database objects, roles, grants, privileges, frontend and providers are unchanged.
+The implementation is frozen for five fresh independent read-only reviews.
+
+### 2026-09-02 — P12 final bounded local-enumeration correction checkpoint
+
+Status: CORRECTION IMPLEMENTED / REVIEW PENDING
+
+The last separately authorized local-enumeration finding is corrected. The local
+development storage adapter now uses incremental `opendir()` traversal with
+explicit handle cleanup on normal, abort and error unwinding. Global page order
+continues to use complete normalized keys, while the bounded top-N selector
+retains at most `pageSize + 1` candidates. Adapter-owned key metadata is therefore
+`O(pageSize + traversal depth)` rather than flat-directory cardinality.
+
+Focused storage tests pass 19/19, including a 10,000-entry scrambled iterator,
+candidate-bound proof, cancellation/deadline interruption, iterator cleanup,
+prefix collisions, page-size-one enumeration and cursor resumption. The restore
+checker remains 22/22. The complete serialized P12/P6/document/worker/financial/
+Approval/P10/P11/UAT/isolation and repository regression matrix passes; repository
+tests pass 180/180 plus 15 auth/UX tests, with lint, typecheck and both builds
+passing. Schema remains 59; migration 060+ does not exist; database objects,
+roles, grants, privileges, frontend and providers are unchanged. The
+implementation is frozen for five fresh independent read-only reviews.
+
+### 2026-09-02 — P12 final storage-timeout propagation correction checkpoint
+
+Status: CORRECTION IMPLEMENTED / REVIEW PENDING
+
+The final narrowly authorized storage-timeout finding is corrected. Every
+recovery storage metadata and pagination operation now receives an
+operation-scoped AbortSignal composed with caller cancellation, the overall
+checker deadline and its own per-operation timeout. When that timeout wins, the
+checker aborts the underlying operation and waits within a separate bounded
+cleanup interval for iterator/resource settlement before returning a sanitized
+timeout finding. FULL document and orphan coverage remain incomplete and cannot
+PASS after timeout.
+
+Focused local-storage tests pass 22/22 and restore-checker integration tests pass
+24/24, including bounded 10,000-entry consumption, flat and nested cleanup,
+no post-return traversal, timer/race behavior, caller and overall abort, metadata
+and `listPage()` propagation, and fail-closed coverage. The complete serialized
+P12/P6/document/worker/Payment-Finance Control/Approval-Telegram/P10/P11/UAT/
+isolation and repository regression matrix passes; repository tests pass 183/183
+plus 15 auth/UX tests, with lint, typecheck and both builds passing. The
+repository migration contract remains schema 59 at migration 059; migration 060+
+does not exist. Database objects, roles, grants, privileges, frontend, financial
+authority and provider configuration are unchanged. The corrected tree is frozen
+for five fresh independent read-only reviews and P12 is not PASS/FROZEN unless
+all five pass without a correction-required finding.
+
+### 2026-09-02 — P12 final frozen-review closure
+
+Status: PASS / FROZEN
+
+The storage-timeout correction and complete P12 candidate were reviewed from
+one frozen tree by all five required disciplines: SRE/DR, Backend/Data
+Integrity, Application Security, DBA/PostgreSQL and Finance Systems/Controls.
+Every review passed with zero Critical, High, Medium or Low
+correction-required findings. No code, test, documentation, database,
+migration, privilege or frontend change occurred during review.
+
+P11 remains PASS/FROZEN and the recovery-generation prerequisite remains
+PASS/FROZEN. P12 is PASS/FROZEN. The repository schema contract remains 59 at
+`059_p12_recovery_generation_fencing`; migration 060+ does not exist. P13 is
+NOT STARTED and overall Production readiness remains NO pending separately
+authorized future phases and provider/infrastructure gates.

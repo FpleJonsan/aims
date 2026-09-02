@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { link, lstat, mkdir, open, readFile, realpath, readdir, rm } from 'node:fs/promises';
+import { link, lstat, mkdir, open, opendir, readFile, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import type {
@@ -179,15 +179,26 @@ export class LocalDocumentStorage implements DocumentStorage {
 
   async delete(key:string):Promise<void>{const target=this.#resolveKey(key);await this.#assertNoSymlinkComponents(target);await rm(target,{force:true});}
   async exists(key:string):Promise<boolean>{try{await this.metadata(key);return true;}catch(error){if(isMissingPathError(error))return false;throw error;}}
-  async metadata(key:string):Promise<{sizeBytes:number;sha256:string}>{
-    const target=this.#resolveKey(key);await this.#assertNoSymlinkComponents(target);const data=await readFile(target);
+  async metadata(key:string,signal?:AbortSignal):Promise<{sizeBytes:number;sha256:string}>{
+    if(signal?.aborted)throw new Error('Document metadata read aborted');
+    const target=this.#resolveKey(key);await this.#assertNoSymlinkComponents(target);const data=await readFile(target,{signal});
     return{sizeBytes:data.byteLength,sha256:createHash('sha256').update(data).digest('hex')};
   }
-  async listKeys():Promise<string[]>{
-    const result:string[]=[];for(const zone of ['quarantine','active']){
-      const base=this.#resolveKey(`${zone}/placeholder`);const root=path.dirname(base);
-      await walk(root,zone,result).catch(error=>{if(!isMissingPathError(error))throw error;});
-    }return result.sort();
+  async listPage(cursor:string|null,pageSize:number,signal?:AbortSignal):Promise<{keys:string[];nextCursor:string|null;complete:boolean}>{
+    if(!Number.isInteger(pageSize)||pageSize<1||pageSize>500)throw new Error('Storage enumeration page size must be between 1 and 500');
+    if(cursor!==null&&(cursor.length>1024||cursor.includes('\\')||path.posix.isAbsolute(cursor)))throw new Error('Storage enumeration cursor is invalid');
+    if(signal?.aborted)throw new Error('Storage enumeration aborted');
+    const {candidates}=await selectBoundedPageCandidates(this.#walkStorageKeys(signal),cursor,pageSize,signal);
+    const hasMore=candidates.length>pageSize,keys=candidates.slice(0,pageSize);
+    return{keys,nextCursor:hasMore?keys.at(-1)??null:null,complete:!hasMore};
+  }
+
+  async *#walkStorageKeys(signal?:AbortSignal):AsyncGenerator<string>{
+    for(const zone of ['active','quarantine']){
+      if(signal?.aborted)throw new Error('Storage enumeration aborted');
+      const base=this.#resolveKey(`${zone}/placeholder`),root=path.dirname(base);
+      try{yield* walkIncremental(root,zone,signal)}catch(error){if(!isMissingPathError(error))throw error;}
+    }
   }
 
   async promoteQuarantined(input: PromoteDocumentInput): Promise<StoredDocument> {
@@ -335,10 +346,39 @@ function isMissingPathError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
-async function walk(directory:string,prefix:string,result:string[]):Promise<void>{
-  for(const entry of await readdir(directory,{withFileTypes:true})){
-    if(entry.isSymbolicLink())throw new Error('Symbolic links are not permitted in document storage paths');
-    const next=path.join(directory,entry.name),key=`${prefix}/${entry.name}`;
-    if(entry.isDirectory())await walk(next,key,result);else if(entry.isFile())result.push(key);
+async function* walkIncremental(directory:string,prefix:string,signal?:AbortSignal):AsyncGenerator<string>{
+  if(signal?.aborted)throw new Error('Storage enumeration aborted');
+  const handle=await opendir(directory);
+  try{
+    while(true){
+      if(signal?.aborted)throw new Error('Storage enumeration aborted');
+      const entry=await handle.read();
+      if(entry===null)break;
+      if(signal?.aborted)throw new Error('Storage enumeration aborted');
+      if(entry.isSymbolicLink())throw new Error('Symbolic links are not permitted in document storage paths');
+      const next=path.join(directory,entry.name),key=`${prefix}/${entry.name}`;
+      if(entry.isDirectory())yield* walkIncremental(next,key,signal);else if(entry.isFile())yield key;
+    }
+  }finally{await handle.close().catch(error=>{if(!(error instanceof Error&&'code' in error&&error.code==='ERR_DIR_CLOSED'))throw error})}
+}
+
+/** @internal Testable bounded top-N selection used by local enumeration. */
+export async function selectBoundedPageCandidates(keys:AsyncIterable<string>,cursor:string|null,pageSize:number,signal?:AbortSignal):Promise<{candidates:string[];scanned:number;maxRetained:number}>{
+  const candidates:string[]=[];let scanned=0,maxRetained=0;
+  for await(const key of keys){
+    if(signal?.aborted)throw new Error('Storage enumeration aborted');
+    scanned+=1;
+    if(cursor!==null&&key<=cursor)continue;
+    insertBoundedKey(candidates,key,pageSize+1);
+    maxRetained=Math.max(maxRetained,candidates.length);
   }
+  return{candidates,scanned,maxRetained};
+}
+
+function insertBoundedKey(keys:string[],key:string,limit:number):void{
+  let low=0,high=keys.length;
+  while(low<high){const middle=(low+high)>>>1;if(keys[middle]<key)low=middle+1;else high=middle}
+  if(keys[low]===key)throw new Error('Duplicate document storage object key');
+  keys.splice(low,0,key);
+  if(keys.length>limit)keys.pop();
 }

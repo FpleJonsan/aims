@@ -45,7 +45,7 @@ try{
   for(const name of migrations)adminPsql(`SET ROLE aims_owner;\n${await readFile(path.join(apiRoot,"migrations",name),"utf8")}`);
   adminPsql(await readFile(path.join(apiRoot,"database/production/post-migration-hardening.sql"),"utf8"));
   adminPsql(await readFile(path.join(apiRoot,"database/production/privilege-manifest.sql"),"utf8"));
-  if(requested.some(name=>[".test-dist/test/document-worker-integration.test.js",".test-dist/test/recovery-generation-integration.test.js"].includes(name)))adminPsql(`
+  if(requested.some(name=>[".test-dist/test/document-worker-integration.test.js",".test-dist/test/recovery-generation-integration.test.js",".test-dist/test/restore-checker-integration.test.js"].includes(name)))adminPsql(`
     INSERT INTO departments(id,code,name)VALUES('71000000-0000-4000-8000-000000000001','P7-WORKER','P7 Disposable Worker')ON CONFLICT DO NOTHING;
     INSERT INTO users(id,external_subject,email,display_name,department_id)VALUES('72000000-0000-4000-8000-000000000001','p7-worker-fixture','p7-worker@example.invalid','P7 Worker Fixture','71000000-0000-4000-8000-000000000001')ON CONFLICT DO NOTHING;
     INSERT INTO payment_requests(id,status,department_id,created_by)VALUES('73000000-0000-4000-8000-000000000001','DRAFT','71000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000001')ON CONFLICT DO NOTHING;

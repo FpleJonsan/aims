@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   loadLocalStorageConfig,
   LocalDocumentStorage,
+  selectBoundedPageCandidates,
 } from '../src/infrastructure/storage/local-document-storage.js';
 import {
   DocumentQuarantineService,
@@ -14,6 +15,7 @@ import {
 } from '../src/application/documents/document-quarantine-service.js';
 import { assertAllowedDocumentExtension } from '../src/application/documents/payment-document.service.js';
 import { DeterministicLocalMalwareScanner } from '../src/infrastructure/security/deterministic-local-malware-scanner.js';
+import { boundedStorageOperation } from '../src/infrastructure/recovery/restore-checker.js';
 
 const PDF_BYTES = new TextEncoder().encode('%PDF-1.7\nsynthetic fixture\n%%EOF\n');
 
@@ -43,6 +45,86 @@ test('stores and reads an immutable quarantined document with verified integrity
   } finally {
     await rm(rootPath, { recursive: true, force: true });
   }
+});
+
+test('enumerates local objects through bounded ordered continuation pages',async()=>{
+  const rootPath=await mkdtemp(path.join(os.tmpdir(),'aims-storage-'));
+  try{
+    const storage=createStorage(rootPath);
+    for(const key of ['c.pdf','a.pdf','b.pdf'])await storage.storeQuarantined({key:`safe/${key}`,declaredContentType:'application/pdf',data:byteStream(PDF_BYTES)});
+    const first=await storage.listPage(null,2),second=await storage.listPage(first.nextCursor,2);
+    assert.equal(first.keys.length,2);assert.equal(first.complete,false);assert.ok(first.nextCursor);
+    assert.equal(second.keys.length,1);assert.equal(second.complete,true);assert.equal(second.nextCursor,null);
+    assert.deepEqual([...first.keys,...second.keys],[...first.keys,...second.keys].sort());
+    await assert.rejects(storage.listPage(null,501));
+    const controller=new AbortController();controller.abort();await assert.rejects(storage.listPage(null,2,controller.signal));
+  }finally{await rm(rootPath,{recursive:true,force:true})}
+});
+
+test('pagination is globally ordered and lossless across directory-file prefix collisions',async()=>{
+  const rootPath=await mkdtemp(path.join(os.tmpdir(),'aims-storage-'));
+  try{
+    const storage=createStorage(rootPath),created=['b.pdf','a/zzz.pdf','foo.txt','a.pdf','foo/bar.pdf','a/001.pdf','x/y.pdf','x.pdf'];
+    for(const key of created)await storage.storeQuarantined({key,declaredContentType:'application/pdf',data:byteStream(PDF_BYTES)});
+    const expected=created.map(key=>`quarantine/${key}`).sort();
+    const enumerate=async(pageSize:number,start:string|null=null)=>{const keys:string[]=[];let cursor=start;for(let page=0;page<100;page+=1){const result=await storage.listPage(cursor,pageSize);assert.ok(result.keys.length<=pageSize);assert.deepEqual(result.keys,[...result.keys].sort());assert.ok(result.keys.every(key=>cursor===null||key>cursor));keys.push(...result.keys);if(result.complete){assert.equal(result.nextCursor,null);return keys}assert.equal(result.nextCursor,result.keys.at(-1));cursor=result.nextCursor}throw new Error('pagination did not terminate')};
+    assert.deepEqual(await enumerate(1),expected);
+    assert.deepEqual(await enumerate(3),expected);
+    assert.deepEqual(await enumerate(1),expected);
+    const first=await storage.listPage(null,3);assert.ok(first.nextCursor);assert.deepEqual([...first.keys,...await enumerate(2,first.nextCursor)],expected);
+    assert.equal(new Set(await enumerate(1)).size,expected.length);
+  }finally{await rm(rootPath,{recursive:true,force:true})}
+});
+
+test('bounded candidate selection incrementally scans large scrambled input',async()=>{
+  const total=10_000,pageSize=7;
+  async function* keys(){for(let index=total-1;index>=0;index-=1)yield `active/object-${String(index).padStart(5,'0')}.pdf`}
+  const result=await selectBoundedPageCandidates(keys(),null,pageSize);
+  assert.equal(result.scanned,total);
+  assert.equal(result.maxRetained,pageSize+1);
+  assert.equal(result.candidates.length,pageSize+1);
+  assert.deepEqual(result.candidates,Array.from({length:pageSize+1},(_,index)=>`active/object-${String(index).padStart(5,'0')}.pdf`));
+});
+
+test('bounded incremental selection observes cancellation and closes its iterator',async()=>{
+  const controller=new AbortController();let consumed=0,closed=false;
+  async function* keys(){try{for(let index=0;index<10_000;index+=1){consumed+=1;if(consumed===25)controller.abort();yield `active/${index}.pdf`}}finally{closed=true}}
+  await assert.rejects(selectBoundedPageCandidates(keys(),null,3,controller.signal),/aborted/);
+  assert.equal(consumed,25);assert.equal(closed,true);
+});
+
+test('deadline-style abort and iterator errors stop incremental enumeration with cleanup',async()=>{
+  const controller=new AbortController();let deadlineConsumed=0,deadlineClosed=false;
+  async function* slowKeys(){try{for(let index=0;index<1_000;index+=1){deadlineConsumed+=1;await new Promise(resolve=>setTimeout(resolve,1));yield `active/${index}.pdf`}}finally{deadlineClosed=true}}
+  const timer=setTimeout(()=>controller.abort(),10);
+  try{await assert.rejects(selectBoundedPageCandidates(slowKeys(),null,2,controller.signal),/aborted/)}finally{clearTimeout(timer)}
+  assert.ok(deadlineConsumed<100);assert.equal(deadlineClosed,true);
+  let errorClosed=false;async function* failingKeys(){try{yield 'active/b.pdf';throw new Error('bounded failure')}finally{errorClosed=true}}
+  await assert.rejects(selectBoundedPageCandidates(failingKeys(),null,1),/bounded failure/);assert.equal(errorClosed,true);
+});
+
+test('checker-owned storage timeout aborts flat traversal, awaits cleanup, and stops background work',async()=>{
+  const parent=new AbortController();let consumed=0,opened=0,closed=0,operationSettled=false,operationSignal:AbortSignal|undefined;
+  async function* keys(signal:AbortSignal){opened+=1;try{for(let index=0;index<10_000;index+=1){await new Promise(resolve=>setTimeout(resolve,2));if(signal.aborted)throw new Error('Storage enumeration aborted');consumed+=1;yield `active/${String(index).padStart(5,'0')}.pdf`}}finally{closed+=1}}
+  await assert.rejects(boundedStorageOperation(async signal=>{operationSignal=signal;try{return await selectBoundedPageCandidates(keys(signal),null,3,signal)}finally{operationSettled=true}},20,parent.signal),/STORAGE_OPERATION_TIMEOUT/);
+  assert.equal(operationSignal?.aborted,true);assert.equal(operationSettled,true);assert.equal(opened,closed);assert.ok(consumed<100);
+  const stoppedAt=consumed;await new Promise(resolve=>setTimeout(resolve,15));assert.equal(consumed,stoppedAt);
+});
+
+test('checker-owned storage timeout unwinds every nested traversal handle',async()=>{
+  const parent=new AbortController();let consumed=0,opened=0,closed=0;
+  async function* nested(depth:number,signal:AbortSignal):AsyncGenerator<string>{opened+=1;try{if(depth<3)yield* nested(depth+1,signal);for(let index=0;index<10_000;index+=1){await new Promise(resolve=>setTimeout(resolve,2));if(signal.aborted)throw new Error('Storage enumeration aborted');consumed+=1;yield `active/${depth}/${index}.pdf`}}finally{closed+=1}}
+  await assert.rejects(boundedStorageOperation(signal=>selectBoundedPageCandidates(nested(0,signal),null,2,signal),20,parent.signal),/STORAGE_OPERATION_TIMEOUT/);
+  assert.equal(opened,4);assert.equal(closed,opened);const stoppedAt=consumed;await new Promise(resolve=>setTimeout(resolve,15));assert.equal(consumed,stoppedAt);
+});
+
+test('storage operation completion and parent-abort races clear timers and preserve classification',async()=>{
+  const parent=new AbortController();let staleAbort=false;
+  const value=await boundedStorageOperation(async signal=>{signal.addEventListener('abort',()=>{staleAbort=true},{once:true});return 'complete'},20,parent.signal);
+  assert.equal(value,'complete');await new Promise(resolve=>setTimeout(resolve,30));assert.equal(staleAbort,false);
+  const cancelled=new AbortController();let cleaned=false,receivedAbort=false;
+  const pending=boundedStorageOperation(async signal=>{try{await new Promise<void>((_,reject)=>{const abort=()=>{receivedAbort=true;reject(new Error('cancelled'))};if(signal.aborted)abort();else signal.addEventListener('abort',abort,{once:true})})}finally{cleaned=true}},1_000,cancelled.signal);
+  cancelled.abort();await assert.rejects(pending,/VERIFICATION_DEADLINE_EXCEEDED/);assert.equal(receivedAbort,true);assert.equal(cleaned,true);
 });
 
 test('rejects unsafe keys, empty documents, unsupported types, and size overflow', async () => {
