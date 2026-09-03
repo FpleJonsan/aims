@@ -1901,3 +1901,41 @@ PASS/FROZEN. P12 is PASS/FROZEN. The repository schema contract remains 59 at
 `059_p12_recovery_generation_fencing`; migration 060+ does not exist. P13 is
 NOT STARTED and overall Production readiness remains NO pending separately
 authorized future phases and provider/infrastructure gates.
+
+### 2026-09-03 — P13 decision/gap audit documentation correction checkpoint
+
+Status: DECISION / GAP AUDIT CORRECTED / REVIEW PENDING
+
+P13 remains a decision/gap audit only; implementation has not started. The two
+authorized documentation findings are corrected. Every P13 DR representation
+now keeps the restored environment frozen, advances and verifies recovery
+generation before the read-only P12 checker, then requires manual external
+payment and current-authority reconciliation, Finance/Security/SRE approval and
+ordered resume. The audit now accurately records fragmented
+`NODE_ENV`/`AIMS_ENVIRONMENT` protection across API, worker, local
+storage/scanner and recovery CLI entry points as a HIGH P13 application-hardening
+gap, separate from undecided staging/Production storage and scanner providers.
+
+No application or test code, frontend, database, migration, role, privilege,
+provider configuration or infrastructure changed. P11, recovery generation and
+P12 remain PASS/FROZEN; schema remains 59 at migration 059; migration 060+ does
+not exist; P14 is NOT STARTED; Production readiness remains NO. The corrected
+documentation is frozen pending six fresh independent read-only reviews.
+
+### 2026-09-03 — P13 decision/gap audit frozen-review closure
+
+Status: DECISION / GAP AUDIT PASS / FROZEN
+
+All six required review disciplines—Production/Cloud Architecture,
+SRE/Platform, DBA/PostgreSQL, Application Security, Backend/Deployment and
+Finance Systems/Controls—reviewed the same frozen corrected documentation and
+passed with zero Critical, High, Medium or Low correction-required findings.
+P13-FIN-001 and P13-AS-001 are closed at the documentation/audit level.
+
+P13 Decision remains B: application hardening plus infrastructure configuration
+is required. P13 implementation is NOT STARTED, P14 is NOT STARTED, and
+Production readiness remains NO. P11, recovery generation and P12 remain
+PASS/FROZEN. Schema remains 59 at migration 059; migration 060+ does not exist.
+No application/test/frontend code, database, migration, role, privilege,
+provider configuration, infrastructure or deployment changed during the audit
+or review cycle.
