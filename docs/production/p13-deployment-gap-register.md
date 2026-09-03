@@ -12,16 +12,16 @@ decisions are deployment gaps, not automatically application vulnerabilities.
 | P13-G05 | HIGH | Infrastructure / PostgreSQL | Provider not selected/configured | Private compatible HA PostgreSQL, verify-full TLS, monitoring, backup/PITR | NO | NO | YES | YES | P13/P17 | P6 proof and config validation |
 | P13-G06 | HIGH | Infrastructure / Secrets | Validation/redaction exists; local scripts load `.env` | Approved runtime secret retrieval/injection, rotation/audit/break-glass | MAYBE | NO | YES | YES | P13/P17 | scripts and P5 boundary |
 | P13-G07 | HIGH | Network / TLS | No deployed ingress, DNS, trusted proxy or private-network policy | TLS ingress, host/origin/proxy validation, private DB/storage/scanner, egress policy | YES | NO | YES | YES | P13/P17 | `main.ts`; repository has no edge definition |
-| P13-G08 | MEDIUM | Backend / Shutdown | Worker has bounded shutdown; API does not enable Nest shutdown hooks | API drains/closes pools on SIGTERM within platform deadline | YES | NO | NO | NO | P13 | `main.ts`, `Postgres.onModuleDestroy()` |
+| P13-G08 | CLOSED | Backend / Shutdown | P13.1 installs bounded SIGTERM/SIGINT handling through Nest close lifecycle and existing pool cleanup | Verify against selected hosting termination policy | NO | NO | YES | YES | P13/P17 | `api-runtime.ts`, `main.ts`, `Postgres.onModuleDestroy()` |
 | P13-G09 | MEDIUM | Frontend / Config | Browser URL configurable; SSR API URL fixed to localhost | Explicit hosted server/client API routing compatible with immutable promotion | YES | NO | NO | YES | P13 | `app/lib/api-client.ts` |
-| P13-G10 | MEDIUM | Health / Readiness | API readiness checks driver strings, not provider capability; worker management binds loopback | Provider-aware readiness and platform-reachable private probes | YES | NO | YES | NO | P13 | `health.service.ts`, `worker-health-server.ts` |
-| P13-G11 | MEDIUM | Backend / Proxy | CORS exists; trusted proxy/client-IP/forwarded-proto policy absent | Explicit proxy trust and Secure-cookie/scheme behavior behind approved ingress | YES | NO | YES | YES | P13 | `main.ts`, `session.service.ts` |
+| P13-G10 | HIGH | Health / Readiness | P13.1 reports provider-aware readiness and bounded release/schema identity; platform exposure remains absent | Select providers and expose probes only on the approved private platform path | NO | NO | YES | YES | P13/P17 | `health.service.ts`, provider boundary, `worker-health-server.ts` |
+| P13-G11 | HIGH | Backend / Proxy | P13.1 trusts only explicitly configured proxy IPs and requires hosted Secure cookies | Configure approved ingress addresses/TLS and verify forwarded scheme behavior | NO | NO | YES | YES | P13/P17 | `api-runtime.ts`, `runtime-foundation.ts`, `session.service.ts` |
 | P13-G12 | HIGH | Observability / Alerting | P10/P11 application foundation only | Central collection, evaluator, routing, access and retention | MAYBE | NO | YES | YES | P13/P17 | P10/P11 docs and metrics endpoints |
 | P13-G13 | HIGH | Recovery | P12 checker/runbook exists; no actual backup/PITR/object recovery service | Protected encrypted DB WAL/PITR and exact object-version recovery with rehearsal | NO | NO | YES | YES | P13/P18 | P12 documents |
-| P13-G14 | MEDIUM | Release identity | Logs/health do not consistently expose immutable release/SHA | Bounded release identity in build and operational evidence | YES | NO | NO | YES | P13 | health/telemetry sources |
+| P13-G14 | CLOSED | Release identity | P13.1 requires bounded version/revision in protected environments and exposes version/revision/schema through health | Inject immutable artifact values in the selected pipeline | NO | NO | YES | YES | P13/P17 | `runtime-foundation.ts`, `health.service.ts` |
 | P13-G15 | MEDIUM | Supply chain | Lockfile exists; no CI dependency/image scan, SBOM or immutable base process | Reproducible install and gated dependency/artifact scanning | YES | NO | YES | YES | P13/P14/P17 | lockfile; no CI workflow |
 | P13-G16 | MEDIUM | Rate/resource controls | DTO/upload/export bounds exist; no deployed edge rate policy | Owned, measured auth/upload/webhook/general limits | MAYBE | NO | YES | YES | P13/P15 | ingress absent; P15 owns values |
-| P13-G17 | MEDIUM | Database pools | Pool maxima are fixed 10/5/5 and worker 2 | Environment-configurable provider-compatible budgets proven by load | YES | NO | YES | YES | P13/P15 | `postgres.ts`, `worker-main.ts` |
+| P13-G17 | MEDIUM | Database pools | P13.1 makes application/Finance/Payment/worker maxima independently configurable and bounded; defaults are unchanged | Prove provider-compatible sizing with P15 load evidence | NO | NO | YES | YES | P15 | `runtime-foundation.ts`, `postgres.ts`, `worker-main.ts` |
 | P13-G18 | HIGH | Environment | No isolated staging environment or parity evidence | Separate staging DB, identity, secrets, storage, scanner, network and telemetry | NO | NO | YES | YES | P17 | config correctly rejects missing staging identity |
 | P13-G19 | HIGH | Security evidence | Strong tests; no Production red-team/platform test | P14 attack review against deployment candidate | NO | NO | NO | YES | P14 | roadmap |
 | P13-G20 | MEDIUM | Capacity evidence | Correctness/concurrency tests, no Production load profile | P15 workload model, saturation/pool/backlog evidence | NO | NO | NO | YES | P15 | roadmap |
@@ -29,14 +29,15 @@ decisions are deployment gaps, not automatically application vulnerabilities.
 | P13-G22 | HIGH | Release rehearsal | No staging-to-Production deployment/rollback/DR rehearsal | Immutable RC promotion and controlled rehearsal evidence | NO | NO | YES | YES | P17/P18 | roadmap |
 | P13-G23 | HIGH | Go-live governance | No approved access/change/on-call/RPO/RTO/retention decisions | Signed Production-readiness and go-live approvals | NO | NO | NO | YES | P19/P20 | decision register |
 | P13-G24 | LOW | API security headers | Basic headers exist; CSP/HSTS ownership unresolved | Approved edge/application header policy without duplicate conflict | MAYBE | NO | YES | YES | P13/P14 | `main.ts` |
-| P13-G25 | HIGH | Application / Protected environments | Protection is fragmented across executable paths and `NODE_ENV`/`AIMS_ENVIRONMENT`; worker has partial Production checks, construction is local-bound, and recovery CLI can select local storage outside the main validator | Every staging/Production API, worker, recovery and provider-constructing entry point rejects local/fake/test adapters unless explicitly approved | YES | NO | YES | YES | P13 | `production-config.ts`, `worker-config.ts`, `worker-main.ts`, `recovery-check-main.ts`, local storage/scanner constructors |
+| P13-G25 | CLOSED | Application / Protected environments | P13.1 centralizes classification and provider construction; API, worker, recovery, storage/scanner constructors, identity, AI and Telegram fail closed in staging/Production | Preserve the shared boundary during provider integration | NO | NO | YES | YES | P13 | `aims-environment.ts`, `provider-boundary.ts`, entry points and adapter constructors |
 
 ## Risk totals
 
 - Critical: 0
-- High: 15
-- Medium: 9
+- High: 16
+- Medium: 5
 - Low: 1
+- Closed by P13.1: 3
 - Informational: provider-specific numeric sizing and implementation details remain
   intentionally open.
 

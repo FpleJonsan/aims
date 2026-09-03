@@ -1,5 +1,8 @@
 import { isPlaceholderSecret } from "../infrastructure/configuration/secret-boundary.js";
 import { loadTelegramConfig } from "../infrastructure/configuration/telegram-config.js";
+import { classifyAimsEnvironment } from "../infrastructure/configuration/aims-environment.js";
+import { validateDocumentProviderSelection } from "../infrastructure/configuration/provider-boundary.js";
+import { isLocalDatabaseHost } from "../infrastructure/configuration/runtime-foundation.js";
 
 export type WorkerConfig = {
   workerId: string;
@@ -23,7 +26,7 @@ export type WorkerConfig = {
 };
 
 export function loadWorkerConfig(environment:Readonly<Record<string,string|undefined>>=process.env):WorkerConfig{
-  const production=environment.NODE_ENV==="production"||environment.AIMS_ENVIRONMENT==="production";
+  const classification=classifyAimsEnvironment(environment),production=classification.protected;
   const telegram=loadTelegramConfig(environment),telegramEnabled=telegram.enabled;
   const scannerEnabled=environment.DOCUMENT_SCAN_WORKER_ENABLED!=="false";
   const databaseUrl=environment.DATABASE_URL?.trim()||undefined;
@@ -34,12 +37,8 @@ export function loadWorkerConfig(environment:Readonly<Record<string,string|undef
   }
   if(scannerEnabled){
     validateDatabaseUrl(documentDatabaseUrl,"DOCUMENT_WORKER_DATABASE_URL",production,environment.AIMS_EXPECTED_DATABASE,"aims_document_worker_runtime");
-    if(production){
-      if(environment.STORAGE_DRIVER!=="object")throw new Error("Production document worker requires approved object storage");
-      if(environment.MALWARE_SCANNER_DRIVER!=="provider")throw new Error("Production document worker requires an approved malware scanner provider");
-      throw new Error("Production document worker scanner provider is not implemented");
-    }
-    if(environment.STORAGE_DRIVER!=="local"||environment.MALWARE_SCANNER_DRIVER!=="deterministic-local")throw new Error("Local document worker requires explicit local storage and deterministic scanner configuration");
+    validateDocumentProviderSelection(environment);
+    if(production)throw new Error("Protected document worker providers are not implemented");
   }
   const leaseSeconds=integer(environment.DOCUMENT_SCAN_LEASE_SECONDS,120,5,3600,"DOCUMENT_SCAN_LEASE_SECONDS");
   const storageTimeoutMs=integer(environment.DOCUMENT_SCAN_STORAGE_TIMEOUT_MS,10000,10,60000,"DOCUMENT_SCAN_STORAGE_TIMEOUT_MS");
@@ -64,10 +63,10 @@ function validateDatabaseUrl(value:string|undefined,name:string,production:boole
   if(!["postgres:","postgresql:"].includes(parsed.protocol)||!parsed.username||!parsed.password)throw new Error(`${name} must include an injected PostgreSQL runtime credential`);
   if(decodeURIComponent(parsed.username)!==requiredUser)throw new Error(`${name} must use ${requiredUser}`);
   if(production){
-    if(!expected||["aims","aims_competition","postgres","template0","template1"].includes(expected))throw new Error("Production worker requires an explicit isolated AIMS_EXPECTED_DATABASE");
-    if(["localhost","127.0.0.1","::1"].includes(parsed.hostname))throw new Error(`${name} cannot use a local host in Production`);
+    if(!expected||["aims","aims_competition","postgres","template0","template1"].includes(expected))throw new Error("Protected worker requires an explicit isolated AIMS_EXPECTED_DATABASE");
+    if(isLocalDatabaseHost(parsed.hostname))throw new Error(`${name} cannot use a local host in a protected environment`);
     if(decodeURIComponent(parsed.pathname.slice(1))!==expected)throw new Error(`${name} does not target AIMS_EXPECTED_DATABASE`);
-    if(parsed.searchParams.get("sslmode")!=="verify-full")throw new Error(`${name} requires sslmode=verify-full in Production`);
+    if(parsed.searchParams.get("sslmode")!=="verify-full")throw new Error(`${name} requires sslmode=verify-full in a protected environment`);
     if(isPlaceholderSecret(value))throw new Error(`${name} contains a forbidden placeholder`);
   }
 }

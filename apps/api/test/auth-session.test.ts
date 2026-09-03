@@ -57,7 +57,7 @@ test("LOCAL protected requests never authenticate from x-aims-user",async()=>{
 test("Production and staging reject both session and header authentication",async()=>{
   for(const environment of ["production","staging"]){
     const previousNode=process.env.NODE_ENV,previousEnvironment=process.env.AIMS_ENVIRONMENT;
-    process.env.NODE_ENV=environment==="production"?"production":"development";process.env.AIMS_ENVIRONMENT=environment;
+    process.env.NODE_ENV="production";process.env.AIMS_ENVIRONMENT=environment;
     try{
       const guard=new AuthGuard({pool:{query:async()=>{throw Error("identity lookup must not execute")}}} as never,{authenticate:async()=>{throw Error("session lookup must not execute")}} as never);
       await assert.rejects(()=>guard.canActivate({switchToHttp:()=>({getRequest:()=>request({cookie:`${SESSION_COOKIE}=local`,headerUser:"privileged"})})} as never),/not configured/);

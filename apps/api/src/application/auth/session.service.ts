@@ -5,6 +5,7 @@ import type { Principal, Role } from "../../domain/payment-request.js";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import { aimsEnvironment } from "./auth-environment.js";
 import {metrics} from "../../infrastructure/observability/telemetry.js";
+import { loadRuntimeFoundationConfig } from "../../infrastructure/configuration/runtime-foundation.js";
 
 export const SESSION_COOKIE = "aims_session";
 export const CSRF_COOKIE = "aims_csrf";
@@ -96,11 +97,11 @@ export class SessionService {
     return configured;
   }
   private setCookies(response:Response,token:string,csrf:string,maxAgeSeconds:number){
-    const common={sameSite:"lax" as const,secure:process.env.LOCAL_COOKIE_SECURE==="true",path:"/",maxAge:maxAgeSeconds*1000};
+    const common={...loadRuntimeFoundationConfig().cookie,maxAge:maxAgeSeconds*1000};
     response.cookie(SESSION_COOKIE,token,{...common,httpOnly:true});
     response.cookie(CSRF_COOKIE,csrf,{...common,httpOnly:false});
   }
-  private clearCookies(response:Response){const options={sameSite:"lax" as const,secure:process.env.LOCAL_COOKIE_SECURE==="true",path:"/"};response.clearCookie(SESSION_COOKIE,{...options,httpOnly:true});response.clearCookie(CSRF_COOKIE,{...options,httpOnly:false});}
+  private clearCookies(response:Response){const options=loadRuntimeFoundationConfig().cookie;response.clearCookie(SESSION_COOKIE,{...options,httpOnly:true});response.clearCookie(CSRF_COOKIE,{...options,httpOnly:false});}
   private cookies(request:Request):Record<string,string>{return Object.fromEntries((request.headers.cookie??"").split(";").map(value=>value.trim().split("=")).filter(parts=>parts.length===2).map(([key,value])=>[key,decodeURIComponent(value)]));}
   private hash(value:string){return createHash("sha256").update(value).digest("hex");}
   private equal(left:string,right:string){const a=Buffer.from(left),b=Buffer.from(right);return a.length===b.length&&timingSafeEqual(a,b);}

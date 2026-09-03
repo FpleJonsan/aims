@@ -1,4 +1,5 @@
 import { isPlaceholderSecret } from "./secret-boundary.js";
+import { classifyAimsEnvironment } from "./aims-environment.js";
 
 export type TelegramConfig = {
   enabled: boolean;
@@ -57,9 +58,9 @@ export function loadTelegramConfig(
   };
   if (!enabled) return config;
 
-  const production =
-    environment.NODE_ENV === "production" ||
-    environment.AIMS_ENVIRONMENT === "production";
+  const production = classifyAimsEnvironment(environment).protected;
+  if (["fake", "test", "local"].includes((environment.TELEGRAM_TRANSPORT ?? "").toLowerCase()) && production)
+    throw new Error("PROTECTED_ENVIRONMENT_UNSAFE_TELEGRAM_TRANSPORT");
   requiredSecret(config.botToken, "TELEGRAM_BOT_TOKEN", production);
   requiredSecret(config.webhookSecret, "TELEGRAM_WEBHOOK_SECRET", production);
   requiredSecret(config.callbackSecret, "TELEGRAM_CALLBACK_SECRET", production);

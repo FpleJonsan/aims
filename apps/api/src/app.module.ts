@@ -42,19 +42,15 @@ import {
 import { createAiProvider } from "./infrastructure/ai/ai-provider-factory.js";
 import { Postgres } from "./infrastructure/database/postgres.js";
 import { correlationMiddleware } from "./infrastructure/http/correlation.middleware.js";
-import {
-  LocalDocumentStorage,
-  loadLocalStorageConfig,
-} from "./infrastructure/storage/local-document-storage.js";
 import { HealthController } from "./application/health/health.controller.js";
 import { HealthService } from "./application/health/health.service.js";
 import { PortalController } from "./application/portal/portal.controller.js";
 import { PortalService } from "./application/portal/portal.service.js";
 import { SessionService } from "./application/auth/session.service.js";
-import { DeterministicLocalMalwareScanner } from "./infrastructure/security/deterministic-local-malware-scanner.js";
 import { loadTelegramConfig } from "./infrastructure/configuration/telegram-config.js";
 import { httpObservabilityMiddleware } from "./infrastructure/observability/http-observability.middleware.js";
 import { MetricsController } from "./application/health/metrics.controller.js";
+import { createDocumentScanner, createDocumentStorage } from "./infrastructure/configuration/provider-boundary.js";
 
 @Module({
   controllers: [
@@ -112,17 +108,13 @@ import { MetricsController } from "./application/health/metrics.controller.js";
         const applicationRoot = cwd.endsWith(`${path.sep}apps${path.sep}api`)
           ? path.resolve(cwd, "../..")
           : cwd;
-        return new LocalDocumentStorage(
-          loadLocalStorageConfig(process.env, applicationRoot),
-        );
+        return createDocumentStorage(process.env, applicationRoot);
       },
     },
     {
       provide: DOCUMENT_MALWARE_SCANNER,
       useFactory: () => {
-        if (process.env.MALWARE_SCANNER_DRIVER !== "deterministic-local")
-          throw new Error("No approved malware scanner adapter is configured");
-        return new DeterministicLocalMalwareScanner();
+        return createDocumentScanner(process.env);
       },
     },
   ],

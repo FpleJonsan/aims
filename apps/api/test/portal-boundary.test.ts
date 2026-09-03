@@ -50,7 +50,7 @@ test("production does not expose the local identity catalogue",async()=>{
   const previousEnvironment=process.env.AIMS_ENVIRONMENT;
   const previousAlias=process.env.AIMS_DEMO_MODE;
   process.env.NODE_ENV="production";
-  process.env.AIMS_ENVIRONMENT="competition";
+  process.env.AIMS_ENVIRONMENT="production";
   process.env.AIMS_DEMO_MODE="true";
   try {
     const controller=new LocalIdentityController({} as never,{} as never);

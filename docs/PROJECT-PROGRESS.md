@@ -1939,3 +1939,30 @@ PASS/FROZEN. Schema remains 59 at migration 059; migration 060+ does not exist.
 No application/test/frontend code, database, migration, role, privilege,
 provider configuration, infrastructure or deployment changed during the audit
 or review cycle.
+
+### 2026-09-03 — P13.1 protected environment/runtime foundation frozen
+
+Status: P13.1 PASS / FROZEN; overall P13 IN PROGRESS
+
+Implemented the provider-neutral P13.1 foundation: canonical AIMS environment
+classification, staging/Production fail-closed provider and identity boundaries,
+shared API/worker/recovery storage and scanner construction, protected AI and
+Telegram test-adapter rejection, bounded API shutdown, exact-IP proxy trust,
+hosted cookie controls, provider-aware readiness, bounded release identity,
+configurable database pools, and protected PostgreSQL transport validation.
+Local endpoint checks cover the complete IPv4 loopback range, IPv4-mapped IPv6,
+IPv6 loopback/unspecified forms, IPv4 unspecified, and reserved localhost names.
+
+Regression passed: root tests 15/15 frontend auth UX plus 193/193 API; all
+repository integration suites; P6 disposable database proof; P12 restore and
+recovery generation; UAT; lint; typecheck; API/full builds; and
+`git diff --check`. Six independent final read-only reviews passed with zero
+Critical, High, Medium or Low correction-required findings: Application
+Security, Backend/Deployment, SRE/Platform, Production/Cloud,
+DBA/PostgreSQL, and Finance Systems/Controls.
+
+Schema contract remains 59 at `059_p12_recovery_generation_fencing`; migration
+060+ is absent. Shared local `aims` remains at its intentional schema-56
+checkpoint and was not changed. No DB object, role, grant, business data,
+frontend, provider or infrastructure changed. P11 and P12 remain PASS/FROZEN;
+P14 is NOT STARTED; Production readiness remains NO.

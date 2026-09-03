@@ -3,15 +3,15 @@ import path from "node:path";
 import {Pool} from "pg";
 import {ApprovalOutboxService} from "./application/approval/approval-outbox.service.js";
 import {TelegramApprovalChannel} from "./application/approval/telegram-approval.channel.js";
-import {DeterministicLocalMalwareScanner} from "./infrastructure/security/deterministic-local-malware-scanner.js";
 import {Postgres} from "./infrastructure/database/postgres.js";
-import {LocalDocumentStorage,loadLocalStorageConfig} from "./infrastructure/storage/local-document-storage.js";
+import {createDocumentScanner,createDocumentStorage} from "./infrastructure/configuration/provider-boundary.js";
+import {loadDatabasePoolConfig} from "./infrastructure/configuration/runtime-foundation.js";
 import {DocumentScanWorker} from "./worker/document-scan-worker.js";
 import {loadWorkerConfig} from "./worker/worker-config.js";
 import {WorkerLoop,type PollWorkload} from "./worker/worker-loop.js";
 import {WorkerHealthServer} from "./worker/worker-health-server.js";
 import {metrics,operationalLog} from "./infrastructure/observability/telemetry.js";
-import {EXPECTED_SCHEMA_VERSION} from "./application/health/health.service.js";
+import {EXPECTED_SCHEMA_VERSION} from "./infrastructure/configuration/schema-contract.js";
 
 async function main(){
   process.env.AIMS_PROCESS_TYPE="worker";
@@ -19,8 +19,8 @@ async function main(){
   if(config.telegramEnabled){outboxDb=new Postgres();telegram=new TelegramApprovalChannel(process.env.TELEGRAM_BOT_TOKEN!,{requestTimeoutMs:config.telegramRequestTimeoutMs,responseMaxBytes:config.telegramResponseMaxBytes,retryMaxDelaySeconds:config.telegramRetryMaxDelaySeconds});const outbox=new ApprovalOutboxService(outboxDb,telegram);workloads.push({name:"telegram_outbox",poll:()=>outbox.dispatch(config.batchSize)})}
   if(config.scannerEnabled){
     const root=process.cwd().endsWith(`${path.sep}apps${path.sep}api`)?path.resolve(process.cwd(),"../.."):process.cwd();
-    const pool=new Pool({connectionString:config.documentDatabaseUrl,max:2,connectionTimeoutMillis:5000,statement_timeout:10000,lock_timeout:5000,idle_in_transaction_session_timeout:15000});
-    documents=new DocumentScanWorker(pool,new LocalDocumentStorage(loadLocalStorageConfig(process.env,root)),new DeterministicLocalMalwareScanner(),config);
+    const pool=new Pool({connectionString:config.documentDatabaseUrl,max:loadDatabasePoolConfig().worker,connectionTimeoutMillis:5000,statement_timeout:10000,lock_timeout:5000,idle_in_transaction_session_timeout:15000});
+    documents=new DocumentScanWorker(pool,createDocumentStorage(process.env,root),createDocumentScanner(process.env),config);
     // This migration-057 function is also the least-privilege readiness probe. The
     // worker role intentionally has no raw access to the schema-version table.
     await documents.health();workloads.push({name:"document_scan",poll:()=>documents!.pollBatch()});

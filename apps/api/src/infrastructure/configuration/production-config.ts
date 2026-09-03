@@ -4,6 +4,9 @@ import {
   loadAiReliabilityConfig,
 } from "../ai/ai-governance.js";
 import { loadTelegramConfig } from "./telegram-config.js";
+import { classifyAimsEnvironment } from "./aims-environment.js";
+import { validateDocumentProviderSelection } from "./provider-boundary.js";
+import { isLocalDatabaseHost, loadRuntimeFoundationConfig } from "./runtime-foundation.js";
 
 const MIN_SECRET_LENGTH = 32;
 
@@ -13,6 +16,7 @@ export interface ConfigurationSummary {
   mode: ConfigurationMode;
   aimsEnvironment:
     | "development"
+    | "test"
     | "local"
     | "competition"
     | "staging"
@@ -29,16 +33,9 @@ export function validateProductionConfig(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): ConfigurationSummary {
   const mode = normalizeMode(environment.NODE_ENV);
-  const aimsEnvironment = environment.AIMS_ENVIRONMENT ?? "development";
-  if (
-    !["development", "local", "competition", "staging", "production"].includes(
-      aimsEnvironment,
-    )
-  )
-    throw new Error(
-      "AIMS_ENVIRONMENT must be development, local, competition, staging, or production",
-    );
-  const production = mode === "production" || aimsEnvironment === "production";
+  const classification = classifyAimsEnvironment(environment);
+  const aimsEnvironment = classification.runtime;
+  const protectedEnvironment = classification.protected;
   const expectedDatabase = environment.AIMS_EXPECTED_DATABASE;
   const telegram = loadTelegramConfig(environment);
   const telegramEnabled = telegram.enabled;
@@ -48,12 +45,12 @@ export function validateProductionConfig(
   requireDatabaseUrl(
     readServerSecret("DATABASE_URL", environment),
     "DATABASE_URL",
-    production,
+    protectedEnvironment,
     expectedDatabase,
   );
-  if (production) {
+  if (protectedEnvironment) {
     if (!expectedDatabase)
-      throw new Error("Production requires AIMS_EXPECTED_DATABASE");
+      throw new Error("Protected environment requires AIMS_EXPECTED_DATABASE");
     if (
       [
         "aims",
@@ -64,11 +61,11 @@ export function validateProductionConfig(
       ].includes(expectedDatabase)
     )
       throw new Error(
-        "Production expected database must be an explicitly isolated non-local database",
+        "Protected environment expected database must be an explicitly isolated non-local database",
       );
     if (environment.AIMS_DEMO_MODE === "true")
       throw new Error(
-        "Production rejects the deprecated competition identity mode",
+        "Protected environment rejects the deprecated competition identity mode",
       );
     requireDatabaseUrl(
       readServerSecret("FINANCE_DATABASE_URL", environment),
@@ -85,23 +82,16 @@ export function validateProductionConfig(
     requireDistinctDatabaseIdentities(environment);
     if (storage !== "object")
       throw new Error(
-        "Production requires an approved private object-storage adapter; local or missing storage is forbidden",
+        "Protected environment requires an approved private object-storage adapter; local or missing storage is forbidden",
       );
     if (malwareScanner !== "provider")
       throw new Error(
-        "Production requires an approved malware-scanner provider; deterministic local or missing scanning is forbidden",
-      );
-  } else {
-    if (storage !== "local")
-      throw new Error(
-        "This foundation currently supports only explicit LOCAL document storage outside Production",
-      );
-    if (malwareScanner !== "deterministic-local")
-      throw new Error(
-        "Local document security requires MALWARE_SCANNER_DRIVER=deterministic-local",
+        "Protected environment requires an approved malware-scanner provider; deterministic local or missing scanning is forbidden",
       );
   }
-  if (production)
+  validateDocumentProviderSelection(environment);
+  loadRuntimeFoundationConfig(environment);
+  if (aimsEnvironment === "production")
     throw new Error(
       "Production authentication is not configured; an approved corporate adapter is required",
     );
@@ -111,13 +101,13 @@ export function validateProductionConfig(
     );
 
   if (telegramEnabled) {
-    if (production)
+    if (protectedEnvironment)
       requireHttpsUrl(environment.TELEGRAM_WEBHOOK_URL, "TELEGRAM_WEBHOOK_URL");
   }
 
   const aiMasterRequested = isAiMasterEnabled(environment);
   if (aiMasterRequested) {
-    requireSecret(environment.OPENAI_API_KEY, "OPENAI_API_KEY", production);
+    requireSecret(environment.OPENAI_API_KEY, "OPENAI_API_KEY", protectedEnvironment);
     requireHttpsUrl(
       environment.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
       "OPENAI_BASE_URL",
@@ -127,7 +117,7 @@ export function validateProductionConfig(
 
   return {
     mode,
-    aimsEnvironment: aimsEnvironment as ConfigurationSummary["aimsEnvironment"],
+    aimsEnvironment,
     identity:
       aimsEnvironment === "competition" || environment.AIMS_DEMO_MODE === "true"
         ? "COMPETITION_HEADER"
@@ -178,7 +168,7 @@ function requireDatabaseUrl(
   if (!parsed.username || !parsed.password)
     throw new Error(`${name} must include an injected runtime credential`);
   if (production) {
-    if (["localhost", "127.0.0.1", "::1"].includes(parsed.hostname))
+    if (isLocalDatabaseHost(parsed.hostname))
       throw new Error(`${name} cannot use a local database host in production`);
     if (decodeURIComponent(parsed.pathname.slice(1)) !== expectedDatabase)
       throw new Error(`${name} does not target AIMS_EXPECTED_DATABASE`);

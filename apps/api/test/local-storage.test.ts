@@ -193,8 +193,8 @@ test('deterministic local scanner proves clean, rejected, and failure outcomes a
   assert.equal((await scanner.scan(request('harmless'))).verdict,'CLEAN');
   assert.equal((await scanner.scan(request('AIMS_LOCAL_SCAN_REJECT'))).verdict,'INFECTED');
   assert.equal((await scanner.scan(request('AIMS_LOCAL_SCAN_FAIL'))).verdict,'ERROR');
-  const prior=process.env.AIMS_ENVIRONMENT;process.env.AIMS_ENVIRONMENT='production';
-  try{assert.throws(()=>new DeterministicLocalMalwareScanner(),/forbidden in production/);}finally{if(prior===undefined)delete process.env.AIMS_ENVIRONMENT;else process.env.AIMS_ENVIRONMENT=prior;}
+  const prior=process.env.AIMS_ENVIRONMENT,priorNode=process.env.NODE_ENV;process.env.AIMS_ENVIRONMENT='production';process.env.NODE_ENV='production';
+  try{assert.throws(()=>new DeterministicLocalMalwareScanner(),/UNSAFE_SCANNER_PROVIDER/);}finally{if(prior===undefined)delete process.env.AIMS_ENVIRONMENT;else process.env.AIMS_ENVIRONMENT=prior;if(priorNode===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=priorNode;}
 });
 
 test('detects document modification during read', async () => {
@@ -353,21 +353,23 @@ test('validates configuration and resolves storage against the application root'
   );
   assert.throws(
     () => loadLocalStorageConfig({
-      NODE_ENV: 'production',
+      NODE_ENV: 'production', AIMS_ENVIRONMENT:'production',
       STORAGE_DRIVER: 'local',
       LOCAL_STORAGE_DEMO_MODE: 'true',
     }),
-    /forbidden in production/,
+    /UNSAFE_STORAGE_PROVIDER/,
   );
 });
 
 test('direct construction is forbidden in production', () => {
   const previousNodeEnvironment = process.env.NODE_ENV;
   process.env.NODE_ENV = 'production';
+  const previousAimsEnvironment=process.env.AIMS_ENVIRONMENT;
+  process.env.AIMS_ENVIRONMENT='production';
   try {
     assert.throws(
       () => createStorage('/unused'),
-      /forbidden in production/,
+      /UNSAFE_STORAGE_PROVIDER/,
     );
   } finally {
     if (previousNodeEnvironment === undefined) {
@@ -375,6 +377,7 @@ test('direct construction is forbidden in production', () => {
     } else {
       process.env.NODE_ENV = previousNodeEnvironment;
     }
+    if(previousAimsEnvironment===undefined)delete process.env.AIMS_ENVIRONMENT;else process.env.AIMS_ENVIRONMENT=previousAimsEnvironment;
   }
 });
 

@@ -5,11 +5,15 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module.js';
 import { validateProductionConfig } from './infrastructure/configuration/production-config.js';
 import { OperationalExceptionFilter } from './infrastructure/http/operational-exception.filter.js';
+import { loadRuntimeFoundationConfig } from './infrastructure/configuration/runtime-foundation.js';
+import { configureTrustedProxy, installGracefulApiShutdown } from './infrastructure/configuration/api-runtime.js';
 
 async function bootstrap(): Promise<void> {
   validateProductionConfig();
+  const runtime=loadRuntimeFoundationConfig();
   const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
   app.getHttpAdapter().getInstance().disable('x-powered-by');
+  configureTrustedProxy(app,runtime.trustedProxyAddresses);
   app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000', credentials: true });
   app.use((_request: unknown, response: { setHeader(name: string, value: string): void }, next: () => void) => {
     response.setHeader('x-content-type-options', 'nosniff');
@@ -25,6 +29,7 @@ async function bootstrap(): Promise<void> {
     SwaggerModule.setup('openapi', app, SwaggerModule.createDocument(app, openApi));
   }
   await app.listen(Number(process.env.API_PORT ?? 3001), process.env.API_HOST ?? '127.0.0.1');
+  installGracefulApiShutdown(app,runtime.shutdownGraceMs);
 }
 
 void bootstrap();

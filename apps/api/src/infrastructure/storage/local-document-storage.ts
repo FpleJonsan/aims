@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { link, lstat, mkdir, open, opendir, readFile, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { assertUnprotectedAdapter } from '../configuration/aims-environment.js';
 
 import type {
   DocumentStorage,
@@ -36,9 +37,7 @@ export function loadLocalStorageConfig(
   if (environment.STORAGE_DRIVER !== 'local') {
     throw new Error('Local storage requires STORAGE_DRIVER=local');
   }
-  if (environment.NODE_ENV === 'production') {
-    throw new Error('Local document storage is forbidden in production');
-  }
+  assertUnprotectedAdapter('STORAGE_PROVIDER', environment);
   if (environment.LOCAL_STORAGE_DEMO_MODE !== 'true') {
     throw new Error('Local storage requires explicit LOCAL_STORAGE_DEMO_MODE=true risk acceptance');
   }
@@ -82,10 +81,8 @@ export class LocalDocumentStorage implements DocumentStorage {
   readonly #maxUploadBytes: number;
   readonly #allowedContentTypes: ReadonlySet<string>;
 
-  constructor(config: LocalStorageConfig) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('Local document storage is forbidden in production');
-    }
+  constructor(config: LocalStorageConfig, environment:Readonly<Record<string,string|undefined>>=process.env) {
+    assertUnprotectedAdapter('STORAGE_PROVIDER', environment);
     if (config.demoMode !== true) {
       throw new Error('Local document storage requires explicit development demo mode');
     }

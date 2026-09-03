@@ -10,6 +10,7 @@ import {
 import type { PoolClient } from "pg";
 import type { Principal } from "../../domain/payment-request.js";
 import { Postgres } from "../../infrastructure/database/postgres.js";
+import { classifyAimsEnvironment } from "../../infrastructure/configuration/aims-environment.js";
 import { PaymentRequestService } from "../payment-requests/payment-request.service.js";
 import { fingerprintEvidence } from "../policy/policy.service.js";
 import type {
@@ -1380,8 +1381,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isProductionRuntime(): boolean {
-  return (
-    process.env.NODE_ENV === "production" ||
-    process.env.AIMS_ENVIRONMENT === "production"
-  );
+  return classifyAimsEnvironment().protected;
 }

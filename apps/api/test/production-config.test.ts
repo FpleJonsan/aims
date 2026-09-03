@@ -17,16 +17,25 @@ const local = {
 const productionUrl = (user: string, database = "aims_production") =>
   `postgresql://${user}:strong-runtime-value@db.internal/${database}?sslmode=verify-full`;
 const productionDatabase = {
+  NODE_ENV: "production",
+  AIMS_ENVIRONMENT: "production",
   AIMS_EXPECTED_DATABASE: "aims_production",
   DATABASE_URL: productionUrl("aims_app"),
   FINANCE_DATABASE_URL: productionUrl("aims_finance_runtime"),
   PAYMENT_DATABASE_URL: productionUrl("aims_payment_runtime"),
+  AIMS_SESSION_COOKIE_SECURE: "true",
+  AIMS_RELEASE_VERSION: "1.0.0",
+  AIMS_RELEASE_REVISION: "test-revision",
 };
 
 test("development accepts explicit local storage and optional integrations disabled", () => {
   const result = validateProductionConfig(local);
   assert.equal(result.identity, "LOCAL_SESSION");
   assert.equal(result.telegramEnabled, false);
+});
+
+test("canonical test environment is preserved in the typed configuration summary",()=>{
+  assert.equal(validateProductionConfig({...local,NODE_ENV:"test",AIMS_ENVIRONMENT:"test"}).aimsEnvironment,"test");
 });
 
 test("production fails closed without an approved corporate authentication adapter", () => {
@@ -298,7 +307,7 @@ test("production Telegram secrets and webhook must be strong and HTTPS", () => {
 
 test("staging and competition are explicitly separated", () => {
   assert.throws(
-    () => validateProductionConfig({ ...local, AIMS_ENVIRONMENT: "staging" }),
+    () => validateProductionConfig({ ...local, ...productionDatabase, AIMS_ENVIRONMENT: "staging", STORAGE_DRIVER:"object", MALWARE_SCANNER_DRIVER:"provider" }),
     /approved test IdP adapter/,
   );
   assert.equal(

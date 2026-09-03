@@ -24,10 +24,11 @@ test("worker configuration fails closed for invalid bounds and role identity",()
 });
 test("Production scanner startup rejects missing, local, and unimplemented providers",()=>{
  const base={...local,NODE_ENV:"production",AIMS_ENVIRONMENT:"production",AIMS_EXPECTED_DATABASE:"aims_prod",DOCUMENT_WORKER_DATABASE_URL:"postgresql://aims_document_worker_runtime:strong-value@db.internal/aims_prod?sslmode=verify-full"};
- assert.throws(()=>loadWorkerConfig({...base,STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:""}),/approved malware scanner/);
- assert.throws(()=>loadWorkerConfig({...base,STORAGE_DRIVER:"local",MALWARE_SCANNER_DRIVER:"deterministic-local"}),/approved object storage/);
+ assert.throws(()=>loadWorkerConfig({...base,STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:""}),/APPROVED_SCANNER_PROVIDER_REQUIRED/);
+ assert.throws(()=>loadWorkerConfig({...base,STORAGE_DRIVER:"local",MALWARE_SCANNER_DRIVER:"deterministic-local"}),/UNSAFE_STORAGE_PROVIDER/);
  assert.throws(()=>loadWorkerConfig({...base,STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider"}),/not implemented/);
  assert.throws(()=>loadWorkerConfig({...base,DOCUMENT_WORKER_DATABASE_URL:"postgresql://aims_document_worker_runtime:strong-value@127.0.0.1/aims_prod?sslmode=verify-full",STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider"}),/local host/);
+ assert.throws(()=>loadWorkerConfig({...base,DOCUMENT_WORKER_DATABASE_URL:"postgresql://aims_document_worker_runtime:strong-value@127.0.0.2/aims_prod?sslmode=verify-full",STORAGE_DRIVER:"object",MALWARE_SCANNER_DRIVER:"provider"}),/local host/);
 });
 test("worker loop idles and stops without recursive or busy polling",async()=>{
  let polls=0;const loop=new WorkerLoop([{name:"test",poll:async()=>{polls+=1;return{processed:0}}}],50),running=loop.run();

@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy } from "@nestjs/common";
 import { Pool, type PoolClient } from "pg";
 import {failureCategory,metrics,operationalLog,safeErrorCode} from "../observability/telemetry.js";
+import { loadDatabasePoolConfig } from "../configuration/runtime-foundation.js";
 
 @Injectable()
 export class Postgres implements OnModuleDestroy {
@@ -11,9 +12,10 @@ export class Postgres implements OnModuleDestroy {
   constructor() {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) throw new Error("DATABASE_URL is required");
+    const poolLimits=loadDatabasePoolConfig();
     this.pool = new Pool({
       connectionString,
-      max: 10,
+      max: poolLimits.application,
       statement_timeout: 10_000,
       connectionTimeoutMillis: 5_000,
       lock_timeout: 5_000,
@@ -22,7 +24,7 @@ export class Postgres implements OnModuleDestroy {
     this.financePool = process.env.FINANCE_DATABASE_URL
       ? new Pool({
           connectionString: process.env.FINANCE_DATABASE_URL,
-          max: 5,
+          max: poolLimits.finance,
           statement_timeout: 10_000,
           connectionTimeoutMillis: 5_000,
           lock_timeout: 5_000,
@@ -30,7 +32,7 @@ export class Postgres implements OnModuleDestroy {
         })
       : null;
     this.paymentPool = process.env.PAYMENT_DATABASE_URL
-      ? new Pool({ connectionString: process.env.PAYMENT_DATABASE_URL, max: 5, statement_timeout: 10_000, connectionTimeoutMillis: 5_000, lock_timeout: 5_000, idle_in_transaction_session_timeout: 15_000 })
+      ? new Pool({ connectionString: process.env.PAYMENT_DATABASE_URL, max: poolLimits.payment, statement_timeout: 10_000, connectionTimeoutMillis: 5_000, lock_timeout: 5_000, idle_in_transaction_session_timeout: 15_000 })
       : null;
     this.observePool(this.pool,"APPLICATION");
     if(this.financePool)this.observePool(this.financePool,"FINANCE");

@@ -2,14 +2,17 @@ import { Injectable } from "@nestjs/common";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import { isAiMasterEnabled } from "../../infrastructure/ai/ai-governance.js";
 import {metrics,operationalLog} from "../../infrastructure/observability/telemetry.js";
+import { providerReadiness } from "../../infrastructure/configuration/provider-boundary.js";
+import { loadRuntimeFoundationConfig } from "../../infrastructure/configuration/runtime-foundation.js";
+import { EXPECTED_SCHEMA_VERSION } from "../../infrastructure/configuration/schema-contract.js";
 
-export const EXPECTED_SCHEMA_VERSION = 59;
+export { EXPECTED_SCHEMA_VERSION };
 
 @Injectable()
 export class HealthService {
   constructor(private readonly database: Postgres) {}
 
-  liveness() { return { status: "ok" as const }; }
+  liveness() { return { status: "ok" as const, release: loadRuntimeFoundationConfig().release }; }
 
   async readiness() {
     const checks: Record<string, { status: "ready" | "not_ready" | "disabled"; detail?: string }> = {};
@@ -21,12 +24,8 @@ export class HealthService {
     checks.paymentExecutor = this.database.paymentPool
       ? await this.databaseCheck(this.database.paymentPool)
       : { status: "not_ready", detail: "PAYMENT_DATABASE_URL is not configured" };
-    checks.storage = process.env.STORAGE_DRIVER
-      ? { status: "ready", detail: process.env.STORAGE_DRIVER }
-      : { status: "not_ready", detail: "STORAGE_DRIVER is not configured" };
-    checks.malwareScanner = process.env.MALWARE_SCANNER_DRIVER
-      ? {status:"ready",detail:process.env.MALWARE_SCANNER_DRIVER}
-      : {status:"not_ready",detail:"MALWARE_SCANNER_DRIVER is not configured"};
+    checks.storage = providerReadiness("storage");
+    checks.malwareScanner = providerReadiness("scanner");
 
     const ai = await this.aiState();
     checks.ai = ai.error
@@ -46,7 +45,7 @@ export class HealthService {
     const status=required.some((x) => x.status === "not_ready") ? "not_ready" as const : "ready" as const;
     for(const [component,value] of Object.entries(checks))metrics.gauge("aims_readiness_status",{component},value.status==="ready"?1:value.status==="disabled"?2:0);
     if(status==="not_ready")operationalLog("warn","readiness_failed",{operation:"API_READINESS",status:"NOT_READY",failure_category:"CONFIGURATION"});
-    return { status, checks };
+    return { status, checks, release: loadRuntimeFoundationConfig().release };
   }
 
   private async databaseCheck(pool: { query(query: string): Promise<unknown> }) {

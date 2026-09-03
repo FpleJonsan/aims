@@ -8,6 +8,7 @@ import {
   type AiReliabilityConfig,
 } from "./ai-governance.js";
 import { OpenAiCompatibleProvider } from "./openai-compatible-provider.js";
+import { classifyAimsEnvironment } from "../configuration/aims-environment.js";
 
 type ProviderConstructor = (
   apiKey: string,
@@ -23,6 +24,11 @@ export function createAiProvider(
     new OpenAiCompatibleProvider(apiKey, model, baseUrl, reliability),
 ): OpenAiCompatibleProvider | null {
   if (!isAiMasterEnabled(environment)) return null;
+  const classification=classifyAimsEnvironment(environment);
+  const provider=(environment.AI_PROVIDER??"openai-compatible").toLowerCase();
+  if(classification.protected&&["fake","test","deterministic","local"].includes(provider))
+    throw new Error("PROTECTED_ENVIRONMENT_UNSAFE_AI_PROVIDER");
+  if(provider!=="openai-compatible")throw new Error("UNSUPPORTED_AI_PROVIDER");
 
   const apiKey = readServerSecret("OPENAI_API_KEY", environment);
   if (!apiKey) throw new Error("OPENAI_API_KEY is required when AI_MASTER=ON");
