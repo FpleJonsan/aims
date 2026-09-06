@@ -6,7 +6,7 @@ const migration=await readFile(new URL("../../migrations/059_p12_recovery_genera
 
 test("migration 059 is the sole forward recovery-generation migration",async()=>{
  const names=(await readdir(new URL("../../migrations/",import.meta.url))).filter(name=>/^\d{3}_.*\.sql$/.test(name)).sort();
- assert.equal(names.at(-1),"059_p12_recovery_generation_fencing.sql");assert.equal(names.length,59);
+ assert.equal(names.at(-1),"060_p13_corporate_auth_transactions.sql");assert.equal(names.length,60);
  assert.match(migration,/requires schema version 58/);assert.match(migration,/SET version=59,migration_id='059_p12_recovery_generation_fencing'/);
 });
 

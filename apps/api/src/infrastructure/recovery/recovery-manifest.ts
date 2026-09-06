@@ -1,6 +1,6 @@
 export const RECOVERY_MANIFEST_VERSION = "1" as const;
-export const SUPPORTED_SCHEMA_VERSION = 59 as const;
-export const SUPPORTED_MIGRATION_ID = "059_p12_recovery_generation_fencing" as const;
+export const SUPPORTED_SCHEMA_VERSION = 60 as const;
+export const SUPPORTED_MIGRATION_ID = "060_p13_corporate_auth_transactions" as const;
 
 const MAX_TEXT = 256;
 const MAX_REFERENCE = 1024;

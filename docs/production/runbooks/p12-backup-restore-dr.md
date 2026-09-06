@@ -2,7 +2,7 @@
 
 ## Scope and authority
 
-This is the canonical provider-neutral recovery sequence for AIMS schema 59. It does not configure backups, PITR, object replication, credentials, routing or a cloud provider. A backup is evidence from which recovery may be attempted; it is not proof that AIMS or an external payment system is reconciled.
+This is the canonical provider-neutral recovery sequence for AIMS schema 60, with latest migration `060_p13_corporate_auth_transactions`. It does not configure backups, PITR, object replication, credentials, routing or a cloud provider. A backup is evidence from which recovery may be attempted; it is not proof that AIMS or an external payment system is reconciled.
 
 The Incident Commander records the recovery authorization and keeps the API, document worker, notification dispatcher, AI and Telegram stopped. Production AI and Telegram remain OFF throughout validation. Preserve forensic evidence before selecting a trusted database recovery point, object recovery reference and compatible application release.
 
@@ -25,7 +25,7 @@ The required sequence is: **RESTORE → KEEP SERVICES FROZEN → ADVANCE RECOVER
 
 ## Recovery manifest and checker
 
-The JSON manifest contract is implemented in `apps/api/src/infrastructure/recovery/recovery-manifest.ts`. Version `1` binds the declared database/object recovery evidence, recovery point, application release, schema 59, migration 059 and post-restore generation. Every operator/provider-supplied reference is bounded and rejects credential-bearing database URIs, generic URI userinfo and known secret assignments without echoing the value. It contains no secrets, financial values, payee/purpose, bank references, document bytes, raw SQL or raw provider data. Manifest existence is not authenticity; provider attestation/signing remains a future provider capability.
+The JSON manifest contract is implemented in `apps/api/src/infrastructure/recovery/recovery-manifest.ts`. Version `1` binds the declared database/object recovery evidence, recovery point, application release, schema 60, latest migration `060_p13_corporate_auth_transactions`, and post-restore generation. Migration `059_p12_recovery_generation_fencing` remains the origin of the recovery-generation mechanism; migration 060 adds generation-bound corporate authentication transaction state, so old-generation transactions are unusable after advancement without checker mutation or manual repair. Every operator/provider-supplied reference is bounded and rejects credential-bearing database URIs, generic URI userinfo and known secret assignments without echoing the value. It contains no secrets, financial values, payee/purpose, bank references, document bytes, raw SQL or raw provider data. Manifest existence is not authenticity; provider attestation/signing remains a future provider capability.
 
 Build and invoke the offline checker from the API workspace:
 

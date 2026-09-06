@@ -10,14 +10,14 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P12 — Backup / Restore / Disaster Recovery |
-| Current status | P12 final bounded local-enumeration correction implemented; five-discipline final frozen review pending |
-| Last completed phase | P11 — Provider-Neutral Alerting Foundation and Frozen Review |
+| Current Production phase | P13.2 — Corporate Identity Integration Foundation prerequisite |
+| Current status | Migration 060 corporate auth transaction state implemented; final frozen review pending |
+| Last completed phase | P13.1 — Protected Environment & Runtime Foundation |
 | Overall Production ready | NO |
-| Current schema | 59 |
-| Latest migration | `059_p12_recovery_generation_fencing` |
+| Current schema | 60 |
+| Latest migration | `060_p13_corporate_auth_transactions` |
 | Current branch | `main` |
-| Last verified commit | `651ac880` |
+| Last verified commit | `56f88d16` |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -81,7 +81,7 @@ Preserve these invariants:
   closed until an approved corporate identity adapter exists.
 - **Sessions:** only hashes of opaque session/CSRF tokens are stored; origin,
   CSRF, expiry, revocation, logout, and current-user status are enforced.
-- **Database:** schema 59 is authoritative. Runtime roles must not own schema
+- **Database:** schema 60 is authoritative. Runtime roles must not own schema
   objects or obtain DDL, role administration, or cross-executor authority.
 - **Finance executor:** only the approved Finance Control capabilities and two
   trusted functions are available to the dedicated executor.
@@ -100,10 +100,10 @@ Preserve these invariants:
 
 | Item | State |
 | --- | --- |
-| Schema version | 59 |
-| Latest migration | `059_p12_recovery_generation_fencing.sql` |
-| Historical migration chain | `001`–`059`; 001–058 remain immutable |
-| Migration 060+ | NONE / NOT AUTHORIZED |
+| Schema version | 60 |
+| Latest migration | `060_p13_corporate_auth_transactions.sql` |
+| Historical migration chain | `001`–`060`; 001–059 remain immutable |
+| Migration 061+ | NONE / NOT AUTHORIZED |
 | Local database | Schema 56; P6 ownership/role posture verified PASS and frozen |
 | Target owner | `aims_owner` (`NOLOGIN`) |
 | Target migrator | `aims_migrator` (`LOGIN`, `NOINHERIT`, explicit owner-role entry) |
@@ -1939,6 +1939,23 @@ PASS/FROZEN. Schema remains 59 at migration 059; migration 060+ does not exist.
 No application/test/frontend code, database, migration, role, privilege,
 provider configuration, infrastructure or deployment changed during the audit
 or review cycle.
+
+### 2026-09-04 — P13.2 migration 060 prerequisite checkpoint
+
+Status: IMPLEMENTED / FINAL FROZEN REVIEW PENDING
+
+Migration 060 adds one provider-neutral, recovery-generation-fenced corporate
+authentication transaction table and two narrow trusted functions for bounded
+creation and atomic single-use consumption. OAuth state and nonce are stored as
+digests; the short-lived PKCE verifier is protected by owner-only raw-table
+access. Database time and current recovery generation are authoritative.
+PUBLIC, Finance, Payment, and document-worker use is denied; no role, provider,
+frontend, financial table, workflow, or business authority changed.
+
+Clean 001–060, 059→060 upgrade, concurrency, expiry, replay, privilege, P6 and
+P12 recovery proofs pass in disposable databases. Shared local `aims` remains
+unchanged. P13.2 has not resumed; P14 is not started and Production readiness
+remains NO.
 
 ### 2026-09-03 — P13.1 protected environment/runtime foundation frozen
 
