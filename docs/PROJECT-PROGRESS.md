@@ -10,9 +10,9 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P13.2 — Corporate Identity Integration Foundation prerequisite |
-| Current status | Migration 060 corporate auth transaction state implemented; final frozen review pending |
-| Last completed phase | P13.1 — Protected Environment & Runtime Foundation |
+| Current Production phase | P13.2 — Corporate Identity Integration Foundation PASS / FROZEN |
+| Current status | P13.2 provider-neutral corporate identity foundation passed six-discipline frozen review |
+| Last completed phase | P13.2 — Corporate Identity Integration Foundation |
 | Overall Production ready | NO |
 | Current schema | 60 |
 | Latest migration | `060_p13_corporate_auth_transactions` |
@@ -1700,7 +1700,7 @@ remains NO.
 
 ### 2026-09-01 — P12 provider-neutral recovery implementation checkpoint
 
-Status: IMPLEMENTED / REVIEW PENDING
+Status: PASS / FROZEN
 
 Baseline commit: `651ac880e5533a33df2bcf1de3a243f9da9afd61`
 
@@ -1956,6 +1956,32 @@ Clean 001–060, 059→060 upgrade, concurrency, expiry, replay, privilege, P6 a
 P12 recovery proofs pass in disposable databases. Shared local `aims` remains
 unchanged. P13.2 has not resumed; P14 is not started and Production readiness
 remains NO.
+
+### 2026-09-06 — P13.2 corporate identity application foundation
+
+Status: PASS / FROZEN
+
+Implemented provider-neutral backend login initiation and callback handling on
+the frozen Migration 060 transaction boundary. High-entropy state, PKCE S256,
+nonce binding, atomic consumption, exact server-bound adapter/issuer checks,
+cryptographically verified bounded identity, pre-provisioned issuer/subject
+mapping, active-user denial, and fresh opaque AIMS sessions are covered.
+Provider claims never grant Finance authority, and provider secrets/tokens are
+not persisted.
+
+The bounded transport uses a fixed HTTPS destination, timeout, cancellation,
+response-size limit, disabled redirects and sanitized failures. The signed
+deterministic provider is automated-test-only and rejects staging/Production.
+Corporate IdP and protected provider configuration remain UNDECIDED / NOT
+CONFIGURED, so protected corporate login remains non-operational and fail
+closed. Schema stays 60, Migration 060 remains frozen, Migration 061+ is absent,
+no frontend or financial/workflow authority changed, P14 is not started, and
+Production readiness remains NO.
+
+Six independent same-tree read-only reviews passed with zero Critical, High,
+Medium, or Low correction-required findings: Application Security,
+Backend/Distributed Systems, Identity/OAuth/OIDC, SRE/Operations, Finance
+Systems/Controls, and Production Configuration/Deployment.
 
 ### 2026-09-03 — P13.1 protected environment/runtime foundation frozen
 

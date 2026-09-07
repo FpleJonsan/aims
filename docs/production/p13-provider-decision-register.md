@@ -12,7 +12,7 @@ are provider-neutral and do not authorize procurement or configuration.
 | P13-D03 | Production and staging object storage | Private S3-compatible or platform-native object service; staging may use a separately isolated approved equivalent | UNDECIDED. Choose private encrypted services with versioning/exact-version restore, audit and bounded SDK cancellation | Platform / Security / Finance data owner | P13/P17 | Fail-closed construction can proceed before selection |
 | P13-D04 | Production and staging malware scanner | Managed scanning API, isolated approved engine, Company service; staging equivalent remains Company-dependent | UNDECIDED. Select only after privacy, verdict, timeout, throughput and operational ownership approval | Security / Platform | P13/P17 | Fail-closed construction can proceed before selection |
 | P13-D05 | Secret backend | Platform-native secret store or approved Vault | Runtime identity retrieval/injection with audit and rotation; no Production `.env` on disk | Security / Platform | P13/P17 | Config contract can proceed |
-| P13-D06 | Identity provider | Corporate OIDC/approved identity-aware edge | Prefer issuer/audience-bound OIDC integrated with AIMS server sessions; external claims never grant Finance authority | Company IT / Security | P13/P17 | Session adapter interface can proceed; staging cannot |
+| P13-D06 | Identity provider | Corporate OIDC/approved identity-aware edge | P13.2 provider-neutral initiation, verification, exact mapping and opaque-session boundary is implemented; external claims never grant Finance authority. Provider/tenant/registration remain undecided | Company IT / Security | P13/P17 | Foundation complete; staging remains fail closed until approved integration |
 | P13-D07 | Observability stack | Company log/metric platform and collector | Reuse Company platform; keep P10 dimensions and P11 catalogue provider-neutral | SRE / Security | P13/P17 | Export/metadata hardening can proceed |
 | P13-D08 | Alert evaluator/routing | Company incident platform, email, chat or paging service | Company on-call tooling; evaluator must implement P11 grouping/no-data/disabled semantics | SRE / Operations | P13/P17 | Specification stays usable |
 | P13-D09 | Edge/DNS/TLS | Company ingress/CDN/load balancer | Prefer one HTTPS product origin and private API/management routes | Platform / Security | P13/P17 | Host/proxy config hardening can proceed |
@@ -41,7 +41,7 @@ are provider-neutral and do not authorize procurement or configuration.
 - Deploy API and PostgreSQL-backed worker as independently supervised processes.
 - Redis, a scheduler, microservices and Kubernetes are not required for v1.
 - AI and Telegram remain OFF for initial Production.
-- Target invariant: local identity, local storage, deterministic scanning and
-  fake/test providers must not run in staging or Production unless explicitly
-  approved. Current enforcement is fragmented and remains P13 hardening work.
+- Local identity, local storage, deterministic scanning and fake/test providers
+  are rejected in staging and Production. P13.1/P13.2 enforce this boundary;
+  approved real providers and deployment evidence remain external gates.
 - The same immutable release artifact is promoted from staging to Production.

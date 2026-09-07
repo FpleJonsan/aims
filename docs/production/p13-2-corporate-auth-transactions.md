@@ -1,9 +1,10 @@
 # P13.2 Corporate Authentication Transaction State
 
-Migration `060_p13_corporate_auth_transactions` adds the provider-neutral,
-pre-authentication persistence prerequisite for a future corporate OAuth/OIDC
-adapter. It does not implement login routes, select an identity provider, or
-create authenticated AIMS identity or business authority.
+Migration `060_p13_corporate_auth_transactions` and the P13.2 application
+boundary provide provider-neutral corporate login initiation, callback,
+verified `(issuer, subject)` mapping, and fresh opaque AIMS session creation.
+No corporate identity provider is selected or configured, so protected
+corporate login remains deliberately non-operational.
 
 ## Security classification and lifecycle
 
@@ -43,5 +44,40 @@ Expired and consumed rows should be removed by a future approved operational
 retention policy; no scheduler, worker, Redis dependency, or long-term audit
 use is introduced here.
 
-The shared local `aims` database is intentionally not migrated by this work.
-Migration and privilege proofs use disposable `aims_test_*` databases only.
+## Application trust boundary
+
+Initiation generates high-entropy state, a PKCE S256 verifier/challenge, and a
+nonce, then creates the transaction only through Migration 060. Callback
+consumes it before code exchange and accepts only a cryptographically verified,
+bounded identity from the configured adapter. Issuer and adapter must match the
+server-bound transaction. Provider token material is neither persisted nor
+propagated through AIMS.
+
+Only an exact pre-provisioned mapping for adapter, issuer and subject can
+establish a session, and the mapped AIMS user must be active. Email, provider
+groups, roles, job title and department cannot create AIMS Finance authority.
+Every success creates a fresh opaque AIMS session through the existing cookie,
+recovery-generation, revocation and current-authority architecture. State is
+durably consumed in a short transaction before provider I/O; a second short
+generation-locked transaction rejects recovery-generation changes before
+mapping and session insertion. Cookies are emitted only after commit. Corporate
+session lifetime is a distinct bounded policy and must be explicit before a
+protected adapter can operate.
+
+The provider HTTP transport foundation requires a fixed server-configured HTTPS
+destination, bounded timeout/body, cancellation, disabled redirects and
+sanitized failures. The cryptographically signed deterministic adapter is
+test-only and rejects staging and Production. Local identity remains
+development/test-only; protected environments have no fallback.
+
+## Open company inputs
+
+The approved corporate IdP, Production and staging issuer/tenant, client
+registration owner, callback domains, client authentication method,
+MFA/conditional-access owner, allowed user population, logout policy, session
+policy, and identity revocation/incident process remain unresolved. No vendor,
+endpoint, secret or operational threshold is invented.
+
+Migration 060 remains frozen and schema remains 60. No Migration 061, frontend,
+financial logic, workflow, provider configuration, Redis state or second
+session/state model is introduced.

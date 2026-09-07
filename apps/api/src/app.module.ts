@@ -51,10 +51,14 @@ import { loadTelegramConfig } from "./infrastructure/configuration/telegram-conf
 import { httpObservabilityMiddleware } from "./infrastructure/observability/http-observability.middleware.js";
 import { MetricsController } from "./application/health/metrics.controller.js";
 import { createDocumentScanner, createDocumentStorage } from "./infrastructure/configuration/provider-boundary.js";
+import { CorporateAuthController } from "./application/auth/corporate-auth.controller.js";
+import { CorporateAuthService } from "./application/auth/corporate-auth.service.js";
+import { CORPORATE_IDENTITY_PROVIDER, UnavailableCorporateIdentityProvider } from "./application/auth/corporate-identity.provider.js";
 
 @Module({
   controllers: [
     LocalIdentityController,
+    CorporateAuthController,
     PaymentRequestController,
     ValidationController,
     FinanceContextController,
@@ -74,6 +78,8 @@ import { createDocumentScanner, createDocumentStorage } from "./infrastructure/c
     Postgres,
     AuthGuard,
     SessionService,
+    CorporateAuthService,
+    { provide: CORPORATE_IDENTITY_PROVIDER, useFactory: () => new UnavailableCorporateIdentityProvider() },
     PaymentRequestService,
     PaymentDocumentService,
     ValidationService,
