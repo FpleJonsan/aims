@@ -18,9 +18,17 @@ test("Telegram ON validates complete config once and fails closed when incomplet
 test("worker configuration fails closed for invalid bounds and role identity",()=>{
  assert.throws(()=>loadWorkerConfig({...local,WORKER_BATCH_SIZE:"0"}),/WORKER_BATCH_SIZE/);
  assert.throws(()=>loadWorkerConfig({...local,DOCUMENT_WORKER_DATABASE_URL:"postgresql://aims_payment_runtime:test@127.0.0.1:5432/aims_test_worker"}),/aims_document_worker_runtime/);
- for(const value of ["0","-1","not-a-number","60001"])assert.throws(()=>loadWorkerConfig({...local,DOCUMENT_SCAN_STORAGE_TIMEOUT_MS:value}),/DOCUMENT_SCAN_STORAGE_TIMEOUT_MS/);
- for(const value of ["0","-1","not-a-number","60001"])assert.throws(()=>loadWorkerConfig({...local,DOCUMENT_SCAN_SCANNER_TIMEOUT_MS:value}),/DOCUMENT_SCAN_SCANNER_TIMEOUT_MS/);
- assert.throws(()=>loadWorkerConfig({...local,DOCUMENT_SCAN_LEASE_SECONDS:"5",DOCUMENT_SCAN_STORAGE_TIMEOUT_MS:"2000",DOCUMENT_SCAN_SCANNER_TIMEOUT_MS:"2000"}),/fit within/);
+ for(const value of ["0","-1","null","","not-a-number",String(Number.MAX_SAFE_INTEGER)])assert.throws(()=>loadWorkerConfig({...local,DOCUMENT_SCAN_STORAGE_TIMEOUT_MS:value}),/DOCUMENT_SCAN_STORAGE_TIMEOUT_MS/);
+ for(const value of ["0","-1","null","","not-a-number",String(Number.MAX_SAFE_INTEGER)])assert.throws(()=>loadWorkerConfig({...local,DOCUMENT_SCAN_SCANNER_TIMEOUT_MS:value}),/DOCUMENT_SCAN_SCANNER_TIMEOUT_MS/);
+ for(const value of ["0","-1","null","",String(Number.MAX_SAFE_INTEGER)])assert.throws(()=>loadWorkerConfig({...local,DOCUMENT_SCAN_LEASE_SAFETY_MARGIN_MS:value}),/DOCUMENT_SCAN_LEASE_SAFETY_MARGIN_MS/);
+ for(const value of ["0","-1","null","",String(Number.MAX_SAFE_INTEGER)])assert.throws(()=>loadWorkerConfig({...local,DOCUMENT_SCAN_LEASE_SECONDS:value}),/DOCUMENT_SCAN_LEASE_SECONDS/);
+});
+test("worker lease budget includes read, scan, promotion, metadata, and safety margin",()=>{
+ const valid={...local,DOCUMENT_SCAN_LEASE_SECONDS:"71",DOCUMENT_SCAN_STORAGE_TIMEOUT_MS:"10000",DOCUMENT_SCAN_SCANNER_TIMEOUT_MS:"30000",DOCUMENT_SCAN_LEASE_SAFETY_MARGIN_MS:"10000"};
+ assert.doesNotThrow(()=>loadWorkerConfig(valid));
+ assert.throws(()=>loadWorkerConfig({...valid,DOCUMENT_SCAN_LEASE_SECONDS:"70"}),/fit within/);
+ assert.throws(()=>loadWorkerConfig({...local,DOCUMENT_SCAN_LEASE_SECONDS:"70",DOCUMENT_SCAN_STORAGE_TIMEOUT_MS:"20000",DOCUMENT_SCAN_SCANNER_TIMEOUT_MS:"20000",DOCUMENT_SCAN_LEASE_SAFETY_MARGIN_MS:"100"}),/fit within/);
+ assert.throws(()=>loadWorkerConfig({...local,DOCUMENT_SCAN_LEASE_SECONDS:"5",DOCUMENT_SCAN_STORAGE_TIMEOUT_MS:"60000",DOCUMENT_SCAN_SCANNER_TIMEOUT_MS:"60000",DOCUMENT_SCAN_LEASE_SAFETY_MARGIN_MS:"60000"}),/fit within/);
 });
 test("Production scanner startup rejects missing, local, and unimplemented providers",()=>{
  const base={...local,NODE_ENV:"production",AIMS_ENVIRONMENT:"production",AIMS_EXPECTED_DATABASE:"aims_prod",DOCUMENT_WORKER_DATABASE_URL:"postgresql://aims_document_worker_runtime:strong-value@db.internal/aims_prod?sslmode=verify-full"};

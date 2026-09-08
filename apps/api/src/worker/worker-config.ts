@@ -43,8 +43,10 @@ export function loadWorkerConfig(environment:Readonly<Record<string,string|undef
   const leaseSeconds=integer(environment.DOCUMENT_SCAN_LEASE_SECONDS,120,5,3600,"DOCUMENT_SCAN_LEASE_SECONDS");
   const storageTimeoutMs=integer(environment.DOCUMENT_SCAN_STORAGE_TIMEOUT_MS,10000,10,60000,"DOCUMENT_SCAN_STORAGE_TIMEOUT_MS");
   const scannerTimeoutMs=integer(environment.DOCUMENT_SCAN_SCANNER_TIMEOUT_MS,30000,10,60000,"DOCUMENT_SCAN_SCANNER_TIMEOUT_MS");
+  const leaseSafetyMarginMs=integer(environment.DOCUMENT_SCAN_LEASE_SAFETY_MARGIN_MS,5000,100,60000,"DOCUMENT_SCAN_LEASE_SAFETY_MARGIN_MS");
   const shutdownGraceMs=integer(environment.WORKER_SHUTDOWN_GRACE_MS,15000,100,60000,"WORKER_SHUTDOWN_GRACE_MS");
-  if(storageTimeoutMs*2+scannerTimeoutMs>=leaseSeconds*1000)throw new Error("Document scan storage and scanner deadlines must fit within DOCUMENT_SCAN_LEASE_SECONDS");
+  const cleanPathBudgetMs=storageTimeoutMs*3+scannerTimeoutMs+leaseSafetyMarginMs;
+  if(!Number.isSafeInteger(cleanPathBudgetMs)||cleanPathBudgetMs>=leaseSeconds*1000)throw new Error("Document scan read, scanner, promotion, metadata, and safety-margin deadlines must fit within DOCUMENT_SCAN_LEASE_SECONDS");
   return{
     workerId:boundedIdentity(environment.AIMS_WORKER_ID??`aims-worker-${process.pid}`),
     pollIntervalMs:integer(environment.WORKER_POLL_INTERVAL_MS,1000,50,60000,"WORKER_POLL_INTERVAL_MS"),
