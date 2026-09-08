@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
+import pg from "pg";
 import { ApprovalService } from "../src/application/approval/approval.service.js";
 import { FinanceContextService } from "../src/application/finance-context/finance-context.service.js";
 import { FinanceControlService } from "../src/application/finance-control/finance-control.service.js";
@@ -135,8 +136,8 @@ async function approved(
   );
   const request = await requests.submit(draft.id, requester, "d7-submit");
   await db.pool.query(
-    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference)
-    VALUES($1,$2,$3,'invoice.pdf',$4,'application/pdf',20,$5,'INVOICE',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
+    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference,storage_binding_state,storage_backend_id,storage_object_version,trusted_storage_object_key,trusted_storage_object_version)
+    VALUES($1,$2,$3,'invoice.pdf',$4,'application/pdf',20,$5,'INVOICE',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean','VERSION_BOUND','test-fixture',gen_random_uuid()::text,$4,gen_random_uuid()::text)`,
     [
       randomUUID(),
       request.id,
@@ -221,8 +222,8 @@ async function confirmRequired(
 }
 async function addEvidence(db: Postgres, id: string) {
   await db.pool.query(
-    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference)
- VALUES($1,$2,$3,'changed.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
+    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference,storage_binding_state,storage_backend_id,storage_object_version,trusted_storage_object_key,trusted_storage_object_version)
+ VALUES($1,$2,$3,'changed.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean','VERSION_BOUND','test-fixture',gen_random_uuid()::text,$4,gen_random_uuid()::text)`,
     [
       randomUUID(),
       id,
@@ -252,8 +253,8 @@ async function draftWithEvidence(db: Postgres, hash: string) {
     "duplicate-draft-update",
   );
   await db.pool.query(
-    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference)
-     VALUES($1,$2,$3,'duplicate.pdf',$4,'application/pdf',20,$5,'INVOICE',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
+    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference,storage_binding_state,storage_backend_id,storage_object_version,trusted_storage_object_key,trusted_storage_object_version)
+     VALUES($1,$2,$3,'duplicate.pdf',$4,'application/pdf',20,$5,'INVOICE',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean','VERSION_BOUND','test-fixture',gen_random_uuid()::text,$4,gen_random_uuid()::text)`,
     [
       randomUUID(),
       draft.id,
@@ -325,18 +326,12 @@ async function readyPayment(db: Postgres, label: string) {
 }
 
 async function attachCleanPaymentSlip(db:Postgres,requestId:string,actor:Principal,label:string,filename:string){
-  const slipId=randomUUID(),sha=randomUUID().replaceAll("-","").repeat(2);
+  const slipId=randomUUID(),sha=randomUUID().replaceAll("-","").repeat(2),key=`quarantine/tests/${randomUUID()}`,version=`source-${randomUUID()}`;
   await db.paymentTransaction(actor.id,`${label}-slip`,c=>c.query(
-    "SELECT attach_payment_slip($1,$2,$3,$4,$5,'application/pdf',20,$6)",
-    [requestId,slipId,randomUUID(),filename,`quarantine/tests/${randomUUID()}`,sha],
+    "SELECT attach_payment_slip($1,$2,$3,$4,$5,$6,'test-fixture','application/pdf',20,$7,'LOCAL')",
+    [requestId,slipId,randomUUID(),filename,key,version,sha],
   ));
-  const started=await db.paymentTransaction(actor.id,`${label}-scan-start`,c=>c.query<{begin_payment_slip_security_scan:number}>(
-    "SELECT begin_payment_slip_security_scan($1,$2,1,$3)",[requestId,slipId,sha],
-  ));
-  await db.paymentTransaction(actor.id,`${label}-scan-clean`,c=>c.query(
-    "SELECT complete_payment_slip_security_scan($1,$2,1,$3,$4,'CLEAN','deterministic-local',$5,NULL)",
-    [requestId,slipId,sha,Number(started.rows[0].begin_payment_slip_security_scan),`${label}-clean`],
-  ));
+  const workerUrl=process.env.DOCUMENT_WORKER_DATABASE_URL;if(!workerUrl)throw new Error("document worker database URL is required");const worker=new pg.Pool({connectionString:workerUrl});try{const claim=(await worker.query("SELECT * FROM claim_next_payment_document_scan($1,30,3,$2)",["finance-control-test",randomUUID()])).rows[0];assert.equal(claim.document_id,slipId);await worker.query("SELECT complete_payment_document_scan($1,$2,$3,$4,$5,$6,$7,$8,$9,'CLEAN',NULL,0,'test-scanner',$10,NULL,$11,$12)",[claim.document_id,claim.document_version,claim.storage_backend_id,claim.source_object_key,claim.source_object_version,claim.document_sha256,claim.document_size_bytes,claim.scan_attempt,claim.claim_token,`${label}-clean`,`active/tests/${slipId}`,`trusted-${randomUUID()}`])}finally{await worker.end()}
   return slipId;
 }
 

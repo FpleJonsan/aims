@@ -12,15 +12,15 @@ import type {WorkerConfig} from "../src/worker/worker-config.js";
 const appUrl=process.env.DATABASE_URL,workerUrl=process.env.DOCUMENT_WORKER_DATABASE_URL;
 if(!appUrl||!workerUrl)throw new Error("isolated application and document worker database URLs are required");
 const app=new pg.Pool({connectionString:appUrl}),workerA=new pg.Pool({connectionString:workerUrl}),workerB=new pg.Pool({connectionString:workerUrl});
-type Claim={document_id:string;document_version:number;document_sha256:string;scan_attempt:number;claim_token:string;expired_lease_recovered:boolean};
+type Claim={document_id:string;document_version:number;storage_backend_id:string;source_object_key:string;source_object_version:string;document_sha256:string;document_size_bytes:number;scan_attempt:number;claim_token:string;expired_lease_recovered:boolean};
 async function insertDocument(){
  const base=await app.query<{request_id:string;user_id:string}>("SELECT pr.id request_id,pr.created_by user_id FROM payment_requests pr JOIN users u ON u.id=pr.created_by LIMIT 1");
  assert.ok(base.rowCount);const id=randomUUID(),logical=randomUUID(),sha=randomUUID().replaceAll("-","").padEnd(64,"0");
- await app.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status)
- VALUES($1,$2,$3,'worker.pdf',$6,'application/pdf',10,$4,'INVOICE',1,$5,'LOCAL','application/pdf','application/pdf','QUARANTINED')`,[id,base.rows[0].request_id,logical,sha,base.rows[0].user_id,`quarantine/worker/${id}`]);return{id,sha};
+ await app.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,storage_binding_state,storage_backend_id,storage_object_version)
+ VALUES($1,$2,$3,'worker.pdf',$6,'application/pdf',3,$4,'INVOICE',1,$5,'LOCAL','application/pdf','application/pdf','QUARANTINED','VERSION_BOUND','test-backend',$7)`,[id,base.rows[0].request_id,logical,sha,base.rows[0].user_id,`quarantine/worker/${id}`,`version-${id}`]);return{id,sha};
 }
 async function claim(pool:pg.Pool,worker:string,lease=5,max=3){return(await pool.query("SELECT * FROM claim_next_payment_document_scan($1,$2,$3,$4)",[worker,lease,max,randomUUID()])).rows[0]??null}
-async function complete(pool:pg.Pool,c:Claim,status:string,disposition:string|null=null,retry=0){return pool.query("SELECT complete_payment_document_scan($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",[c.document_id,c.document_version,c.document_sha256,c.scan_attempt,c.claim_token,status,disposition,retry,status==="SCAN_FAILED"?null:"test-scanner",status==="SCAN_FAILED"?null:"test-reference",status==="SCAN_FAILED"?"SCANNER_UNAVAILABLE":null,status==="CLEAN"?`active/worker/${c.document_id}`:null])}
+async function complete(pool:pg.Pool,c:Claim,status:string,disposition:string|null=null,retry=0){return pool.query("SELECT complete_payment_document_scan($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)",[c.document_id,c.document_version,c.storage_backend_id,c.source_object_key,c.source_object_version,c.document_sha256,c.document_size_bytes,c.scan_attempt,c.claim_token,status,disposition,retry,status==="SCAN_FAILED"?null:"test-scanner",status==="SCAN_FAILED"?null:"test-reference",status==="SCAN_FAILED"?"SCANNER_UNAVAILABLE":null,status==="CLEAN"?`active/worker/${c.document_id}`:null,status==="CLEAN"?`trusted-${c.document_id}`:null])}
 const runtimeConfig=(overrides:Partial<WorkerConfig>={}):WorkerConfig=>({workerId:"runtime-test",batchSize:1,leaseSeconds:5,maximumAttempts:3,retryDelaySeconds:1,pollIntervalMs:50,storageTimeoutMs:50,scannerTimeoutMs:50,shutdownGraceMs:500,telegramEnabled:false,scannerEnabled:true,documentDatabaseUrl:workerUrl,...overrides});
 async function scanState(id:string){return(await app.query("SELECT security_status,version,sha256,scan_attempt,scan_claim_token,scan_claimed_by,scan_failure_code,scan_failure_disposition,scan_next_attempt_at FROM payment_documents WHERE id=$1",[id])).rows[0]}
 
@@ -49,11 +49,11 @@ test("two workers racing an expired lease produce one authoritative recovery res
  await complete(results[0]?.document_id===created.id?workerA:workerB,reclaims[0],"REJECTED");
 });
 
-for(const attack of ["version","sha256"] as const)test(`trusted finalization rejects stale document ${attack} without changing claim or trust`,async()=>{
+for(const attack of ["version","sha256","backend","key","objectVersion","size"] as const)test(`trusted finalization rejects stale document ${attack} without changing claim or trust`,async()=>{
  const created=await insertDocument(),current=await claim(workerA,`stale-${attack}`);assert.equal(current.document_id,created.id);
  const before=await scanState(created.id),auditBefore=Number((await app.query("SELECT count(*) count FROM audit_events WHERE safe_metadata->>'documentId'=$1",[created.id])).rows[0].count);
- const forged={...current,...(attack==="version"?{document_version:current.document_version+1}:{document_sha256:"f".repeat(64)})};
- await assert.rejects(()=>complete(workerA,forged,"CLEAN"),error=>error instanceof Error&&/document scan identity mismatch/.test(error.message));
+ const forged={...current,...(attack==="version"?{document_version:current.document_version+1}:attack==="sha256"?{document_sha256:"f".repeat(64)}:attack==="backend"?{storage_backend_id:"wrong-backend"}:attack==="key"?{source_object_key:"quarantine/wrong"}:attack==="objectVersion"?{source_object_version:"wrong-version"}:{document_size_bytes:current.document_size_bytes+1})};
+ await assert.rejects(()=>complete(workerA,forged,"CLEAN"),error=>error instanceof Error&&/document scan physical identity mismatch/.test(error.message));
  const after=await scanState(created.id),auditAfter=Number((await app.query("SELECT count(*) count FROM audit_events WHERE safe_metadata->>'documentId'=$1",[created.id])).rows[0].count);
  assert.deepEqual(after,before);assert.equal(auditAfter,auditBefore);assert.equal(after.security_status,"SCANNING");assert.equal(after.scan_claim_token,current.claim_token);
  await complete(workerA,current,"REJECTED");
@@ -78,29 +78,48 @@ test("worker health exposes bounded operational evidence",async()=>{const health
 
 test("independent document runtime claims, performs external I/O outside its claim transaction, and persists CLEAN",async()=>{
  const created=await insertDocument();let reads=0,promotions=0;
- const storage={readQuarantined:async()=>{reads+=1;return new Uint8Array([1,2,3])},promoteQuarantined:async(input:PromoteDocumentInput)=>{promotions+=1;return{key:`active/${input.destinationKey}`,sizeBytes:3,sha256:input.expectedSha256,contentType:"application/pdf",status:"ACTIVE" as const}}} as unknown as DocumentStorage;
+ const storage={trustedKey:(destination:string)=>`active/${destination}`,readQuarantined:async()=>{reads+=1;return new Uint8Array([1,2,3])},promoteQuarantined:async(input:PromoteDocumentInput)=>{promotions+=1;return{provider:"LOCAL" as const,backendId:input.backendId,key:input.trustedKey,objectVersion:`trusted-${created.id}`,sizeBytes:3,sha256:input.expectedSha256,contentType:"application/pdf",status:"ACTIVE" as const}},metadata:async(backendId:string,key:string,objectVersion:string)=>({backendId,key,objectVersion,sizeBytes:3,sha256:created.sha})} as unknown as DocumentStorage;
  const scanner={scan:async()=>({verdict:"CLEAN" as const,engine:"test-scanner",reference:"runtime-clean"})} as DocumentMalwareScanner;
  const runtime=new DocumentScanWorker(workerA,storage,scanner,runtimeConfig()),result=await runtime.pollBatch();assert.equal(result.processed,1);assert.equal(reads,1);assert.equal(promotions,1);
- const row=await app.query("SELECT security_status,scan_claim_token,storage_object_key FROM payment_documents WHERE id=$1",[created.id]);assert.equal(row.rows[0].security_status,"CLEAN");assert.equal(row.rows[0].scan_claim_token,null);assert.match(row.rows[0].storage_object_key,/^active\//);
+ const row=await app.query("SELECT security_status,scan_claim_token,storage_object_key,trusted_storage_object_key FROM payment_documents WHERE id=$1",[created.id]);assert.equal(row.rows[0].security_status,"CLEAN");assert.equal(row.rows[0].scan_claim_token,null);assert.match(row.rows[0].storage_object_key,/^quarantine\//);assert.match(row.rows[0].trusted_storage_object_key,/^active\//);
+});
+
+for(const mismatch of ["provider","backend","key","version","sha","size","missing","proof-backend","proof-key","proof-version","proof-sha","proof-size","ambiguous"] as const)test(`worker refuses CLEAN when promoted object proof has ${mismatch} mismatch`,async()=>{
+ const created=await insertDocument(),trustedKey=`active/payment-requests/proof/documents/${created.id}`,trustedVersion=`trusted-${created.id}`;
+ const promoted={provider:"LOCAL" as const,backendId:"test-backend",key:trustedKey,objectVersion:trustedVersion,sizeBytes:3,sha256:created.sha,contentType:"application/pdf",status:"ACTIVE" as const};
+ const storage={trustedKey:()=>trustedKey,readQuarantined:async()=>new Uint8Array([1,2,3]),promoteQuarantined:async()=>mismatch==="ambiguous"?{}:({...promoted,...(mismatch==="provider"?{provider:"OBJECT" as const}:mismatch==="backend"?{backendId:"wrong"}:mismatch==="key"?{key:"active/substituted-but-identical"}:mismatch==="version"?{objectVersion:""}:mismatch==="sha"?{sha256:"f".repeat(64)}:mismatch==="size"?{sizeBytes:4}:{})}),metadata:async()=>{if(mismatch==="missing")throw new Error("ENOENT");return{...promoted,...(mismatch==="proof-backend"?{backendId:"wrong"}:mismatch==="proof-key"?{key:"wrong"}:mismatch==="proof-version"?{objectVersion:"wrong"}:mismatch==="proof-sha"?{sha256:"f".repeat(64)}:mismatch==="proof-size"?{sizeBytes:4}:{})}}} as unknown as DocumentStorage;
+ const scanner={scan:async()=>({verdict:"CLEAN" as const,engine:"test-scanner",reference:"proof"})} as DocumentMalwareScanner;
+ const pool=new pg.Pool({connectionString:workerUrl}),runtime=new DocumentScanWorker(pool,storage,scanner,runtimeConfig({retryDelaySeconds:86400}));await runtime.pollBatch();const state=await scanState(created.id);assert.notEqual(state.security_status,"CLEAN");assert.equal(state.security_status,"SCAN_FAILED");await runtime.close();
+});
+
+test("shutdown cancellation propagates through promotion and cannot grant CLEAN",async()=>{
+ const created=await insertDocument();let promotionAborted=false;
+ const storage={trustedKey:(destination:string)=>"active/"+destination,readQuarantined:async()=>new Uint8Array([1,2,3]),promoteQuarantined:async(input:PromoteDocumentInput)=>new Promise<never>((_,reject)=>{const abort=()=>{promotionAborted=true;reject(new Error("promotion aborted"))};if(input.signal?.aborted)abort();else input.signal?.addEventListener("abort",abort,{once:true})})} as unknown as DocumentStorage;
+ const scanner={scan:async()=>({verdict:"CLEAN" as const,engine:"test",reference:"clean"})} as DocumentMalwareScanner,pool=new pg.Pool({connectionString:workerUrl}),runtime=new DocumentScanWorker(pool,storage,scanner,runtimeConfig({storageTimeoutMs:1_000,retryDelaySeconds:86400})),running=runtime.pollBatch();
+ for(let i=0;i<50&&(await scanState(created.id)).security_status!=="SCANNING";i+=1)await new Promise(resolve=>setTimeout(resolve,10));runtime.stop();await running;assert.equal(promotionAborted,true);assert.notEqual((await scanState(created.id)).security_status,"CLEAN");await runtime.close();
+});
+
+test("lease expiry during promotion makes the old worker unable to grant CLEAN",async()=>{
+ const created=await insertDocument();const storage={trustedKey:(destination:string)=>"active/"+destination,readQuarantined:async()=>new Uint8Array([1,2,3]),promoteQuarantined:async(input:PromoteDocumentInput)=>{await new Promise(resolve=>setTimeout(resolve,5_100));return{provider:"LOCAL" as const,backendId:input.backendId,key:input.trustedKey,objectVersion:`trusted-${created.id}`,sizeBytes:3,sha256:input.expectedSha256,contentType:"application/pdf",status:"ACTIVE" as const}},metadata:async(backendId:string,key:string,objectVersion:string)=>({backendId,key,objectVersion,sizeBytes:3,sha256:created.sha})} as unknown as DocumentStorage,scanner={scan:async()=>({verdict:"CLEAN" as const,engine:"test",reference:"clean"})} as DocumentMalwareScanner,pool=new pg.Pool({connectionString:workerUrl}),runtime=new DocumentScanWorker(pool,storage,scanner,runtimeConfig({storageTimeoutMs:6_000,retryDelaySeconds:86400}));await runtime.pollBatch();assert.notEqual((await scanState(created.id)).security_status,"CLEAN");const recovered=await claim(workerA,"lease-cleanup");assert.equal(recovered.document_id,created.id);await complete(workerA,recovered,"REJECTED");await runtime.close();
 });
 
 for(const boundary of ["storage","scanner"] as const)test(`${boundary} timeout persists a safe retryable failure and worker remains healthy`,async()=>{
  const created=await insertDocument();
- const storage={readQuarantined:boundary==="storage"?async()=>new Promise<Uint8Array>(()=>{}):async()=>new Uint8Array([1,2,3])} as unknown as DocumentStorage;
+ const storage={trustedKey:(destination:string)=>"active/"+destination,readQuarantined:boundary==="storage"?async()=>new Promise<Uint8Array>(()=>{}):async()=>new Uint8Array([1,2,3])} as unknown as DocumentStorage;
  const scanner={scan:boundary==="scanner"?async()=>new Promise<never>(()=>{}):async()=>({verdict:"CLEAN" as const,engine:"test",reference:"clean"})} as DocumentMalwareScanner;
  const pool=new pg.Pool({connectionString:workerUrl}),runtime=new DocumentScanWorker(pool,storage,scanner,runtimeConfig({retryDelaySeconds:86400}));const result=await runtime.pollBatch();assert.equal(result.processed,1);assert.ok(result.health);
  const state=await scanState(created.id);assert.equal(state.security_status,"SCAN_FAILED");assert.equal(state.scan_failure_disposition,"RETRYABLE");assert.equal(state.scan_failure_code,boundary==="storage"?"STORAGE_TIMEOUT":"SCANNER_TIMEOUT");assert.ok(state.scan_next_attempt_at);assert.equal(state.scan_claim_token,null);await runtime.close();
 });
 
 test("repeated scanner timeout reaches terminal maximum attempts and is not reclaimed",async()=>{
- const created=await insertDocument(),storage={readQuarantined:async()=>new Uint8Array([1])} as unknown as DocumentStorage,scanner={scan:async()=>new Promise<never>(()=>{})} as DocumentMalwareScanner;
+ const created=await insertDocument(),storage={readQuarantined:async()=>new Uint8Array([1,2,3])} as unknown as DocumentStorage,scanner={scan:async()=>new Promise<never>(()=>{})} as DocumentMalwareScanner;
  const pool=new pg.Pool({connectionString:workerUrl}),runtime=new DocumentScanWorker(pool,storage,scanner,runtimeConfig({maximumAttempts:2}));await runtime.pollBatch();await app.query("SELECT pg_sleep(1.1)");await runtime.pollBatch();
  const state=await scanState(created.id);assert.equal(state.security_status,"SCAN_FAILED");assert.equal(state.scan_failure_disposition,"TERMINAL");assert.equal(state.scan_attempt,2);assert.equal(state.scan_failure_code,"SCANNER_TIMEOUT");assert.equal(await claim(workerA,"no-terminal-reclaim",5,2),null);await runtime.close();
 });
 
 test("shutdown aborts a hanging provider, stops new claims, closes its pool, and leaves recoverable work",async()=>{
  const created=await insertDocument();await insertDocument();
- const storage={readQuarantined:async()=>new Promise<Uint8Array>(()=>{})} as unknown as DocumentStorage,scanner={scan:async()=>({verdict:"CLEAN" as const,engine:"test",reference:"clean"})} as DocumentMalwareScanner;
+ const storage={trustedKey:(destination:string)=>"active/"+destination,readQuarantined:async()=>new Promise<Uint8Array>(()=>{})} as unknown as DocumentStorage,scanner={scan:async()=>({verdict:"CLEAN" as const,engine:"test",reference:"clean"})} as DocumentMalwareScanner;
  const pool=new pg.Pool({connectionString:workerUrl}),runtime=new DocumentScanWorker(pool,storage,scanner,runtimeConfig({storageTimeoutMs:1000,scannerTimeoutMs:50}));const running=runtime.pollBatch();
  for(let i=0;i<50&&(await scanState(created.id)).security_status!=="SCANNING";i+=1)await new Promise(resolve=>setTimeout(resolve,10));
  const started=Date.now();runtime.stop();await running;assert.ok(Date.now()-started<500);assert.equal((await runtime.pollBatch()).processed,0);

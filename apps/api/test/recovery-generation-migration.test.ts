@@ -4,9 +4,9 @@ import test from "node:test";
 
 const migration=await readFile(new URL("../../migrations/059_p12_recovery_generation_fencing.sql",import.meta.url),"utf8");
 
-test("migration 059 is the sole forward recovery-generation migration",async()=>{
+test("migration 059 remains the sole recovery-generation migration in the immutable chain",async()=>{
  const names=(await readdir(new URL("../../migrations/",import.meta.url))).filter(name=>/^\d{3}_.*\.sql$/.test(name)).sort();
- assert.equal(names.at(-1),"060_p13_corporate_auth_transactions.sql");assert.equal(names.length,60);
+ assert.equal(names.at(-1),"061_p13_storage_object_version_binding.sql");assert.equal(names.length,61);
  assert.match(migration,/requires schema version 58/);assert.match(migration,/SET version=59,migration_id='059_p12_recovery_generation_fencing'/);
 });
 

@@ -91,6 +91,8 @@ export class LocalDocumentStorage implements DocumentStorage {
     this.#allowedContentTypes = new Set(config.allowedContentTypes);
   }
 
+  trustedKey(destination:string):string{return this.#normalizeTrustedKey(`active/${destination}`)}
+
   async storeQuarantined(input: StoreDocumentInput): Promise<StoredDocument> {
     const declaredContentType = input.declaredContentType.trim().toLowerCase();
     if (!this.#allowedContentTypes.has(declaredContentType)) {
@@ -143,7 +145,10 @@ export class LocalDocumentStorage implements DocumentStorage {
       await this.#assertCanonicalInsideRoot(targetPath);
 
       return {
+        provider: 'LOCAL',
+        backendId: 'local-development',
         key: quarantinedKey,
+        objectVersion: `sha256:${digest.copy().digest('hex')}`,
         sizeBytes,
         sha256: digest.digest('hex'),
         contentType: detectedContentType,
@@ -155,39 +160,47 @@ export class LocalDocumentStorage implements DocumentStorage {
     }
   }
 
-  async readQuarantined(key: string, expectedSha256: string): Promise<Uint8Array> {
+  async readQuarantined(backendId:string,key: string, objectVersion:string, expectedSha256: string,signal?:AbortSignal): Promise<Uint8Array> {
+    this.#assertBackend(backendId);
     if (!key.startsWith('quarantine/')) {
       throw new Error('Only quarantined documents can be read by this adapter');
     }
     if (!/^[a-f0-9]{64}$/i.test(expectedSha256)) {
       throw new Error('Expected SHA-256 must contain exactly 64 hexadecimal characters');
     }
-    return this.read(key,expectedSha256);
+    return this.read(backendId,key,objectVersion,expectedSha256,signal);
   }
 
-  async read(key:string,expectedSha256:string):Promise<Uint8Array>{
+  async read(backendId:string,key:string,objectVersion:string,expectedSha256:string,signal?:AbortSignal):Promise<Uint8Array>{
+    this.#assertBackend(backendId);
+    const digest=expectedSha256;
     if(!key.startsWith('quarantine/')&&!key.startsWith('active/'))throw new Error('Document key is outside a private storage zone');
-    if (!/^[a-f0-9]{64}$/i.test(expectedSha256)) throw new Error('Expected SHA-256 must contain exactly 64 hexadecimal characters');
+    if (!/^[a-f0-9]{64}$/i.test(digest)) throw new Error('Expected SHA-256 must contain exactly 64 hexadecimal characters');
     const targetPath=this.#resolveKey(key);await this.#assertNoSymlinkComponents(targetPath);
-    const data=await readFile(targetPath),actual=createHash('sha256').update(data).digest('hex');
-    if(actual!==expectedSha256.toLowerCase())throw new Error('Document integrity verification failed');
+    const data=await readFile(targetPath,{signal}),actual=createHash('sha256').update(data).digest('hex');
+    if(actual!==digest.toLowerCase())throw new Error('Document integrity verification failed');
+    if(objectVersion!==`sha256:${actual}`)throw new Error('Document object version verification failed');
     return data;
   }
 
-  async delete(key:string):Promise<void>{const target=this.#resolveKey(key);await this.#assertNoSymlinkComponents(target);await rm(target,{force:true});}
-  async exists(key:string):Promise<boolean>{try{await this.metadata(key);return true;}catch(error){if(isMissingPathError(error))return false;throw error;}}
-  async metadata(key:string,signal?:AbortSignal):Promise<{sizeBytes:number;sha256:string}>{
+  async delete(backendId:string,key:string,objectVersion:string):Promise<void>{await this.metadata(backendId,key,objectVersion);const target=this.#resolveKey(key);await this.#assertNoSymlinkComponents(target);await rm(target,{force:true});}
+  async exists(key:string):Promise<boolean>{try{const target=this.#resolveKey(key);await this.#assertNoSymlinkComponents(target);await lstat(target);return true;}catch(error){if(isMissingPathError(error))return false;throw error;}}
+  async metadata(backendId:string,key:string,objectVersion:string,signal?:AbortSignal):Promise<{backendId:string;key:string;objectVersion:string;sizeBytes:number;sha256:string}>{
+    this.#assertBackend(backendId);
     if(signal?.aborted)throw new Error('Document metadata read aborted');
     const target=this.#resolveKey(key);await this.#assertNoSymlinkComponents(target);const data=await readFile(target,{signal});
-    return{sizeBytes:data.byteLength,sha256:createHash('sha256').update(data).digest('hex')};
+    const sha256=createHash('sha256').update(data).digest('hex');
+    const actualVersion=`sha256:${sha256}`;if(objectVersion!==actualVersion)throw new Error('Document object version verification failed');
+    return{backendId:'local-development',key,objectVersion:actualVersion,sizeBytes:data.byteLength,sha256};
   }
-  async listPage(cursor:string|null,pageSize:number,signal?:AbortSignal):Promise<{keys:string[];nextCursor:string|null;complete:boolean}>{
+  async listPage(cursor:string|null,pageSize:number,signal?:AbortSignal):Promise<{keys:string[];objects:Array<{backendId:string;key:string;objectVersion:string}>;nextCursor:string|null;complete:boolean}>{
     if(!Number.isInteger(pageSize)||pageSize<1||pageSize>500)throw new Error('Storage enumeration page size must be between 1 and 500');
     if(cursor!==null&&(cursor.length>1024||cursor.includes('\\')||path.posix.isAbsolute(cursor)))throw new Error('Storage enumeration cursor is invalid');
     if(signal?.aborted)throw new Error('Storage enumeration aborted');
     const {candidates}=await selectBoundedPageCandidates(this.#walkStorageKeys(signal),cursor,pageSize,signal);
     const hasMore=candidates.length>pageSize,keys=candidates.slice(0,pageSize);
-    return{keys,nextCursor:hasMore?keys.at(-1)??null:null,complete:!hasMore};
+    const objects=[];for(const key of keys){const target=this.#resolveKey(key);const data=await readFile(target,{signal});const sha=createHash('sha256').update(data).digest('hex');objects.push({backendId:'local-development',key,objectVersion:`sha256:${sha}`});}
+    return{keys,objects,nextCursor:hasMore?keys.at(-1)??null:null,complete:!hasMore};
   }
 
   async *#walkStorageKeys(signal?:AbortSignal):AsyncGenerator<string>{
@@ -199,12 +212,16 @@ export class LocalDocumentStorage implements DocumentStorage {
   }
 
   async promoteQuarantined(input: PromoteDocumentInput): Promise<StoredDocument> {
-    const data = await this.readQuarantined(input.quarantinedKey, input.expectedSha256);
+    this.#assertBackend(input.backendId);
+    if(input.signal?.aborted)throw new Error('Document promotion aborted');
+    const data = await this.readQuarantined(input.backendId,input.quarantinedKey,input.quarantinedObjectVersion,input.expectedSha256,input.signal);
+    if(data.byteLength!==input.expectedSizeBytes)throw new Error('Document promotion size verification failed');
     const sourcePath = this.#resolveKey(input.quarantinedKey);
-    const activeKey = `active/${input.destinationKey}`;
+    const activeKey = this.#normalizeTrustedKey(input.trustedKey);
     const targetPath = this.#resolveKey(activeKey);
     await this.#prepareTargetDirectory(targetPath);
-    await link(sourcePath, targetPath);
+    try{await link(sourcePath, targetPath)}catch(error){if(!isExistingPathError(error))throw error;const existing=await this.metadata(input.backendId,activeKey,`sha256:${input.expectedSha256.toLowerCase()}`,input.signal);if(existing.sha256!==input.expectedSha256.toLowerCase()||existing.sizeBytes!==input.expectedSizeBytes)throw new Error('Existing promoted document identity mismatch')}
+    if(input.signal?.aborted)throw new Error('Document promotion aborted');
     await this.#assertCanonicalInsideRoot(targetPath);
 
     const contentType = detectContentType(data);
@@ -212,13 +229,20 @@ export class LocalDocumentStorage implements DocumentStorage {
       throw new Error('Quarantined document failed structural verification during promotion');
     }
     return {
+      provider: 'LOCAL',
+      backendId: 'local-development',
       key: activeKey,
+      objectVersion: `sha256:${input.expectedSha256.toLowerCase()}`,
       sizeBytes: data.byteLength,
       sha256: input.expectedSha256.toLowerCase(),
       contentType,
       status: 'ACTIVE',
     };
   }
+
+  #assertBackend(backendId:string){if(backendId!=='local-development')throw new Error('Document storage backend mismatch')}
+
+  #normalizeTrustedKey(key:string){const normalized=path.posix.normalize(key);if(normalized!==key||!key.startsWith('active/'))throw new Error('Trusted document key must be canonical in the private active zone');this.#resolveKey(key);return key}
 
   #resolveKey(key: string): string {
     if (!key || key.includes('\\') || path.posix.isAbsolute(key)) {
@@ -342,6 +366,8 @@ async function writeAll(
 function isMissingPathError(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
+
+function isExistingPathError(error:unknown):boolean{return typeof error==='object'&&error!==null&&'code' in error&&(error as {code?:string}).code==='EEXIST'}
 
 async function* walkIncremental(directory:string,prefix:string,signal?:AbortSignal):AsyncGenerator<string>{
   if(signal?.aborted)throw new Error('Storage enumeration aborted');

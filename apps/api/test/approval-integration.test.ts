@@ -122,7 +122,7 @@ async function eligible(db: Postgres, amount = "20000.00", automatic = false) {
   );
   const r = await requests.submit(d.id, requester, "d6-s");
   await db.pool.query(
-    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference) VALUES($1,$2,$3,'approval.pdf',$4,'application/pdf',20,$5,'INVOICE',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
+    `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference,storage_binding_state,storage_backend_id,storage_object_version,trusted_storage_object_key,trusted_storage_object_version) VALUES($1,$2,$3,'approval.pdf',$4,'application/pdf',20,$5,'INVOICE',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean','VERSION_BOUND','test-fixture',gen_random_uuid()::text,$4,gen_random_uuid()::text)`,
     [
       randomUUID(),
       r.id,
@@ -167,7 +167,7 @@ async function eligible(db: Postgres, amount = "20000.00", automatic = false) {
 async function addEvidence(db: Postgres, requestId: string) {
   await db.retryableTransaction((client) =>
     client.query(
-      `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference) VALUES($1,$2,$3,'changed.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
+      `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference,storage_binding_state,storage_backend_id,storage_object_version,trusted_storage_object_key,trusted_storage_object_version) VALUES($1,$2,$3,'changed.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean','VERSION_BOUND','test-fixture',gen_random_uuid()::text,$4,gen_random_uuid()::text)`,
       [
         randomUUID(),
         requestId,
@@ -475,7 +475,7 @@ test("evidence revision supersedes an active Approval case", async () => {
       service = new ApprovalService(db, requests),
       view = await service.create(r.id, finance, "stale-create");
     await db.pool.query(
-      `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference) VALUES($1,$2,$3,'changed.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,
+      `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference,storage_binding_state,storage_backend_id,storage_object_version,trusted_storage_object_key,trusted_storage_object_version) VALUES($1,$2,$3,'changed.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean','VERSION_BOUND','test-fixture',gen_random_uuid()::text,$4,gen_random_uuid()::text)`,
       [
         randomUUID(),
         r.id,

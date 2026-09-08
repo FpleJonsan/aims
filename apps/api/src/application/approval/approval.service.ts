@@ -972,7 +972,7 @@ export class ApprovalService {
   private async fingerprint(c: any, id: string) {
     const d = (
       await c.query(
-        "SELECT id,logical_document_id,version,document_type,sha256 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' ORDER BY logical_document_id,version,id",
+        "SELECT id,logical_document_id,version,document_type,sha256 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' AND storage_binding_state='VERSION_BOUND' ORDER BY logical_document_id,version,id",
         [id],
       )
     ).rows;
@@ -1245,7 +1245,7 @@ export class ApprovalService {
       detail,
       evidence: (
         await c.query(
-          "SELECT id,original_filename,document_type,version,security_status FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' ORDER BY uploaded_at",
+          "SELECT id,original_filename,document_type,version,security_status FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' AND storage_binding_state='VERSION_BOUND' ORDER BY uploaded_at",
           [ac.payment_request_id],
         )
       ).rows,

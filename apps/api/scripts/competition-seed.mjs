@@ -185,7 +185,7 @@ async function workflow(input) {
   await control.finalize(run.run.id,{commandKey:stableUuid(`${input.key}-control-final`)},controller,`${input.key}-control-finalize`);
   if (input.stop === "READY") return summary(request.id);
   const slipId = stableUuid(`${input.key}-payment-slip`);
-  await db.paymentTransaction(operator.id,`${input.key}-slip`,(client)=>client.query("SELECT attach_payment_slip($1,$2,$3,$4,$5,'application/pdf',20,$6)",[request.id,slipId,stableUuid(`${input.key}-slip-logical`),`${input.key.toLowerCase()}-payment-slip.pdf`,`quarantine/competition/${input.key.toLowerCase()}-payment-slip.pdf`,createHash("sha256").update(`${input.key}-slip`).digest("hex")]));
+  await db.paymentTransaction(operator.id,`${input.key}-slip`,(client)=>client.query("SELECT attach_payment_slip($1,$2,$3,$4,$5,$6,'local-filesystem','application/pdf',20,$7,'LOCAL')",[request.id,slipId,stableUuid(`${input.key}-slip-logical`),`${input.key.toLowerCase()}-payment-slip.pdf`,`quarantine/competition/${input.key.toLowerCase()}-payment-slip.pdf`,`sha256:${createHash("sha256").update(`${input.key}-slip`).digest("hex")}`,createHash("sha256").update(`${input.key}-slip`).digest("hex")]));
   await new PaymentService(db,requests,{}).record(request.id,{commandKey:stableUuid(`${input.key}-payment-command`),paymentDate:input.paymentDate??"2026-08-15",amount:input.amount,currency:"MYR",bankReference:`DEMO-TRX-${(input.paymentDate??"2026-08-15").replaceAll("-","")}-${input.key}`,slipDocumentId:slipId,confirmPossibleDuplicate:false},operator,`${input.key}-payment-record`);
   return summary(request.id);
 }

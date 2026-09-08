@@ -2009,3 +2009,102 @@ Schema contract remains 59 at `059_p12_recovery_generation_fencing`; migration
 checkpoint and was not changed. No DB object, role, grant, business data,
 frontend, provider or infrastructure changed. P11 and P12 remain PASS/FROZEN;
 P14 is NOT STARTED; Production readiness remains NO.
+
+### 2026-09-07 — P13.3.1 storage object version binding checkpoint
+
+Status: IMPLEMENTED / FINAL FROZEN REVIEW PENDING
+
+Migration 061 establishes provider-neutral immutable source and trusted
+physical-object identities on `payment_documents`. Historical rows remain
+truthfully `LEGACY_UNBOUND`; no version or trust is inferred. Durable worker
+claims and completions bind backend, source key/version, SHA-256, byte size,
+logical version, attempt, claim token and recovery generation. Trusted
+key/version is written atomically only on CLEAN completion and is immutable.
+Synchronous API and payment-slip scan authorities are closed.
+
+P12 exact-version verification and backend/key/version orphan reconciliation,
+P6 privileges, document security, Validation, Policy, Approval, Finance
+Control, Payment and UAT have been updated without changing financial or
+workflow authority. No provider, Production adapter, infrastructure, frontend,
+role or migration 062 was introduced. Shared local `aims` was not migrated.
+Schema contract is 61 at `061_p13_storage_object_version_binding`; P13.3 remains
+in progress, P14 is not started, and Production readiness remains NO.
+
+### 2026-09-07 — P13.3.1 frozen-review findings correction checkpoint
+
+Status: CORRECTIONS COMPLETE / FINAL FROZEN REVIEW PENDING
+
+Closed the prior trusted-promotion HIGH, three MEDIUM findings and dead-helper
+LOW. CLEAN now requires exact destination metadata proof matching the scanned
+backend, immutable source identity, SHA-256 and byte size. Migration 061 uses
+explicit required-value checks, NULL-safe identity comparisons and a
+database-time lease-expiry gate. Local promotion is cancellation-aware and
+idempotent only for an identical existing immutable destination. Upload
+provenance is supplied by the trusted storage adapter, and the unused
+synchronous scan-and-promote authority has been removed.
+
+Attack tests cover trusted proof mismatches and absence, ambiguous results,
+NULL completion identities, lease expiry, cancellation, retry/idempotency,
+conflicting destinations, adapter provenance and legacy truthfulness. Required
+unit, disposable Migration 061, P6, P7, document-security, P12, Validation,
+Policy, Approval, Finance Control, Payment and UAT regressions pass. Shared
+local `aims` remains unchanged; schema contract remains 61 at
+`061_p13_storage_object_version_binding`; Migration 062+ is absent. No provider,
+infrastructure, frontend, workflow or financial authority changed. P13.3 is not
+complete, P14 is not started, and Production readiness remains NO.
+
+### 2026-09-08 — P13.3.1 trusted-destination binding correction
+
+Status: CORRECTION COMPLETE / FINAL FROZEN REVIEW PENDING
+
+Closed the final AppSec trusted-key substitution finding. The storage boundary
+now canonicalizes the requested provider-neutral trusted destination before
+promotion; the worker retains that exact key and rejects any different returned
+key even when backend, immutable version, SHA-256, size and bytes otherwise
+match. Existing exact-destination retry behavior, NULL-safe completion,
+lease/recovery fencing, adapter provenance, P12 verification and P6 privilege
+boundaries remain unchanged.
+
+The non-empty substituted-key attack and successful exact-key path pass in the
+P7 worker suite, together with all prior Migration 061 attacks. Required unit,
+Migration 061, P6, Document Security, P12, Validation, Approval, Finance
+Control, Payment and UAT regressions pass in disposable environments. Shared
+local `aims` remains unchanged; schema contract remains 61 at
+`061_p13_storage_object_version_binding`; Migration 062+ is absent. No provider,
+infrastructure, frontend, workflow or financial authority changed.
+
+### 2026-09-08 — P13.3.1 NULL claim-argument correction
+
+Status: CORRECTION COMPLETE / FINAL FROZEN REVIEW PENDING
+
+Migration 061 now explicitly rejects NULL claim lease seconds and NULL maximum
+attempts before row selection or mutation. Disposable PostgreSQL attack tests
+cover each NULL independently and both together, proving document claim fields
+and claim audit rows remain exactly unchanged; a subsequent valid claim still
+succeeds. The existing lease bounds, retry ceiling, exact trusted-destination
+binding, CLEAN proof, P6 privilege boundary, P7 worker authority and P12
+recovery fencing remain unchanged.
+
+Shared local `aims` remains unchanged; schema contract remains 61 at
+`061_p13_storage_object_version_binding`; Migration 062+ is absent. No provider,
+infrastructure, frontend, workflow or financial authority changed.
+
+### 2026-09-08 — P13.3.1 recovery-fenced terminalization correction
+
+Status: CORRECTION COMPLETE / FINAL FROZEN REVIEW PENDING
+
+Migration 061 now row-locks and terminalizes a version-bound `SCANNING`
+document when recovery fencing cleared its claim authority and its attempt count
+has reached or exceeded the effective worker ceiling. The existing terminal
+`SCAN_FAILED` state and `MAX_ATTEMPTS_EXHAUSTED` reason are retained, the attempt
+count is unchanged, and exactly-once bounded audit evidence distinguishes
+recovery-fenced exhaustion from lease-expiry exhaustion without asserting a
+malware verdict. Below-ceiling fenced work remains safely reclaimable, while
+old-generation completion remains denied.
+
+Disposable PostgreSQL tests cover equal and above ceiling, below-ceiling safe
+retry, stale completion denial, concurrent workers, no terminal resurrection,
+completed and legacy truth preservation, prior NULL claim validation, and exact
+CLEAN identity controls. Shared local `aims` remains unchanged; schema contract
+remains 61 at `061_p13_storage_object_version_binding`; Migration 062+ is absent.
+No provider, infrastructure, frontend, workflow or financial authority changed.

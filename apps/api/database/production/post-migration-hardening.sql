@@ -17,12 +17,10 @@ ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION aims_authenticated_finance_actor() TO aims_finance_executor;
 GRANT EXECUTE ON FUNCTION complete_finance_control_pass(uuid,uuid) TO aims_finance_executor;
 GRANT EXECUTE ON FUNCTION aims_authenticated_payment_actor() TO aims_payment_executor;
-GRANT EXECUTE ON FUNCTION attach_payment_slip(uuid,uuid,uuid,text,text,text,bigint,text) TO aims_payment_executor;
+GRANT EXECUTE ON FUNCTION attach_payment_slip(uuid,uuid,uuid,text,text,text,text,text,bigint,text,text) TO aims_payment_executor;
 GRANT EXECUTE ON FUNCTION record_payment(uuid,uuid,uuid,date,bigint,text,text,uuid,boolean) TO aims_payment_executor;
-GRANT EXECUTE ON FUNCTION begin_payment_slip_security_scan(uuid,uuid,integer,text) TO aims_payment_executor;
-GRANT EXECUTE ON FUNCTION complete_payment_slip_security_scan(uuid,uuid,integer,text,integer,text,text,text,text) TO aims_payment_executor;
 GRANT EXECUTE ON FUNCTION claim_next_payment_document_scan(text,integer,integer,uuid) TO aims_document_worker_executor;
-GRANT EXECUTE ON FUNCTION complete_payment_document_scan(uuid,integer,text,integer,uuid,text,text,integer,text,text,text,text) TO aims_document_worker_executor;
+GRANT EXECUTE ON FUNCTION complete_payment_document_scan(uuid,integer,text,text,text,text,bigint,integer,uuid,text,text,integer,text,text,text,text,text) TO aims_document_worker_executor;
 GRANT EXECUTE ON FUNCTION payment_document_scan_worker_health() TO aims_document_worker_executor;
 
 RESET ROLE;

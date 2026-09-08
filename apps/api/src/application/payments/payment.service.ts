@@ -102,15 +102,18 @@ export class PaymentService {
     });
     try {
       await this.db.paymentTransaction(actor.id, correlationId, (c) =>
-        c.query("SELECT attach_payment_slip($1,$2,$3,$4,$5,$6,$7,$8)", [
+        c.query("SELECT attach_payment_slip($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)", [
           requestId,
           id,
           logicalId,
           filename,
           stored.key,
+          stored.objectVersion,
+          stored.backendId,
           stored.contentType,
           stored.sizeBytes,
           stored.sha256,
+          stored.provider,
         ]),
       );
       return {
@@ -121,6 +124,7 @@ export class PaymentService {
         sha256: stored.sha256,
       };
     } catch (error) {
+      await this.storage.delete(stored.backendId,stored.key,stored.objectVersion).catch(()=>undefined);
       throw this.controlled(error);
     }
   }
@@ -222,13 +226,15 @@ export class PaymentService {
   async downloadSlip(id: string, actor: Principal, correlationId: string) {
     await this.get(id, actor);
     const q = await this.db.pool.query<any>(
-      "SELECT d.storage_object_key,d.sha256,d.mime_type,d.original_filename,p.payment_request_id FROM payments p JOIN payment_documents d ON d.id=p.slip_document_id WHERE p.id=$1 AND d.security_status='CLEAN' AND d.removed_at IS NULL",
+      "SELECT d.storage_backend_id,d.trusted_storage_object_key,d.trusted_storage_object_version,d.sha256,d.mime_type,d.original_filename,p.payment_request_id FROM payments p JOIN payment_documents d ON d.id=p.slip_document_id WHERE p.id=$1 AND d.security_status='CLEAN' AND d.storage_binding_state='VERSION_BOUND' AND d.removed_at IS NULL",
       [id],
     );
     if (!q.rowCount) throw new NotFoundException("Payment slip not found");
     const row = q.rows[0],
       data = await this.storage.read(
-        row.storage_object_key,
+        row.storage_backend_id,
+        row.trusted_storage_object_key,
+        row.trusted_storage_object_version,
         row.sha256,
       );
     await this.db.transaction((c) =>

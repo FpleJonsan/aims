@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,10 +9,6 @@ import {
   LocalDocumentStorage,
   selectBoundedPageCandidates,
 } from '../src/infrastructure/storage/local-document-storage.js';
-import {
-  DocumentQuarantineService,
-  type DocumentMalwareScanner,
-} from '../src/application/documents/document-quarantine-service.js';
 import { assertAllowedDocumentExtension } from '../src/application/documents/payment-document.service.js';
 import { DeterministicLocalMalwareScanner } from '../src/infrastructure/security/deterministic-local-malware-scanner.js';
 import { boundedStorageOperation } from '../src/infrastructure/recovery/restore-checker.js';
@@ -35,7 +31,7 @@ test('stores and reads an immutable quarantined document with verified integrity
     assert.equal(stored.sha256.length, 64);
     assert.equal(stored.status, 'QUARANTINED');
     assert.deepEqual(
-      [...(await storage.readQuarantined(stored.key, stored.sha256))],
+      [...(await storage.readQuarantined(stored.backendId,stored.key, stored.objectVersion, stored.sha256))],
       [...PDF_BYTES],
     );
     await assert.rejects(
@@ -209,7 +205,7 @@ test('detects document modification during read', async () => {
     await writeFile(path.join(rootPath, stored.key), '%PDF-1.7\nmodified\n%%EOF\n');
 
     await assert.rejects(
-      storage.readQuarantined(stored.key, stored.sha256),
+      storage.readQuarantined(stored.backendId,stored.key, stored.objectVersion, stored.sha256),
       /integrity verification failed/,
     );
   } finally {
@@ -219,8 +215,20 @@ test('detects document modification during read', async () => {
 
 test('rejects non-quarantine reads and invalid expected digests', async () => {
   const storage = createStorage('/unused');
-  await assert.rejects(storage.readQuarantined('safe/file.pdf', '0'.repeat(64)), /quarantined/);
-  await assert.rejects(storage.readQuarantined('quarantine/safe/file.pdf', 'invalid'), /64 hexadecimal/);
+  await assert.rejects(storage.readQuarantined('local-development','safe/file.pdf', 'version', '0'.repeat(64)), /quarantined/);
+  await assert.rejects(storage.readQuarantined('local-development','quarantine/safe/file.pdf', 'version', 'invalid'), /64 hexadecimal/);
+});
+
+test('promotion is exact and idempotent, but rejects a conflicting destination',async()=>{
+  const rootPath=await mkdtemp(path.join(os.tmpdir(),'aims-storage-'));
+  try{
+    const storage=createStorage(rootPath),source=await storage.storeQuarantined({key:'safe/idempotent.pdf',declaredContentType:'application/pdf',data:byteStream(PDF_BYTES)});
+    const input={backendId:source.backendId,quarantinedKey:source.key,quarantinedObjectVersion:source.objectVersion,trustedKey:storage.trustedKey('documents/idempotent.pdf'),expectedSha256:source.sha256,expectedSizeBytes:source.sizeBytes};
+    const first=await storage.promoteQuarantined(input),retry=await storage.promoteQuarantined(input);
+    assert.deepEqual(retry,first);
+    await writeFile(path.join(rootPath,first.key),'%PDF-1.7\nconflict\n%%EOF\n');
+    await assert.rejects(storage.promoteQuarantined(input),/identity mismatch|version mismatch|integrity/i);
+  }finally{await rm(rootPath,{recursive:true,force:true})}
 });
 
 test('rejects a symlinked directory inside the storage root', async () => {
@@ -257,64 +265,6 @@ test('rejects files with a valid header but an invalid closing structure', async
     );
   } finally {
     await rm(rootPath, { recursive: true, force: true });
-  }
-});
-
-test('promotes only after a clean malware scan and preserves integrity', async () => {
-  const rootPath = await mkdtemp(path.join(os.tmpdir(), 'aims-storage-'));
-  try {
-    const storage = createStorage(rootPath);
-    const quarantined = await storage.storeQuarantined({
-      key: 'safe/clean.pdf',
-      declaredContentType: 'application/pdf',
-      data: byteStream(PDF_BYTES),
-    });
-    const scanner: DocumentMalwareScanner = {
-      scan: async () => ({ verdict: 'CLEAN', engine: 'test-scanner', reference: 'scan-1' }),
-    };
-    const service = new DocumentQuarantineService(storage, scanner);
-
-    const result = await service.scanAndPromote(quarantined, 'documents/clean.pdf');
-
-    assert.equal(result.document.status, 'ACTIVE');
-    assert.equal(result.document.key, 'active/documents/clean.pdf');
-    assert.equal(result.scan.verdict, 'CLEAN');
-    assert.deepEqual(
-      [...(await readFile(path.join(rootPath, result.document.key)))],
-      [...PDF_BYTES],
-    );
-  } finally {
-    await rm(rootPath, { recursive: true, force: true });
-  }
-});
-
-test('fails closed when malware scanning is infected or unavailable', async () => {
-  const verdicts = ['INFECTED', 'ERROR'] as const;
-  for (const verdict of verdicts) {
-    const rootPath = await mkdtemp(path.join(os.tmpdir(), 'aims-storage-'));
-    try {
-      const storage = createStorage(rootPath);
-      const quarantined = await storage.storeQuarantined({
-        key: `safe/${verdict.toLowerCase()}.pdf`,
-        declaredContentType: 'application/pdf',
-        data: byteStream(PDF_BYTES),
-      });
-      const scanner: DocumentMalwareScanner = {
-        scan: async () => ({ verdict, engine: 'test-scanner', reference: `scan-${verdict}` }),
-      };
-      const service = new DocumentQuarantineService(storage, scanner);
-
-      await assert.rejects(
-        service.scanAndPromote(quarantined, `documents/${verdict.toLowerCase()}.pdf`),
-        new RegExp(verdict),
-      );
-      await assert.rejects(
-        readFile(path.join(rootPath, `active/documents/${verdict.toLowerCase()}.pdf`)),
-        /ENOENT/,
-      );
-    } finally {
-      await rm(rootPath, { recursive: true, force: true });
-    }
   }
 });
 

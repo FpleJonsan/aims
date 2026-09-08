@@ -49,7 +49,7 @@ test("hosted runtime requires release identity and secure explicit cookies",()=>
   assert.throws(()=>loadRuntimeFoundationConfig({...protectedBase,AIMS_SESSION_COOKIE_SECURE:"true"}),/AIMS_RELEASE_VERSION/);
   const config=loadRuntimeFoundationConfig({...protectedBase,AIMS_SESSION_COOKIE_SECURE:"true",AIMS_SESSION_COOKIE_SAME_SITE:"strict",AIMS_RELEASE_VERSION:"1.2.3",AIMS_RELEASE_REVISION:"abc123",AIMS_TRUSTED_PROXY_ADDRESSES:"10.0.0.1,2001:db8::1"});
   assert.deepEqual(config.cookie,{secure:true,httpOnly:true,sameSite:"strict",path:"/"});
-  assert.deepEqual(config.release,{version:"1.2.3",revision:"abc123",schemaVersion:60});
+  assert.deepEqual(config.release,{version:"1.2.3",revision:"abc123",schemaVersion:61});
   assert.throws(()=>loadRuntimeFoundationConfig({...local,AIMS_TRUSTED_PROXY_ADDRESSES:"all"}),/TRUSTED_PROXY_ADDRESSES_INVALID/);
 });
 

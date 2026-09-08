@@ -6,17 +6,17 @@ import pg from "pg";
 const appUrl=process.env.DATABASE_URL,workerUrl=process.env.DOCUMENT_WORKER_DATABASE_URL,migratorUrl=process.env.AIMS_INTEGRATION_MIGRATOR_DATABASE_URL;
 if(!appUrl||!workerUrl||!migratorUrl)throw new Error("isolated application, worker, and migrator database URLs are required");
 const app=new pg.Pool({connectionString:appUrl}),worker=new pg.Pool({connectionString:workerUrl}),migrator=new pg.Pool({connectionString:migratorUrl});
-type Claim={document_id:string;document_version:number;document_sha256:string;scan_attempt:number;claim_token:string};
+type Claim={document_id:string;document_version:number;storage_backend_id:string;source_object_key:string;source_object_version:string;document_sha256:string;document_size_bytes:number;scan_attempt:number;claim_token:string};
 
 async function generation(){return(await app.query<{generation:string;generation_sequence:string}>("SELECT generation,generation_sequence FROM aims_recovery_generation WHERE singleton")).rows[0]}
 async function advance(reason:string){return(await migrator.query("SELECT * FROM advance_aims_recovery_generation($1,$2)",[reason,randomUUID()])).rows[0]}
 async function insertDocument(){
  const base=(await app.query("SELECT id request_id,created_by user_id FROM payment_requests LIMIT 1")).rows[0],id=randomUUID(),sha=randomUUID().replaceAll("-","").padEnd(64,"0");
- await app.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status)
- VALUES($1,$2,$3,'recovery.pdf',$6,'application/pdf',10,$4,'INVOICE',1,$5,'LOCAL','application/pdf','application/pdf','QUARANTINED')`,[id,base.request_id,randomUUID(),sha,base.user_id,`quarantine/recovery/${id}`]);return{id,sha};
+ await app.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,storage_binding_state,storage_backend_id,storage_object_version)
+ VALUES($1,$2,$3,'recovery.pdf',$6,'application/pdf',10,$4,'INVOICE',1,$5,'LOCAL','application/pdf','application/pdf','QUARANTINED','VERSION_BOUND','recovery-test',$7)`,[id,base.request_id,randomUUID(),sha,base.user_id,`quarantine/recovery/${id}`,`source-${id}`]);return{id,sha};
 }
 async function claim(){return(await worker.query<Claim>("SELECT * FROM claim_next_payment_document_scan($1,$2,$3,$4)",["p12-worker",30,3,randomUUID()])).rows[0]}
-async function complete(c:Claim){return worker.query("SELECT complete_payment_document_scan($1,$2,$3,$4,$5,'CLEAN',NULL,0,'test-scanner','test-reference',NULL,$6)",[c.document_id,c.document_version,c.document_sha256,c.scan_attempt,c.claim_token,`active/recovery/${c.document_id}`])}
+async function complete(c:Claim){return worker.query("SELECT complete_payment_document_scan($1,$2,$3,$4,$5,$6,$7,$8,$9,'CLEAN',NULL,0,'test-scanner','test-reference',NULL,$10,$11)",[c.document_id,c.document_version,c.storage_backend_id,c.source_object_key,c.source_object_version,c.document_sha256,c.document_size_bytes,c.scan_attempt,c.claim_token,`active/recovery/${c.document_id}`,`trusted-${c.document_id}`])}
 
 test("privileged advance is durable, non-idempotent, and denied to every runtime",async()=>{
  const before=await generation(),correlation=randomUUID();
@@ -75,7 +75,7 @@ test("generation advance and worker finalization have one database serialization
  const second=await insertDocument(),current=await claim();assert.equal(current.document_id,second.id);
  const workerTransaction=await worker.connect();
  try{
-  await workerTransaction.query("BEGIN");await workerTransaction.query("SELECT complete_payment_document_scan($1,$2,$3,$4,$5,'REJECTED',NULL,0,'test-scanner','race-before-advance',NULL,NULL)",[current.document_id,current.document_version,current.document_sha256,current.scan_attempt,current.claim_token]);
+  await workerTransaction.query("BEGIN");await workerTransaction.query("SELECT complete_payment_document_scan($1,$2,$3,$4,$5,$6,$7,$8,$9,'REJECTED',NULL,0,'test-scanner','race-before-advance',NULL,NULL,NULL)",[current.document_id,current.document_version,current.storage_backend_id,current.source_object_key,current.source_object_version,current.document_sha256,current.document_size_bytes,current.scan_attempt,current.claim_token]);
   let advanced=false;const recoveryAfter=migrator.query("SELECT * FROM advance_aims_recovery_generation($1,$2)",["P12_CONCURRENCY_AFTER_FINALIZE",randomUUID()]).then(value=>{advanced=true;return value});
   await new Promise(resolve=>setTimeout(resolve,50));assert.equal(advanced,false,"advance must wait for an old-generation mutation already in flight");
   await workerTransaction.query("COMMIT");await recoveryAfter;

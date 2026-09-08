@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
+import pg from "pg";
 import { ApprovalService } from "../src/application/approval/approval.service.js";
 import { DashboardService } from "../src/application/dashboard/dashboard.service.js";
 import { FinanceContextService } from "../src/application/finance-context/finance-context.service.js";
@@ -125,22 +126,16 @@ async function runScenario(db: Postgres, scenario: Scenario) {
 }
 
 async function attachCleanPaymentSlip(db:Postgres,requestId:string,label:string){
-  const slipId=randomUUID(),sha=randomUUID().replaceAll("-","").repeat(2);
+  const slipId=randomUUID(),sha=randomUUID().replaceAll("-","").repeat(2),key=`quarantine/uat/${randomUUID()}`,version=`source-${randomUUID()}`;
   await db.paymentTransaction(finance.id,`${label}-slip`,client=>client.query(
-    "SELECT attach_payment_slip($1,$2,$3,'uat-payment.pdf',$4,'application/pdf',20,$5)",
-    [requestId,slipId,randomUUID(),`quarantine/uat/${randomUUID()}`,sha],
+    "SELECT attach_payment_slip($1,$2,$3,'uat-payment.pdf',$4,$5,'test-fixture','application/pdf',20,$6,'LOCAL')",
+    [requestId,slipId,randomUUID(),key,version,sha],
   ));
-  const started=await db.paymentTransaction(finance.id,`${label}-scan-start`,client=>client.query<{begin_payment_slip_security_scan:number}>(
-    "SELECT begin_payment_slip_security_scan($1,$2,1,$3)",[requestId,slipId,sha],
-  ));
-  await db.paymentTransaction(finance.id,`${label}-scan-clean`,client=>client.query(
-    "SELECT complete_payment_slip_security_scan($1,$2,1,$3,$4,'CLEAN','deterministic-local',$5,NULL)",
-    [requestId,slipId,sha,Number(started.rows[0].begin_payment_slip_security_scan),`${label}-clean`],
-  ));
+  const workerUrl=process.env.DOCUMENT_WORKER_DATABASE_URL;if(!workerUrl)throw new Error("document worker database URL is required");const worker=new pg.Pool({connectionString:workerUrl});try{const claim=(await worker.query("SELECT * FROM claim_next_payment_document_scan($1,30,3,$2)",["uat-test",randomUUID()])).rows[0];assert.equal(claim.document_id,slipId);await worker.query("SELECT complete_payment_document_scan($1,$2,$3,$4,$5,$6,$7,$8,$9,'CLEAN',NULL,0,'test-scanner',$10,NULL,$11,$12)",[claim.document_id,claim.document_version,claim.storage_backend_id,claim.source_object_key,claim.source_object_version,claim.document_sha256,claim.document_size_bytes,claim.scan_attempt,claim.claim_token,`${label}-clean`,`active/uat/${slipId}`,`trusted-${randomUUID()}`])}finally{await worker.end()}
   return slipId;
 }
 
-async function addDocument(db:Postgres,requestId:string,name:string){await db.pool.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference)VALUES($1,$2,$3,$4,$5,'application/pdf',20,$6,'INVOICE',1,$7,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean')`,[randomUUID(),requestId,randomUUID(),name,`active/uat/${randomUUID()}`,randomUUID().replaceAll("-","").repeat(2),requester.id]);}
+async function addDocument(db:Postgres,requestId:string,name:string){await db.pool.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference,storage_binding_state,storage_backend_id,storage_object_version,trusted_storage_object_key,trusted_storage_object_version)VALUES($1,$2,$3,$4,$5,'application/pdf',20,$6,'INVOICE',1,$7,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean','VERSION_BOUND','test-fixture',gen_random_uuid()::text,$5,gen_random_uuid()::text)`,[randomUUID(),requestId,randomUUID(),name,`active/uat/${randomUUID()}`,randomUUID().replaceAll("-","").repeat(2),requester.id]);}
 
 function withAiEnabled(db: Postgres): Postgres {
   const analysisDb = Object.create(db) as Postgres;

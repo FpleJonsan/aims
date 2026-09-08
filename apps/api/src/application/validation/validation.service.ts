@@ -131,7 +131,7 @@ export class ValidationService {
       [requestId],
     );
     const docs = await this.db.pool.query<any>(
-      "SELECT id,version,original_filename,mime_type,storage_object_key,sha256,size_bytes FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' ORDER BY id",
+      "SELECT id,version,original_filename,mime_type,storage_backend_id,trusted_storage_object_key storage_object_key,trusted_storage_object_version storage_object_version,sha256,size_bytes FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' AND storage_binding_state='VERSION_BOUND' ORDER BY id",
       [requestId],
     );
     try {
@@ -144,7 +144,7 @@ export class ValidationService {
           sha256: d.sha256,
           filename: d.original_filename,
           mimeType: d.mime_type,
-          data: await this.storage.read(d.storage_object_key, d.sha256),
+          data: await this.storage.read(d.storage_backend_id,d.storage_object_key, d.storage_object_version, d.sha256),
         });
       const result = await this.provider!.analyzeDocuments({
         request: {
@@ -277,7 +277,7 @@ export class ValidationService {
       if (!run.rowCount)
         throw new NotFoundException("Current validation not found");
       const activeDocuments = await client.query(
-        "SELECT 1 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' LIMIT 1",
+        "SELECT 1 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' AND storage_binding_state='VERSION_BOUND' LIMIT 1",
         [id],
       );
       if (input.overallResult === "PASS" && !activeDocuments.rowCount)
@@ -561,7 +561,7 @@ export async function assertCurrentCleanManifest(
 ) {
   validateManifestReferences(output, manifest);
   const current = await client.query(
-    "SELECT id,version,sha256 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' ORDER BY id FOR UPDATE",
+    "SELECT id,version,sha256 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' AND storage_binding_state='VERSION_BOUND' ORDER BY id FOR UPDATE",
     [requestId],
   );
   const expected = manifest

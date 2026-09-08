@@ -1,6 +1,6 @@
 # AIMS Migration Inventory
 
-The clean-database lifecycle applies all 54 SQL files below in lexical order with `ON_ERROR_STOP=1`. Historical migrations are immutable; local/demo fixture migrations are explicitly identified by name, `052` removes Day 9 reconciliation fixtures so reporting is not polluted, `053` introduced the readiness marker, and `054` advances it for the local production-identity session foundation.
+The clean-database lifecycle applies all 61 SQL files below in lexical order with `ON_ERROR_STOP=1`. Historical migrations are immutable; local/demo fixture migrations are explicitly identified by name, `052` removes Day 9 reconciliation fixtures so reporting is not polluted, and `053`–`061` provide the forward-only Production hardening foundations.
 
 | Range | Purpose |
 | --- | --- |
@@ -15,6 +15,11 @@ The clean-database lifecycle applies all 54 SQL files below in lexical order wit
 | 048–052 | Dashboard/Finance Intelligence, failure history, local reporting fixtures and cleanup |
 | 053 | Required schema-version readiness marker |
 | 054 | P1-L external identity mapping, opaque server sessions, and authentication audit attribution |
+| 055–056 | Document security and trusted payment-slip transitions |
+| 057–058 | Durable document worker and observability state |
+| 059 | Recovery-generation fencing |
+| 060 | Corporate authentication transactions |
+| 061 | Provider-neutral immutable storage-object version binding |
 
 Exact files:
 
@@ -73,6 +78,13 @@ Exact files:
 052_day9_2_remove_reconciliation_fixtures.sql
 053_day10_1_schema_readiness.sql
 054_p1l_local_identity_sessions.sql
+055_p3_p4_document_security.sql
+056_payment_slip_trust_transition.sql
+057_p7_document_scan_worker.sql
+058_p10_observability_corrections.sql
+059_p12_recovery_generation_fencing.sql
+060_p13_corporate_auth_transactions.sql
+061_p13_storage_object_version_binding.sql
 ```
 
 For a future production release, evaluate a checksum manifest and an optional baseline migration for deployment ergonomics. Preserve the full historical chain for audit and never destructively squash an already-used production database.

@@ -1,5 +1,8 @@
 export interface StoredDocument {
+  provider: 'LOCAL' | 'OBJECT';
+  backendId: string;
   key: string;
+  objectVersion: string;
   sizeBytes: number;
   sha256: string;
   contentType: string;
@@ -13,14 +16,20 @@ export interface StoreDocumentInput {
 }
 
 export interface PromoteDocumentInput {
+  backendId: string;
   quarantinedKey: string;
-  destinationKey: string;
+  quarantinedObjectVersion: string;
+  /** Exact canonical trusted key selected before promotion; substitution is forbidden. */
+  trustedKey: string;
   expectedSha256: string;
+  expectedSizeBytes: number;
+  signal?: AbortSignal;
 }
 
 export interface StorageObjectPage {
   /** Complete normalized object keys in strict lexical order, each greater than the input cursor. */
   keys: string[];
+  objects: Array<{backendId:string;key:string;objectVersion:string}>;
   /** Last returned complete key when more keys remain; otherwise null. */
   nextCursor: string | null;
   complete: boolean;
@@ -28,12 +37,14 @@ export interface StorageObjectPage {
 
 export interface DocumentStorage {
   storeQuarantined(input: StoreDocumentInput): Promise<StoredDocument>;
-  readQuarantined(key: string, expectedSha256: string, signal?: AbortSignal): Promise<Uint8Array>;
+  /** Canonicalizes the provider-neutral logical destination before external I/O. */
+  trustedKey(destination: string): string;
+  readQuarantined(backendId: string, key: string, objectVersion: string, expectedSha256: string, signal?: AbortSignal): Promise<Uint8Array>;
   promoteQuarantined(input: PromoteDocumentInput): Promise<StoredDocument>;
-  read(key: string, expectedSha256: string): Promise<Uint8Array>;
-  delete(key: string): Promise<void>;
+  read(backendId: string, key: string, objectVersion: string, expectedSha256: string, signal?: AbortSignal): Promise<Uint8Array>;
+  delete(backendId: string, key: string, objectVersion: string): Promise<void>;
   exists(key: string): Promise<boolean>;
-  metadata(key: string, signal?: AbortSignal): Promise<{ sizeBytes: number; sha256: string }>;
+  metadata(backendId: string, key: string, objectVersion: string, signal?: AbortSignal): Promise<{ backendId:string; key:string; objectVersion:string; sizeBytes: number; sha256: string }>;
   /**
    * Enumerates a frozen dataset with deterministic, lossless continuation over
    * globally ordered complete object keys. Implementations return at most
