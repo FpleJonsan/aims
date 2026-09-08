@@ -1,6 +1,6 @@
 # P13.3.1 Storage Object Version Binding
 
-Status: correction implementation complete; final frozen review pending.
+Status: PASS / FROZEN at schema 61.
 
 Migration `061_p13_storage_object_version_binding` adds a provider-neutral,
 immutable physical-object identity to `payment_documents`. The source identity

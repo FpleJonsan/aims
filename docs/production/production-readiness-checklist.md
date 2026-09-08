@@ -15,11 +15,11 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | Identity-to-authority administration | BLOCKED | Approved mapping and joiner/mover/leaver process; ADMIN remains non-operational. |
 | Local identity/session foundation | PASS | P1-L namespaced mapping, hashed opaque session, CSRF/origin control, revocation, logout and fail-closed environment tests. |
 | Authorization regression | FOUNDATION PASS | Corporate claims do not grant Finance authority; exact pre-provisioned identity mapping enters the existing PostgreSQL authority model. Real IdP and staging/Production evidence remain blocked. |
-| Private object storage | BLOCKED | Encrypted private quarantine/clean storage, authorized reads, version/hash reconciliation. |
-| Malware protection | BLOCKED | Real scanner, durable verdict, retry/error handling and promotion-only-after-CLEAN proof. |
+| Private object storage | PROVIDER-NEUTRAL CONTRACT PASS / PRODUCTION BLOCKED | Migration 061 exact backend/key/version/hash/size contract is verified; approved S3 adapter, infrastructure and recovery evidence remain required. |
+| Malware protection | P7 WORKFLOW PASS / PRODUCTION BLOCKED | Durable claim/retry/error and promotion-only-after-CLEAN behavior is verified; an approved real scanner and protected configuration remain required. |
 | Secret-management foundation | PASS | Provider-independent inventory, classification, environment validation, redaction, ownership, rotation and incident contracts are tested/documented. |
 | Production secret integration | BLOCKED | Selected store, workload identity/runtime injection, independent rotation and operational audit. |
-| PostgreSQL role/runtime foundation | PASS | Disposable clean bootstrap, NOLOGIN ownership, executor separation including the document worker, defaults, drift checks, TLS/database identity validation and schema-58 UAT pass. |
+| PostgreSQL role/runtime foundation | PASS | Disposable clean bootstrap through schema 61, NOLOGIN ownership, executor separation including the document worker, defaults, drift checks, TLS/database identity validation and UAT pass. |
 | Production PostgreSQL deployment | BLOCKED | Selected service/version, private TLS/CA distribution, HA, capacity, role/secret provisioning and monitoring. |
 | Migration/bootstrap | BLOCKED | Production-safe migration path excludes fixtures; checksum/manifest and clean rehearsal pass. |
 | Redis decision | PASS | P7 confirms Redis is not required for Production v1; P15 may reopen only with measured evidence. |
@@ -31,9 +31,9 @@ Initial P0 status reflects repository evidence. `BLOCKED` means required product
 | Structured logging/redaction | P10 PASS / FROZEN | Structured stdout/stderr, safe request/worker fields, fixed taxonomy and representative AI/document/Payment/Telegram redaction canaries pass; company collection/access/retention remains external. |
 | Metrics/alerting | P11 PASS / FROZEN; DEPLOYMENT BLOCKED | Provider-neutral specifications, catalogue, runbooks, tests and five-discipline frozen review PASS. Company platform/on-call decisions and P13 private collection/evaluation/routing remain open. |
 | Correlation and audit trace | P10 PASS / FROZEN | HTTP/domain/audit and existing-payload outbox/worker correlation pass. Audit remains authoritative; operational retention/export remains external. |
-| PostgreSQL backup/PITR | P12 DECISION COMPLETE / BLOCKED | PITR is required capability, but provider-neutral checker/manifest hardening, encrypted schedule, retention, isolated protection and ownership remain incomplete. |
-| Object backup/versioning | P12 DECISION COMPLETE / BLOCKED | DB/object recovery must be manifest-bound and fail closed on missing/version/hash mismatch; provider versioning/backup/immutability and policy remain absent. |
-| Restore rehearsal | P12 DECISION COMPLETE / BLOCKED | Implement read-only verification/reconciliation and complete an isolated restore that validates schema, privileges, finances, documents, application, workers and current external reality. |
+| PostgreSQL backup/PITR | P12 FOUNDATION PASS / PRODUCTION BLOCKED | Provider-neutral manifest/checker/runbook and generation fencing are implemented; encrypted Production schedule, retention, isolated protection, ownership and real PITR evidence remain open. |
+| Object backup/versioning | P12 + MIGRATION 061 CONTRACT PASS / PRODUCTION BLOCKED | Exact backend/key/version/hash/size recovery fails closed; provider versioning, backup, immutability, retention and real recovery evidence remain absent. |
+| Restore rehearsal | P12 CHECKER PASS / REHEARSAL BLOCKED | The read-only verifier is implemented; a protected isolated restore must still validate schema, P6 privileges, finances, exact document versions, application, workers, current authority and external payment reality. |
 | RPO/RTO | COMPANY DECISION REQUIRED | No numeric target is approved or invented; Finance, business continuity, SRE and provider evidence must define and prove targets. |
 | Deployment artifacts | BLOCKED | Versioned immutable web/API/worker artifacts and production manifests. |
 | CI/CD gates | BLOCKED | Lint, types, unit, PostgreSQL integration, build, scans, migration validation, staging smoke and approval. |

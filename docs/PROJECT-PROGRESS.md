@@ -10,14 +10,14 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P13.2 — Corporate Identity Integration Foundation PASS / FROZEN |
-| Current status | P13.2 provider-neutral corporate identity foundation passed six-discipline frozen review |
-| Last completed phase | P13.2 — Corporate Identity Integration Foundation |
+| Current Production phase | P13.3 — Storage and Scanner Architecture / Contract PASS / FROZEN |
+| Current status | P13 final documentation reconciliation complete; consolidated exit review pending |
+| Last completed phase | P13.3.2 — Storage and Scanner Company Decision Pack |
 | Overall Production ready | NO |
-| Current schema | 60 |
-| Latest migration | `060_p13_corporate_auth_transactions` |
+| Current schema | 61 |
+| Latest migration | `061_p13_storage_object_version_binding` |
 | Current branch | `main` |
-| Last verified commit | `56f88d16` |
+| Last verified commit | `9a1c738` |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -81,7 +81,7 @@ Preserve these invariants:
   closed until an approved corporate identity adapter exists.
 - **Sessions:** only hashes of opaque session/CSRF tokens are stored; origin,
   CSRF, expiry, revocation, logout, and current-user status are enforced.
-- **Database:** schema 60 is authoritative. Runtime roles must not own schema
+- **Database:** schema 61 is authoritative. Runtime roles must not own schema
   objects or obtain DDL, role administration, or cross-executor authority.
 - **Finance executor:** only the approved Finance Control capabilities and two
   trusted functions are available to the dedicated executor.
@@ -100,10 +100,10 @@ Preserve these invariants:
 
 | Item | State |
 | --- | --- |
-| Schema version | 60 |
-| Latest migration | `060_p13_corporate_auth_transactions.sql` |
-| Historical migration chain | `001`–`060`; 001–059 remain immutable |
-| Migration 061+ | NONE / NOT AUTHORIZED |
+| Schema version | 61 |
+| Latest migration | `061_p13_storage_object_version_binding.sql` |
+| Historical migration chain | `001`–`061`; 001–060 remain immutable and Migration 061 is frozen |
+| Migration 062+ | NONE / NOT AUTHORIZED |
 | Local database | Schema 56; P6 ownership/role posture verified PASS and frozen |
 | Target owner | `aims_owner` (`NOLOGIN`) |
 | Target migrator | `aims_migrator` (`LOGIN`, `NOINHERIT`, explicit owner-role entry) |
@@ -129,6 +129,13 @@ The current disposable proof validates the target model without changing local
 | P6 | PASS / FROZEN | Architecture, disposable proof, local role hardening, regression, runtime smoke, and final read-only review passed. |
 | P7 | PASS / FROZEN | PostgreSQL-backed worker foundation, schema 57, role/concurrency proof and final correction review passed; Redis and scheduler remain unnecessary. |
 | P8 | PASS / FROZEN | AI governance hardening, AI-OFF configuration gate and five-discipline final read-only review passed; Production AI remains OFF and external enablement gates remain open. |
+| P9 | PASS / FROZEN | Telegram code hardening and final review passed; Production Telegram remains OFF pending external approval. |
+| P10 | PASS / FROZEN | Provider-neutral observability foundation and correction review passed; platform collection remains external. |
+| P11 | PASS / FROZEN | Provider-neutral alert specification, runbooks and final review passed; evaluator, routing and on-call decisions remain external. |
+| P12 | PASS / FROZEN | Recovery generation, manifest, read-only checker, exact-version reconciliation and runbook foundation passed; real backup/PITR configuration and rehearsal remain open. |
+| P13.1 | PASS / FROZEN | Protected-environment and runtime foundation passed; missing providers fail closed. |
+| P13.2 | PASS / FROZEN FOUNDATION | Corporate identity transaction and session boundary passed; real corporate IdP integration remains deferred. |
+| P13.3 | PASS / FROZEN ARCHITECTURE | Storage/scanner audit, schema-61 object-version binding and Company decision pack passed; AWS/S3 and Production scanner integration remain blockers. |
 
 ## 6. Completed Work Package — P6
 
@@ -177,15 +184,20 @@ is authorized.
 
 ## 8. Open Production Gaps
 
-- Corporate OIDC/trusted identity adapter and lifecycle administration are not implemented.
+- Corporate identity foundation is implemented; approved real IdP integration,
+  configuration and lifecycle administration remain Production blockers.
 - Production secret provider and workload-injection platform are not selected.
-- Production object-storage provider is not selected.
+- AWS is the Company platform and Amazon S3 is the target candidate; its
+  Production adapter and approved configuration are not implemented.
 - Production malware scanner is not selected.
-- Dedicated document-security executor remains a deferred LOW-risk refinement.
+- The dedicated P7 document-worker executor is implemented and frozen;
+  Production storage/scanner providers and supervision remain open.
 - Production PostgreSQL provider/version/HA/capacity are not selected or deployed.
-- Backup, PITR, restore, and DR are not implemented or rehearsed.
+- P12 recovery generation, manifest, read-only checker and runbook foundation
+  are implemented; real backup/PITR configuration and P18 rehearsal remain open.
 - Redis is not required for Production v1; the PostgreSQL-backed worker foundation is complete while Production providers, supervision and observability remain open.
-- Central observability, metrics, alerting, SLOs, and on-call ownership are pending.
+- P10/P11 observability and alert specifications are implemented; central
+  collection/evaluation, SLO decisions and on-call ownership remain pending.
 - Production deployment, private network, edge TLS, and CI/CD are pending.
 - Performance/load/soak testing and capacity acceptance are pending.
 - Production security red-team is pending.
@@ -212,9 +224,9 @@ risk register. Overall Production readiness remains NO.
 | P9 | COMPLETED / FROZEN | Telegram remains optional; code hardening and final review pass; no external setup authorized |
 | P10 | COMPLETED / FROZEN | Vendor-neutral structured logs, metrics and health contracts; correction and five-discipline final review PASS |
 | P11 | COMPLETED / FROZEN | Provider-neutral alert specification, catalogue, runbooks, rule tests and five-discipline frozen review PASS; provider/on-call/deployment gates remain open |
-| P12 | CORRECTION IMPLEMENTED / REVIEW PENDING | Recovery-generation prerequisite remains PASS/FROZEN. Local enumeration is incremental, cancellation-responsive and bounded to page candidates plus traversal depth while preserving global lossless pagination; all earlier deadline/financial/P6 corrections remain passing. Five-discipline final frozen review pending. |
-| P13 | PENDING | Deployment, TLS, network, CI/CD |
-| P14 | PENDING | Production security red-team |
+| P12 | COMPLETED / FROZEN | Provider-neutral recovery generation, manifest, checker, runbook and exact-version verification passed final review; Production backup configuration, RPO/RTO and rehearsal remain external/later gates. |
+| P13 | FINAL EXIT REVIEW PENDING | P13.1, P13.2 foundation and P13.3 architecture/contract are frozen; AWS/S3, corporate IdP, scanner and protected infrastructure remain deferred Production blockers. |
+| P14 | NOT STARTED / NOT YET AUTHORIZED | Production security red-team |
 | P15 | PENDING | Capacity and performance |
 | P16 | PENDING | Finance UAT |
 | P17 | PENDING | Staging release candidate |
@@ -224,19 +236,20 @@ risk register. Overall Production readiness remains NO.
 
 ## 10. Latest Verification
 
-At the P8 final read-only review checkpoint (`fdc7bb6`):
+At the P13.3.1 final recovery-fencing checkpoint (`9a1c738`):
 
-- `npm test`: PASS (15 frontend/auth and 134 API tests).
-- Validation, Financial Analysis, Dashboard/Finance Intelligence and
-  four-scenario UAT integrations: PASS in disposable schema-57 databases.
+- `npm test`: PASS (212 API/contract tests).
+- Migration 061 PostgreSQL: PASS (9/9) in a disposable schema-61 database.
+- P7 worker: PASS (33/33); P6 disposable database proof: PASS.
+- P12 recovery generation: PASS (5/5); restore checker: PASS (24/24).
 - Integration isolation guard: PASS (7/7); shared local `aims`, competition,
   staging and Production were unchanged.
 - `npm run lint`: PASS.
 - `npm run typecheck`: PASS.
 - Frontend and API builds: PASS.
 - `git diff --check`: PASS.
-- Five-discipline P8 final read-only review: PASS with no Critical, High,
-  Medium or Low findings requiring correction.
+- Six-discipline Migration 061 final read-only review: PASS with no Critical,
+  High, Medium or Low findings requiring correction.
 - Frontend changes detected: NO; AIMS-UX-001 review NOT REQUIRED.
 - Production AI remains OFF; external provider/privacy/contract/cost/operations
   gates remain open. These results do not make AIMS Production ready.
@@ -2108,3 +2121,22 @@ completed and legacy truth preservation, prior NULL claim validation, and exact
 CLEAN identity controls. Shared local `aims` remains unchanged; schema contract
 remains 61 at `061_p13_storage_object_version_binding`; Migration 062+ is absent.
 No provider, infrastructure, frontend, workflow or financial authority changed.
+
+### 2026-09-08 — P13.3 AWS integration deferral and local continuation
+
+Status: DEVELOPMENT CONTINUATION APPROVED / PRODUCTION GATES OPEN
+
+AWS is the primary Company platform and Amazon S3 is the current Production
+object-storage target candidate. No AWS credential, account, bucket, region,
+IAM, KMS, private endpoint, audit, retention or recovery configuration is
+available or approved, and no S3 adapter is implemented. The Production malware
+scanner remains undecided. `P13-STORAGE-AWS`, `P13-STORAGE-INFRA` and
+`P13-SCANNER` therefore remain explicit Production blockers.
+
+Development and test continue with the provider-neutral local version-aware
+storage and deterministic scanner only through the canonical P7 worker and
+Migration 061 identity contract. Staging and Production continue to reject
+local storage and deterministic/test scanning and have no automatic fallback.
+Schema remains 61 at `061_p13_storage_object_version_binding`; Migration 062+
+is absent; shared local `aims` remains at schema 56. No provider, credential,
+infrastructure, frontend, workflow or financial authority changed.

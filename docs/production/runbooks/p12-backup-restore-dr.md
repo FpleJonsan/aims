@@ -2,7 +2,7 @@
 
 ## Scope and authority
 
-This is the canonical provider-neutral recovery sequence for AIMS schema 60, with latest migration `060_p13_corporate_auth_transactions`. It does not configure backups, PITR, object replication, credentials, routing or a cloud provider. A backup is evidence from which recovery may be attempted; it is not proof that AIMS or an external payment system is reconciled.
+This is the canonical provider-neutral recovery sequence for AIMS schema 61, with latest migration `061_p13_storage_object_version_binding`. It does not configure backups, PITR, object replication, credentials, routing or a cloud provider. A backup is evidence from which recovery may be attempted; it is not proof that AIMS or an external payment system is reconciled.
 
 The Incident Commander records the recovery authorization and keeps the API, document worker, notification dispatcher, AI and Telegram stopped. Production AI and Telegram remain OFF throughout validation. Preserve forensic evidence before selecting a trusted database recovery point, object recovery reference and compatible application release.
 
@@ -25,7 +25,7 @@ The required sequence is: **RESTORE → KEEP SERVICES FROZEN → ADVANCE RECOVER
 
 ## Recovery manifest and checker
 
-The JSON manifest contract is implemented in `apps/api/src/infrastructure/recovery/recovery-manifest.ts`. Version `1` binds the declared database/object recovery evidence, recovery point, application release, schema 60, latest migration `060_p13_corporate_auth_transactions`, and post-restore generation. Migration `059_p12_recovery_generation_fencing` remains the origin of the recovery-generation mechanism; migration 060 adds generation-bound corporate authentication transaction state, so old-generation transactions are unusable after advancement without checker mutation or manual repair. Every operator/provider-supplied reference is bounded and rejects credential-bearing database URIs, generic URI userinfo and known secret assignments without echoing the value. It contains no secrets, financial values, payee/purpose, bank references, document bytes, raw SQL or raw provider data. Manifest existence is not authenticity; provider attestation/signing remains a future provider capability.
+The JSON manifest contract is implemented in `apps/api/src/infrastructure/recovery/recovery-manifest.ts`. Version `1` binds the declared database/object recovery evidence, recovery point, application release, schema 61, latest migration `061_p13_storage_object_version_binding`, and post-restore generation. Migration `059_p12_recovery_generation_fencing` remains the origin of the recovery-generation mechanism; migration 060 adds generation-bound corporate authentication transaction state, and migration 061 adds exact source/trusted storage backend, key and immutable-version identity. Old-generation transactions and claims are unusable after advancement without checker mutation or manual repair. Every operator/provider-supplied reference is bounded and rejects credential-bearing database URIs, generic URI userinfo and known secret assignments without echoing the value. It contains no secrets, financial values, payee/purpose, bank references, document bytes, raw SQL or raw provider data. Manifest existence is not authenticity; provider attestation/signing remains a future provider capability.
 
 Build and invoke the offline checker from the API workspace:
 
@@ -63,7 +63,7 @@ Control upstream validation, Finance Context, risk-analysis and Policy identitie
 must agree. Cross-wired rows, stale terminal authority, currency divergence and
 Payment/ledger/commitment double reduction are failures.
 
-The schema-59 financial cardinality is one-to-one in both directions: each
+The financial cardinality established at schema 59 and retained by schema 61 is one-to-one in both directions: each
 Payment identifies one unique PAYMENT ledger entry and one unique consumed
 commitment; each PAYMENT ledger entry references exactly that Payment, and each
 Payment-linked CONSUMED commitment references exactly that Payment. Reverse
@@ -108,7 +108,7 @@ specific recovered database still matches that trust boundary.
 
 - Database consistency does not establish bank/payment reality after recovery point T. Finance Operations must compare verified external payment evidence and explicitly resolve `EXTERNAL_PAYMENT_RECONCILIATION_REQUIRED` without fabricating evidence.
 - A restored PAID request requires exactly one authoritative Payment with matching ledger, consumed commitment, Approval and passed Finance Control lineage. Preserve `Available = Active Budget − Actual Ledger − Active Commitments` per budget and currency; do not aggregate across currencies or perform FX conversion.
-- CLEAN documents require readable object bytes/metadata, exact SHA-256 and authoritative size. Missing, mismatched or unverifiable objects fail closed. Orphans never become evidence and are neither attached nor deleted by the checker.
+- CLEAN documents require readable object bytes/metadata for the exact storage backend, key and immutable version, with matching SHA-256 and authoritative size. Missing, mismatched or unverifiable objects fail closed. Orphans never become evidence and are neither attached nor deleted by the checker.
 - Review SCANNING claims, leases/retries and PENDING/PROCESSING/FAILED outbox states. The checker does not claim, complete, retry, dispatch or clear them. Duplicate notification risk is not financial authority.
 - Reconcile restored identities and current external authority. Require reauthentication; generation fencing keeps old sessions and action credentials unusable.
 

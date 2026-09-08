@@ -1,6 +1,6 @@
 # AIMS P11 Provider-Neutral Operational Runbooks
 
-Status: IMPLEMENTED / FROZEN REVIEW PENDING.
+Status: PASS / FROZEN provider-neutral runbooks; current deployment target is schema 61.
 
 These runbooks are safe first-response contracts, not provider routing or
 authorization to alter AIMS state. Use bounded operational signals and the
@@ -37,7 +37,12 @@ correction requires a separately approved future reversal/correction workflow.
 
 ## Schema mismatch
 
-- **Purpose/signal:** schema readiness differs from expected version 58.
+P11 was originally implemented and validated at schema 58. That value is a
+historical baseline, not a current recovery target. Operators must use the
+current runtime schema contract, presently schema 61 with latest migration
+`061_p13_storage_object_version_binding`.
+
+- **Purpose/signal:** schema readiness differs from current expected version 61.
 - **Impact:** runtime/database contract is incompatible.
 - **Safe verification:** read the bounded readiness result and approved
   deployment/migration record; verify environment identity.
@@ -45,7 +50,7 @@ correction requires a separately approved future reversal/correction workflow.
   migration.
 - **First response:** stop promotion and involve DBA/SRE. Follow the approved
   migration/forward-fix process only after environment and authorization checks.
-- **Recovery:** runtime observes schema 58.
+- **Recovery:** runtime observes schema 61 and exact latest migration `061_p13_storage_object_version_binding` after the separately authorized migration/forward-fix procedure.
 - **Escalation:** DBA + SRE.
 - **References:** migration inventory and future P13/P17 deployment runbook.
 - **Prohibited:** never auto-run, edit or manually simulate migrations.
