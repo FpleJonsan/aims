@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
+import { ConflictException } from "@nestjs/common";
 import { PaymentRequestService } from "../src/application/payment-requests/payment-request.service.js";
 import { ValidationService } from "../src/application/validation/validation.service.js";
 import type { Principal } from "../src/domain/payment-request.js";
@@ -110,7 +111,63 @@ test("clarification preserves history, records response, supersedes validation, 
     const history = await validation.get(request.id, requester);
     assert.equal(history.current, null);
     assert.equal(history.history[0].status, "SUPERSEDED");
+    const previous = history.history[0];
+    await validation.start(request.id, finance, "d2-revalidation-start");
+    const restarted = await validation.get(request.id, finance);
+    assert.notEqual(restarted.current.id, previous.id);
+    await validation.finalize(request.id, {
+      overallResult: "PASS", remarks: "Clarification evidence reviewed", findings: [],
+    }, finance, "d2-revalidation-pass");
+    const completed = await validation.get(request.id, finance);
+    assert.equal(completed.current.id, restarted.current.id);
+    assert.equal(completed.current.status, "COMPLETED");
+    const oldRun = completed.history.find((run: { id: string }) => run.id === previous.id);
+    assert.deepEqual(oldRun, previous);
   } finally {
     await db.onModuleDestroy();
   }
+});
+
+
+test("completed validation rejects retries without changing assessment, timestamps, findings or audit", async () => {
+  const db = new Postgres(), requests = new PaymentRequestService(db),
+    validation = new ValidationService(db, requests, {} as never, null);
+  try {
+    const request = await submitted(requests, db);
+    await validation.start(request.id, finance, "immutable-start");
+    const input = { overallResult: "PASS" as const, remarks: "Original assessment", findings: [] };
+    await validation.finalize(request.id, input, finance, "immutable-first");
+    const snapshot = async () => ({
+      request: (await db.pool.query("SELECT to_jsonb(pr) AS value FROM payment_requests pr WHERE id=$1", [request.id])).rows,
+      runs: (await db.pool.query("SELECT to_jsonb(v) AS value FROM validation_runs v WHERE payment_request_id=$1 ORDER BY id", [request.id])).rows,
+      findings: (await db.pool.query("SELECT to_jsonb(f) AS value FROM validation_findings f JOIN validation_runs v ON v.id=f.validation_run_id WHERE v.payment_request_id=$1 ORDER BY f.id", [request.id])).rows,
+      audit: (await db.pool.query("SELECT to_jsonb(a) AS value FROM audit_events a WHERE entity_id=$1 ORDER BY id", [request.id])).rows,
+    });
+    const before = await snapshot();
+    assert.equal(before.runs[0].value.status, "COMPLETED");
+    assert.ok(before.runs[0].value.completed_at);
+    assert.equal(before.audit.filter(row => row.value.action === "MANUAL_VALIDATION_COMPLETED").length, 1);
+    for (const retry of [input, { overallResult: "CLARIFICATION_REQUIRED" as const, remarks: "Attempted overwrite",
+      findings: [{code: "MISSING_INFORMATION", status: "FAIL", severity: "HIGH", explanation: "Must not be inserted"}] }]) {
+      await assert.rejects(validation.finalize(request.id, retry, finance, "immutable-retry"),
+        error => error instanceof ConflictException && error.getStatus() === 409);
+      assert.deepEqual(await snapshot(), before);
+    }
+  } finally { await db.onModuleDestroy(); }
+});
+
+test("concurrent validation finalization completes exactly once", async () => {
+  const db = new Postgres(), requests = new PaymentRequestService(db),
+    validation = new ValidationService(db, requests, {} as never, null);
+  try {
+    const request = await submitted(requests, db);
+    await validation.start(request.id, finance, "concurrent-finalize-start");
+    const results = await Promise.allSettled(["first", "second"].map(remarks =>
+      validation.finalize(request.id, {overallResult:"PASS", remarks, findings:[]}, finance, remarks)));
+    assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
+    const rejected = results.find(result => result.status === "rejected");
+    assert.ok(rejected?.status === "rejected" && rejected.reason instanceof ConflictException);
+    const audit = await db.pool.query("SELECT 1 FROM audit_events WHERE entity_id=$1 AND action='MANUAL_VALIDATION_COMPLETED'", [request.id]);
+    assert.equal(audit.rowCount, 1);
+  } finally { await db.onModuleDestroy(); }
 });

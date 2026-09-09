@@ -276,6 +276,8 @@ export class ValidationService {
       );
       if (!run.rowCount)
         throw new NotFoundException("Current validation not found");
+      if (run.rows[0].status === "COMPLETED")
+        throw new ConflictException("Validation has already been finalized");
       const activeDocuments = await client.query(
         "SELECT 1 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL AND security_status='CLEAN' AND storage_binding_state='VERSION_BOUND' LIMIT 1",
         [id],
