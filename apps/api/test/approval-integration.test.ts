@@ -8,7 +8,6 @@ import { type ApprovalChannel, TelegramDeliveryError } from "../src/application/
 import { FinanceContextService } from "../src/application/finance-context/finance-context.service.js";
 import { FinancialAnalysisService } from "../src/application/financial-analysis/financial-analysis.service.js";
 import { PaymentRequestService } from "../src/application/payment-requests/payment-request.service.js";
-import { PaymentRequestCancellationService } from "../src/application/payment-requests/payment-request-cancellation.service.js";
 import { PolicyService } from "../src/application/policy/policy.service.js";
 import { ValidationService } from "../src/application/validation/validation.service.js";
 import type { Principal } from "../src/domain/payment-request.js";
@@ -536,57 +535,6 @@ async function telegramToken(
   );
   return callback;
 }
-
-test("request cancellation revokes Approval and Telegram actions and replay fails", async () => {
-  const previousSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  process.env.TELEGRAM_WEBHOOK_SECRET = "cancel-test-secret";
-  const db = new Postgres();
-  try {
-    const { r, requests } = await eligible(db),
-      approvals = new ApprovalService(db, requests),
-      view = await approvals.create(r.id, finance, "cancel-approval-create");
-    await approvals.bindTelegram(
-      { userId: approver.id, telegramUserId: "916000001", telegramChatId: "916000001" },
-      admin,
-      "cancel-telegram-bind",
-    );
-    const callback = await telegramToken(db, view, "APPROVE"),
-      cancellation = new PaymentRequestCancellationService(db, requests);
-    await cancellation.cancel(
-      r.id,
-      { reason: "Requester withdrew the request", commandKey: randomUUID() },
-      requester,
-      "cancel-pending-approval",
-    );
-    const authority = (await db.pool.query(`SELECT
-      (SELECT status FROM approval_cases WHERE id=$1) case_status,
-      (SELECT status FROM approval_action_tokens WHERE token_hash=$2) token_status,
-      (SELECT count(*)::int FROM budget_commitments WHERE payment_request_id=$3 AND status='ACTIVE') active_commitments`, [
-        view.case.id,
-        createHash("sha256").update(callback).digest("hex"),
-        r.id,
-      ])).rows[0];
-    assert.deepEqual(authority, { case_status: "SUPERSEDED", token_status: "REVOKED", active_commitments: 0 });
-    await assert.rejects(
-      approvals.act(r.id, view.steps[0].id, { commandKey: randomUUID(), action: "APPROVE" }, approver, "cancel-browser-replay"),
-    );
-    await assert.rejects(
-      approvals.telegramWebhook("cancel-test-secret", {
-        update_id: 916000002,
-        callback_query: {
-          data: callback,
-          from: { id: 916000001 },
-          message: { chat: { id: 916000001, type: "private" } },
-        },
-      }),
-      /invalid, expired, or used/i,
-    );
-  } finally {
-    if (previousSecret === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
-    else process.env.TELEGRAM_WEBHOOK_SECRET = previousSecret;
-    await db.onModuleDestroy();
-  }
-});
 test("barrier F: duplicate auto-approval creates one case and commitment", async () => {
   const db = new Postgres();
   try {

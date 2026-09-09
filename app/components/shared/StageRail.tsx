@@ -1,6 +1,6 @@
 import type { RequestStatus } from "@/app/lib/types";
 
-export const stages = [
+const stages = [
   "Request Initiation",
   "Request Capture",
   "Validation",
@@ -13,9 +13,9 @@ export const stages = [
   "Payment Record / History",
   "Finance Dashboard",
   "AI Finance Intelligence",
-] as const;
+];
 
-export const statusStage: Record<RequestStatus, number> = {
+const statusStage: Record<RequestStatus, number> = {
   DRAFT: 1,
   SUBMITTED: 2,
   VALIDATING: 3,
@@ -25,9 +25,8 @@ export const statusStage: Record<RequestStatus, number> = {
   FINANCE_CHECK: 7,
   FINANCE_HOLD: 7,
   READY_FOR_PAYMENT: 8,
-  PAID: 9,
+  PAID: 11,
   REJECTED: 6,
-  CANCELLED: 1,
 };
 
 interface StageRailProps {
@@ -40,34 +39,26 @@ export function StageRail({ currentStatus, className = "" }: StageRailProps) {
 
   return (
     <nav
-      className={`stageRail ${className}`.trim()}
-      aria-label="12-stage AIMS workflow"
+      className={`stageRail ${className}`}
+      aria-label="Payment request workflow stages"
     >
       {stages.map((stage, index) => {
-        const stageNumber = index;
-        const isPast = currentStage >= 0 && stageNumber < currentStage;
+        const stageNumber = index + 1;
+        const isPast = stageNumber < currentStage;
         const isCurrent = stageNumber === currentStage;
-        const stageClass =
-          currentStage < 0
-            ? "available"
-            : isPast
-              ? "completed"
-              : isCurrent
-                ? "current"
-                : "future";
+        const isFuture = stageNumber > currentStage;
+
+        let stageClass = "";
+        if (isPast) stageClass = "completed";
+        if (isCurrent) stageClass = "current available";
+        if (isFuture) stageClass = "future";
 
         return (
           <div key={stage} className={stageClass}>
-            <span>{String(index + 1).padStart(2, "0")}</span>
+            <span aria-hidden="true">{stageNumber}</span>
             <b>{stage}</b>
             <small>
-              {currentStage < 0
-                ? "Available"
-                : isPast
-                  ? "Completed"
-                  : isCurrent
-                    ? "Current"
-                    : "Locked"}
+              {isPast ? "Complete" : isCurrent ? "In Progress" : "Pending"}
             </small>
           </div>
         );
@@ -75,3 +66,5 @@ export function StageRail({ currentStatus, className = "" }: StageRailProps) {
     </nav>
   );
 }
+
+export { statusStage };

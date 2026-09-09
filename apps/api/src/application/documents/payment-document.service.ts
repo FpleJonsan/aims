@@ -112,32 +112,11 @@ export class PaymentDocumentService {
 
   async download(requestId:string,documentId:string,actor:Principal,correlationId:string){
     const request=await this.requests.get(requestId,actor);
-    const clean=await this.database.pool.query<DownloadDocumentRow & {storage_backend_id:string;trusted_storage_object_key:string;trusted_storage_object_version:string}>(`SELECT storage_object_key,storage_backend_id,sha256,mime_type,original_filename,trusted_storage_object_key,trusted_storage_object_version FROM payment_documents WHERE id=$1 AND payment_request_id=$2 AND removed_at IS NULL AND security_status='CLEAN' AND storage_binding_state='VERSION_BOUND'`,[documentId,requestId]);
-    if(clean.rowCount){
-      const row=clean.rows[0],data=await this.storage.read(row.storage_backend_id,row.trusted_storage_object_key,row.trusted_storage_object_version,row.sha256);
-      await this.database.transaction(client=>this.requests.audit(client,actor.id,"DOCUMENT_DOWNLOADED",requestId,request.status,request.status,correlationId,{documentId}));
-      return{data,mimeType:row.mime_type,filename:sanitizeFilename(row.original_filename)};
-    }
-
-    // Local demo only: authorized viewers may preview quarantined uploads before the scan worker marks them CLEAN.
-    if(process.env.LOCAL_STORAGE_DEMO_MODE==="true"){
-      const pending=await this.database.pool.query<DownloadDocumentRow & {storage_backend_id:string;storage_object_version:string;security_status:string}>(
-        `SELECT storage_object_key,storage_backend_id,storage_object_version,sha256,mime_type,original_filename,security_status
-         FROM payment_documents
-         WHERE id=$1 AND payment_request_id=$2 AND removed_at IS NULL
-           AND storage_binding_state='VERSION_BOUND'
-           AND security_status IN ('QUARANTINED','SCANNING','SCAN_FAILED')`,
-        [documentId,requestId],
-      );
-      if(pending.rowCount){
-        const row=pending.rows[0];
-        const data=await this.storage.readQuarantined(row.storage_backend_id,row.storage_object_key,row.storage_object_version,row.sha256);
-        await this.database.transaction(client=>this.requests.audit(client,actor.id,"DOCUMENT_PREVIEWED",requestId,request.status,request.status,correlationId,{documentId,securityStatus:row.security_status,demoPreview:true}));
-        return{data,mimeType:row.mime_type,filename:sanitizeFilename(row.original_filename)};
-      }
-    }
-
-    throw new NotFoundException("Clean document not found");
+    const q=await this.database.pool.query<DownloadDocumentRow & {storage_backend_id:string;trusted_storage_object_key:string;trusted_storage_object_version:string}>(`SELECT storage_object_key,storage_backend_id,sha256,mime_type,original_filename,trusted_storage_object_key,trusted_storage_object_version FROM payment_documents WHERE id=$1 AND payment_request_id=$2 AND removed_at IS NULL AND security_status='CLEAN' AND storage_binding_state='VERSION_BOUND'`,[documentId,requestId]);
+    if(!q.rowCount)throw new NotFoundException("Clean document not found");
+    const row=q.rows[0],data=await this.storage.read(row.storage_backend_id,row.trusted_storage_object_key,row.trusted_storage_object_version,row.sha256);
+    await this.database.transaction(client=>this.requests.audit(client,actor.id,"DOCUMENT_DOWNLOADED",requestId,request.status,request.status,correlationId,{documentId}));
+    return{data,mimeType:row.mime_type,filename:sanitizeFilename(row.original_filename)};
   }
 
   private async canUploadClarification(requestId:string,status:string,createdBy:string,actor:Principal):Promise<boolean>{

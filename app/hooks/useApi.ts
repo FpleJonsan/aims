@@ -1,29 +1,26 @@
 import { useMemo } from "react";
-import { createPortalApi } from "@/app/lib/api-client";
-import type { IdentityMode, PortalApi } from "@/app/lib/types";
+import { createApiClient, type ApiClient } from "@/app/lib/api-client";
 
-interface UsePortalApiOptions {
-  identityMode: IdentityMode;
-  /** Competition identity subject; ignored for LOCAL cookie sessions. */
-  user: string | null;
-}
-
-/** Stable portal API callback matching legacy `(path, init) => Promise<unknown>`. */
-export function usePortalApi({ identityMode, user }: UsePortalApiOptions): PortalApi {
-  return useMemo(
-    () =>
-      createPortalApi({
-        identityHeader: identityMode === "COMPETITION" && user ? user : null,
-      }),
-    [identityMode, user]
-  );
-}
-
-/** @deprecated Prefer usePortalApi */
-export function useApi(options: {
+interface UseApiOptions {
   user: string | null;
   onUnauthenticated?: () => void;
   onForbidden?: () => void;
-}) {
-  return usePortalApi({ identityMode: "LOCAL", user: options.user || "session" });
+}
+
+export function useApi({
+  user,
+  onUnauthenticated,
+  onForbidden,
+}: UseApiOptions): ApiClient | null {
+  const client = useMemo(() => {
+    if (!user) return null;
+
+    return createApiClient({
+      user,
+      onUnauthenticated,
+      onForbidden,
+    });
+  }, [user, onUnauthenticated, onForbidden]);
+
+  return client;
 }

@@ -8,14 +8,8 @@ BEGIN
  ) THEN
   RAISE EXCEPTION 'migration 059 requires schema version 58 (058_p10_observability_claim_recovery_and_outbox_index)';
  END IF;
-END;
-$$;
-
--- Create aims_migrator role if it doesn't exist (for local development)
-DO $$
-BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='aims_migrator') THEN
-  CREATE ROLE aims_migrator LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+  RAISE EXCEPTION 'migration 059 requires the P6 aims_migrator role';
  END IF;
 END;
 $$;

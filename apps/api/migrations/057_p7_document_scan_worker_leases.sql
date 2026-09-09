@@ -8,28 +8,12 @@ BEGIN
  ) THEN
   RAISE EXCEPTION 'migration 057 requires schema version 56 (056_payment_slip_trust_transition)';
  END IF;
-END;
-$$;
-
--- Create document worker roles if they don't exist (matches production bootstrap-roles.sql)
-DO $$
-BEGIN
- IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='aims_document_worker_executor') THEN
-  CREATE ROLE aims_document_worker_executor NOLOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='aims_document_worker_executor')
+    OR NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='aims_document_worker_runtime') THEN
+  RAISE EXCEPTION 'migration 057 requires bootstrapped document worker roles';
  END IF;
 END;
 $$;
-
-DO $$
-BEGIN
- IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='aims_document_worker_runtime') THEN
-  CREATE ROLE aims_document_worker_runtime LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
- END IF;
-END;
-$$;
-
-GRANT aims_app TO aims_document_worker_executor;
-GRANT aims_document_worker_executor TO aims_document_worker_runtime;
 
 ALTER TABLE payment_documents
  ADD COLUMN scan_claim_token uuid,

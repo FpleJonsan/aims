@@ -15,21 +15,6 @@ export const REQUEST_STATUSES = [
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 export type Role = "REQUESTER" | "FINANCE" | "ADMIN";
 
-export const REQUESTER_CANCELLABLE_STATUSES = [
-  "DRAFT",
-  "SUBMITTED",
-  "VALIDATING",
-  "NEEDS_CLARIFICATION",
-  "PENDING_APPROVAL",
-] as const satisfies readonly RequestStatus[];
-
-export const FINANCE_CANCELLABLE_STATUSES = [
-  "APPROVED",
-  "FINANCE_CHECK",
-  "FINANCE_HOLD",
-  "READY_FOR_PAYMENT",
-] as const satisfies readonly RequestStatus[];
-
 export interface Principal {
   id: string;
   departmentId: string;
@@ -79,19 +64,6 @@ export function canEditDraft(
     request.status === "DRAFT" &&
     actor.id === request.createdBy && actor.departmentId === request.departmentId
   );
-}
-
-export function assertCancellationState(status: RequestStatus): void {
-  if (
-    !REQUESTER_CANCELLABLE_STATUSES.includes(
-      status as (typeof REQUESTER_CANCELLABLE_STATUSES)[number],
-    ) &&
-    !FINANCE_CANCELLABLE_STATUSES.includes(
-      status as (typeof FINANCE_CANCELLABLE_STATUSES)[number],
-    )
-  ) {
-    throw new Error(`CANCELLATION_NOT_PERMITTED_FROM_${status}`);
-  }
 }
 
 export function assertSubmittable(request: PaymentRequest): void {

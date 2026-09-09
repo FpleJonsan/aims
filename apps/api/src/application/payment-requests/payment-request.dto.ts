@@ -15,11 +15,6 @@ export class CapturePaymentRequestDto {
   @IsOptional() @IsString() @MaxLength(2000) remark?: string;
 }
 
-export class CancelPaymentRequestDto {
-  @IsString() @Length(1, 2000) reason!: string;
-  @IsUUID() commandKey!: string;
-}
-
 export class ListPaymentRequestsDto {
   @IsOptional() @Matches(/^\d+$/) page?: string;
   @IsOptional() @Matches(/^\d+$/) pageSize?: string;

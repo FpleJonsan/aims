@@ -11,49 +11,10 @@ export const REQUEST_STATUSES = [
   "READY_FOR_PAYMENT",
   "PAID",
   "REJECTED",
-  "CANCELLED",
 ] as const;
 
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 
-export type DocumentSecurityStatus =
-  | "QUARANTINED"
-  | "SCANNING"
-  | "CLEAN"
-  | "REJECTED"
-  | "SCAN_FAILED";
-
-export interface PaymentRequestDocument {
-  id: string;
-  original_filename: string;
-  size_bytes: string;
-  version: number;
-  mime_type?: string;
-  document_type?: string;
-  uploaded_at?: string;
-  security_status?: DocumentSecurityStatus;
-}
-
-export interface PaymentRequestClarification {
-  id: string;
-  type: string;
-  question: string;
-  status: string;
-  requestedAt: string;
-  response?: string | null;
-  respondedAt?: string | null;
-}
-
-export interface PaymentSummary {
-  paymentDate: string;
-  status: string;
-  amountMinor: string;
-  currency: string;
-  paymentMethod: string;
-  recordedAt: string;
-}
-
-/** Portal list/detail payment request shape (UI). */
 export interface PaymentRequestItem {
   id: string;
   ticketNumber: string | null;
@@ -69,19 +30,18 @@ export interface PaymentRequestItem {
   paymentDetails: string | null;
   remark: string | null;
   humanFinalRisk?: string;
-  submittedAt?: string | null;
-  createdAt?: string | null;
-  updatedAt?: string | null;
-  clarifications?: PaymentRequestClarification[];
-  paymentSummary?: PaymentSummary | null;
-  documents?: PaymentRequestDocument[];
-  audit?: Array<{ id: string; action: string; occurred_at: string }>;
+  documents?: Array<{
+    id: string;
+    original_filename: string;
+    size_bytes: string;
+    version: number;
+  }>;
+  audit?: Array<{
+    id: string;
+    action: string;
+    occurred_at: string;
+  }>;
 }
-
-/** @deprecated Prefer PaymentRequestItem */
-export type Item = PaymentRequestItem;
-
-export type PortalApi = (path: string, init?: RequestInit) => Promise<unknown>;
 
 export interface Pagination {
   page: number;
@@ -150,31 +110,8 @@ export type FinanceView =
   | "dashboard"
   | "ai";
 
-export type AuthPhase = "login" | "checking" | "ready" | "no-access" | "error";
-export type IdentityMode = "LOCAL" | "COMPETITION";
-
-export interface LocalIdentity {
-  subject: string;
-  displayName: string;
-  department: string;
-  persona: string;
-  workspaces: string[];
-}
-
 export interface UserProfile {
   initials: string;
   name: string;
   department: string;
-}
-
-export interface RequesterDashboardSummary {
-  myRequests: number;
-  drafts: number;
-  awaitingReview: number;
-  needsClarification: number;
-  pendingApproval: number;
-  approvedReady: number;
-  readyForPayment: number;
-  inProgress: number;
-  paid: number;
 }
