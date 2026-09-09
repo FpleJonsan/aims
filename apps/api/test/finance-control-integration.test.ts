@@ -9,6 +9,7 @@ import { FinanceControlService } from "../src/application/finance-control/financ
 import type { FinanceConfirmationCode } from "../src/application/finance-control/finance-control.dto.js";
 import { FinancialAnalysisService } from "../src/application/financial-analysis/financial-analysis.service.js";
 import { PaymentRequestService } from "../src/application/payment-requests/payment-request.service.js";
+import { PaymentRequestCancellationService } from "../src/application/payment-requests/payment-request-cancellation.service.js";
 import { PaymentService } from "../src/application/payments/payment.service.js";
 import { PolicyService } from "../src/application/policy/policy.service.js";
 import { ValidationService } from "../src/application/validation/validation.service.js";
@@ -393,6 +394,177 @@ async function assertPaymentOutcomeConsistent(db: Postgres, requestId: string) {
     assert.notEqual(row.commitment_status, "CONSUMED");
   }
 }
+
+test("authorized Finance cancellation releases commitment and closes downstream authority without changing documents", async () => {
+  const db = new Postgres();
+  try {
+    const fixture = await approved(db),
+      cancellation = new PaymentRequestCancellationService(db, fixture.requests),
+      beforeDocument = (await db.pool.query("SELECT security_status,storage_object_key,storage_object_version FROM payment_documents WHERE payment_request_id=$1 ORDER BY uploaded_at LIMIT 1", [fixture.request.id])).rows[0];
+    const commandKey = randomUUID(), result = await cancellation.cancel(
+      fixture.request.id,
+      { reason: "Business need withdrawn before payment", commandKey },
+      finance,
+      "finance-cancel-approved",
+    );
+    assert.equal(result.status, "CANCELLED");
+    const facts = (await db.pool.query(`SELECT
+      (SELECT status FROM budget_commitments WHERE payment_request_id=$1 ORDER BY created_at DESC LIMIT 1) commitment,
+      (SELECT count(*)::int FROM approval_cases WHERE payment_request_id=$1 AND is_current) current_cases,
+      (SELECT count(*)::int FROM payments WHERE payment_request_id=$1) payments`, [fixture.request.id])).rows[0];
+    assert.deepEqual(facts, { commitment: "RELEASED", current_cases: 0, payments: 0 });
+    const afterDocument = (await db.pool.query("SELECT security_status,storage_object_key,storage_object_version FROM payment_documents WHERE payment_request_id=$1 ORDER BY uploaded_at LIMIT 1", [fixture.request.id])).rows[0];
+    assert.deepEqual(afterDocument, beforeDocument);
+    const adminUrl = process.env.AIMS_INTEGRATION_ADMIN_DATABASE_URL;
+    if (!adminUrl) throw new Error("isolated integration administrator URL is required");
+    const adminPool = new pg.Pool({ connectionString: adminUrl });
+    try {
+      await adminPool.query("UPDATE finance_control_authorities SET active=false WHERE user_id=$1", [finance.id]);
+      await assert.rejects(
+        cancellation.cancel(
+          fixture.request.id,
+          { reason: "Business need withdrawn before payment", commandKey },
+          finance,
+          "finance-cancel-revoked-replay",
+        ),
+        /CANCELLATION_NOT_AUTHORIZED/,
+      );
+    } finally {
+      await adminPool.query("UPDATE finance_control_authorities SET active=true WHERE user_id=$1", [finance.id]);
+      await adminPool.end();
+    }
+  } finally {
+    await db.onModuleDestroy();
+  }
+});
+
+test("cancellation rejects missing Finance authority and an already paid request", async () => {
+  const db = new Postgres();
+  try {
+    const approvedFixture = await approved(db),
+      cancellation = new PaymentRequestCancellationService(db, approvedFixture.requests);
+    await assert.rejects(
+      cancellation.cancel(approvedFixture.request.id, { reason: "Unauthorized", commandKey: randomUUID() }, revokedFinance, "finance-cancel-unauthorized"),
+      /CANCELLATION_NOT_AUTHORIZED/,
+    );
+    const paid = await readyPayment(db, "cancel-paid"), payment = await paid.service.record(
+      paid.fixture.request.id,
+      paid.command,
+      finance,
+      "cancel-paid-record",
+    );
+    assert.ok(payment);
+    await assert.rejects(
+      new PaymentRequestCancellationService(db, paid.fixture.requests).cancel(
+        paid.fixture.request.id,
+        { reason: "Cannot reverse payment", commandKey: randomUUID() },
+        finance,
+        "cancel-after-payment",
+      ),
+      /CANCELLATION_NOT_PERMITTED_FROM_PAID/,
+    );
+    await assertPaymentOutcomeConsistent(db, paid.fixture.request.id);
+  } finally {
+    await db.onModuleDestroy();
+  }
+});
+
+test("cancellation and Payment recording serialize to one financially consistent terminal result", async () => {
+  const db = new Postgres();
+  try {
+    const ready = await readyPayment(db, "cancel-payment-race"),
+      cancellation = new PaymentRequestCancellationService(db, ready.fixture.requests),
+      outcomes = await Promise.allSettled([
+        cancellation.cancel(
+          ready.fixture.request.id,
+          { reason: "Withdrawn during payment handoff", commandKey: randomUUID() },
+          finance,
+          "cancel-payment-race-cancel",
+        ),
+        ready.service.record(
+          ready.fixture.request.id,
+          ready.command,
+          finance,
+          "cancel-payment-race-record",
+        ),
+      ]);
+    assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
+    await assertPaymentOutcomeConsistent(db, ready.fixture.request.id);
+    const state = (await db.pool.query("SELECT status FROM payment_requests WHERE id=$1", [ready.fixture.request.id])).rows[0].status;
+    assert.ok(state === "PAID" || state === "CANCELLED");
+  } finally {
+    await db.onModuleDestroy();
+  }
+});
+
+test("cancellation transaction rolls back every prior mutation when audit persistence fails", async () => {
+  const db = new Postgres();
+  try {
+    const fixture = await approved(db),
+      originalAudit = fixture.requests.audit.bind(fixture.requests);
+    fixture.requests.audit = async () => { throw new Error("INJECTED_AUDIT_FAILURE"); };
+    await assert.rejects(
+      new PaymentRequestCancellationService(db, fixture.requests).cancel(
+        fixture.request.id,
+        { reason: "Rollback proof", commandKey: randomUUID() },
+        finance,
+        "cancel-rollback-proof",
+      ),
+      /INJECTED_AUDIT_FAILURE/,
+    );
+    fixture.requests.audit = originalAudit;
+    const state = (await db.pool.query(`SELECT pr.status,
+      (SELECT status FROM approval_cases WHERE payment_request_id=pr.id AND is_current) case_status,
+      (SELECT status FROM budget_commitments WHERE payment_request_id=pr.id AND status='ACTIVE') commitment_status,
+      (SELECT count(*)::int FROM audit_events WHERE entity_id=pr.id AND action='REQUEST_CANCELLED') cancellation_audits
+      FROM payment_requests pr WHERE pr.id=$1`, [fixture.request.id])).rows[0];
+    assert.deepEqual(state, { status: "APPROVED", case_status: "APPROVED", commitment_status: "ACTIVE", cancellation_audits: 0 });
+  } finally {
+    await db.onModuleDestroy();
+  }
+});
+
+test("a stale requester-path observation cannot execute Finance cancellation through the application pool", async () => {
+  const db = new Postgres();
+  try {
+    const fixture = await approved(db),
+      cancellation = new PaymentRequestCancellationService(db, fixture.requests),
+      originalQuery = db.pool.query.bind(db.pool);
+    let preflight = true;
+    db.pool.query = ((...args: Parameters<typeof db.pool.query>) => {
+      if (preflight) {
+        preflight = false;
+        return Promise.resolve({
+          rows: [{
+            status: "PENDING_APPROVAL",
+            created_by: requester.id,
+            department_id: requester.departmentId,
+            cancellation_previous_state: null,
+          }],
+          rowCount: 1,
+        }) as unknown as ReturnType<typeof db.pool.query>;
+      }
+      return originalQuery(...args);
+    }) as typeof db.pool.query;
+    await assert.rejects(
+      cancellation.cancel(
+        fixture.request.id,
+        { reason: "Stale authority-path observation", commandKey: randomUUID() },
+        { ...requester, roles: ["REQUESTER", "FINANCE"] },
+        "cancel-authority-path-race",
+      ),
+      /CANCELLATION_AUTHORITY_PATH_CHANGED_RETRY/,
+    );
+    db.pool.query = originalQuery as typeof db.pool.query;
+    const state = (await db.pool.query(`SELECT pr.status,
+      (SELECT status FROM budget_commitments WHERE payment_request_id=pr.id AND status='ACTIVE') commitment_status,
+      (SELECT count(*)::int FROM audit_events WHERE entity_id=pr.id AND action='REQUEST_CANCELLED') cancellation_audits
+      FROM payment_requests pr WHERE pr.id=$1`, [fixture.request.id])).rows[0];
+    assert.deepEqual(state, { status: "APPROVED", commitment_status: "ACTIVE", cancellation_audits: 0 });
+  } finally {
+    await db.onModuleDestroy();
+  }
+});
 
 test("valid deterministic Finance Control passes with AI master off and stops before Payment", async () => {
   const old = process.env.OPENAI_API_KEY;

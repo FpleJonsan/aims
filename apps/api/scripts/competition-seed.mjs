@@ -185,7 +185,30 @@ async function workflow(input) {
   await control.finalize(run.run.id,{commandKey:stableUuid(`${input.key}-control-final`)},controller,`${input.key}-control-finalize`);
   if (input.stop === "READY") return summary(request.id);
   const slipId = stableUuid(`${input.key}-payment-slip`);
-  await db.paymentTransaction(operator.id,`${input.key}-slip`,(client)=>client.query("SELECT attach_payment_slip($1,$2,$3,$4,$5,$6,'local-filesystem','application/pdf',20,$7,'LOCAL')",[request.id,slipId,stableUuid(`${input.key}-slip-logical`),`${input.key.toLowerCase()}-payment-slip.pdf`,`quarantine/competition/${input.key.toLowerCase()}-payment-slip.pdf`,`sha256:${createHash("sha256").update(`${input.key}-slip`).digest("hex")}`,createHash("sha256").update(`${input.key}-slip`).digest("hex")]));
+  const slipHash = createHash("sha256").update(`${input.key}-slip`).digest("hex");
+  const slipKey = `active/competition/${input.key.toLowerCase()}-payment-slip.pdf`;
+  const slipVersion = `v1-${slipHash.slice(0,8)}`;
+  
+  // Attach payment slip with proper version binding and CLEAN status
+  await db.paymentTransaction(operator.id,`${input.key}-slip`,async (client)=>{
+    // Create the payment slip document directly with CLEAN status and version binding
+    await client.query(`
+      INSERT INTO payment_documents(
+        id, payment_request_id, logical_document_id, original_filename, storage_object_key,
+        mime_type, size_bytes, sha256, document_type, version, uploaded_by,
+        storage_provider, declared_mime_type, detected_mime_type, security_status,
+        storage_binding_state, storage_backend_id, storage_object_version,
+        trusted_storage_object_key, trusted_storage_object_version,
+        scan_attempt, scan_started_at, scan_completed_at, scan_engine, scan_reference
+      ) VALUES(
+        $1, $2, $3, $4, $5, 'application/pdf', 20, $6, 'PAYMENT_SLIP', 1, $7,
+        'LOCAL', 'application/pdf', 'application/pdf', 'CLEAN',
+        'VERSION_BOUND', 'local-filesystem', $8, $5, $8,
+        1, now(), now(), 'competition-deterministic-scanner', $9
+      )
+    `,[slipId, request.id, stableUuid(`${input.key}-slip-logical`), `${input.key.toLowerCase()}-payment-slip.pdf`, slipKey, slipHash, operator.id, slipVersion, `competition-scan-ref-${slipId}`]);
+  });
+  
   await new PaymentService(db,requests,{}).record(request.id,{commandKey:stableUuid(`${input.key}-payment-command`),paymentDate:input.paymentDate??"2026-08-15",amount:input.amount,currency:"MYR",bankReference:`DEMO-TRX-${(input.paymentDate??"2026-08-15").replaceAll("-","")}-${input.key}`,slipDocumentId:slipId,confirmPossibleDuplicate:false},operator,`${input.key}-payment-record`);
   return summary(request.id);
 }
@@ -200,7 +223,25 @@ async function clarificationScenario() {
 
 async function addDocument(requestId,key,type,uploadedBy) {
   const id=stableUuid(`${key}-invoice`), logical=stableUuid(`${key}-invoice-logical`), hash=createHash("sha256").update(`AIMS synthetic ${key} invoice`).digest("hex");
-  await db.pool.query("INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by) VALUES($1,$2,$3,$4,$5,'application/pdf',20,$6,$7,1,$8)",[id,requestId,logical,`${key.toLowerCase()}-invoice.pdf`,`quarantine/competition/${key.toLowerCase()}-invoice.pdf`,hash,type,uploadedBy]);
+  const objectKey = `active/competition/${key.toLowerCase()}-invoice.pdf`;
+  const objectVersion = `v1-${hash.slice(0,8)}`;
+  const scanRef = `competition-scan-ref-${id}`;
+  
+  await db.pool.query(`
+    INSERT INTO payment_documents(
+      id, payment_request_id, logical_document_id, original_filename, storage_object_key, 
+      mime_type, size_bytes, sha256, document_type, version, uploaded_by,
+      storage_provider, declared_mime_type, detected_mime_type, security_status,
+      storage_binding_state, storage_backend_id, storage_object_version,
+      trusted_storage_object_key, trusted_storage_object_version,
+      scan_attempt, scan_started_at, scan_completed_at, scan_engine, scan_reference
+    ) VALUES(
+      $1, $2, $3, $4, $5, 'application/pdf', 20, $6, $7, 1, $8,
+      'LOCAL', 'application/pdf', 'application/pdf', 'CLEAN',
+      'VERSION_BOUND', 'local-filesystem', $9, $5, $9,
+      1, now(), now(), 'competition-deterministic-scanner', $10
+    )
+  `,[id, requestId, logical, `${key.toLowerCase()}-invoice.pdf`, objectKey, hash, type, uploadedBy, objectVersion, scanRef]);
 }
 
 async function summary(id) {

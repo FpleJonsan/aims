@@ -9,6 +9,7 @@ import {
 } from "./application/documents/tokens.js";
 import { PaymentRequestController } from "./application/payment-requests/payment-request.controller.js";
 import { PaymentRequestService } from "./application/payment-requests/payment-request.service.js";
+import { PaymentRequestCancellationService } from "./application/payment-requests/payment-request-cancellation.service.js";
 import { FinanceContextController } from "./application/finance-context/finance-context.controller.js";
 import { FinanceContextService } from "./application/finance-context/finance-context.service.js";
 import { FinancialAnalysisController } from "./application/financial-analysis/financial-analysis.controller.js";
@@ -81,6 +82,7 @@ import { CORPORATE_IDENTITY_PROVIDER, UnavailableCorporateIdentityProvider } fro
     CorporateAuthService,
     { provide: CORPORATE_IDENTITY_PROVIDER, useFactory: () => new UnavailableCorporateIdentityProvider() },
     PaymentRequestService,
+    PaymentRequestCancellationService,
     PaymentDocumentService,
     ValidationService,
     FinanceContextService,

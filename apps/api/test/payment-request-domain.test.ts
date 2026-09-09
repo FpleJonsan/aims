@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assertSubmittable, canEditDraft, canReadRequest, formatTicketNumber, type PaymentRequest, type Principal } from '../src/domain/payment-request.js';
+import { assertCancellationState, assertSubmittable, canEditDraft, canReadRequest, formatTicketNumber, type PaymentRequest, type Principal } from '../src/domain/payment-request.js';
 import { businessYear } from '../src/application/payment-requests/payment-request.service.js';
 
 const requester: Principal = { id: 'user-a', departmentId: 'dept-a', roles: ['REQUESTER'] };
@@ -37,6 +37,15 @@ test('uses configured business timezone for the ticket year', () => {
   const instant = new Date('2025-12-31T16:30:00.000Z');
   assert.equal(businessYear(instant, 'Asia/Kuala_Lumpur'), 2026);
   assert.equal(businessYear(instant, 'UTC'), 2025);
+});
+
+test('allows only reversible request states to enter cancellation', () => {
+  for (const status of ['DRAFT','SUBMITTED','VALIDATING','NEEDS_CLARIFICATION','PENDING_APPROVAL','APPROVED','FINANCE_CHECK','FINANCE_HOLD','READY_FOR_PAYMENT'] as const) {
+    assert.doesNotThrow(() => assertCancellationState(status));
+  }
+  for (const status of ['PAID','REJECTED','CANCELLED'] as const) {
+    assert.throws(() => assertCancellationState(status), new RegExp(`CANCELLATION_NOT_PERMITTED_FROM_${status}`));
+  }
 });
 
 function completeDraft(): PaymentRequest {

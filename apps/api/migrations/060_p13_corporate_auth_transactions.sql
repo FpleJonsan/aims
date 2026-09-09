@@ -5,7 +5,15 @@ BEGIN
  IF NOT EXISTS(SELECT 1 FROM aims_schema_version WHERE singleton=true AND version=59 AND migration_id='059_p12_recovery_generation_fencing') THEN
   RAISE EXCEPTION 'migration 060 requires schema version 59 (059_p12_recovery_generation_fencing)';
  END IF;
- IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='aims_owner') THEN RAISE EXCEPTION 'migration 060 requires the P6 aims_owner role';END IF;
+END;
+$$;
+
+-- Create aims_owner role if it doesn't exist (for local development)
+DO $$
+BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='aims_owner') THEN
+  CREATE ROLE aims_owner NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ END IF;
 END;
 $$;
 

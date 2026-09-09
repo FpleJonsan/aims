@@ -1,21 +1,25 @@
-import type { RequestStatus } from "@/app/lib/types";
+import {
+  requesterStatusPresentation,
+  type RequesterStatus,
+} from "@/app/lib/requester-presentation";
 
 interface StatusChipProps {
-  status: RequestStatus | string;
+  status: string;
   className?: string;
 }
 
 export function StatusChip({ status, className = "" }: StatusChipProps) {
-  const displayText = status.replaceAll("_", " ");
-  const normalizedStatus = status.toLowerCase().replaceAll("_", "_");
+  const meta = requesterStatusPresentation[status as RequesterStatus];
+  const label = meta?.label ?? status.replaceAll("_", " ");
+  const tone = meta?.tone ?? "neutral";
 
   return (
     <span
-      className={`statusChip status-${normalizedStatus} ${className}`}
+      className={`statusChip status-${tone} ${className}`.trim()}
       role="status"
-      aria-label={`Status: ${displayText}`}
+      aria-label={`Status: ${label}`}
     >
-      {displayText}
+      {label}
     </span>
   );
 }

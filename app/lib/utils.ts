@@ -3,20 +3,21 @@
  */
 
 /**
- * Format error messages for display
+ * Format major-unit money the way the portal displays amounts (not Intl currency style).
  */
-export function formatErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "string") {
-    return error;
-  }
-  return "Something went wrong. Please try again.";
+export function formatMoney(
+  currency: string | null | undefined,
+  value: string | null | undefined
+): string {
+  if (!value) return "—";
+  return `${currency ?? ""} ${Number(value).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`.trim();
 }
 
 /**
- * Format currency amount (minor units to major)
+ * Format currency amount (minor units to major) — Intl style.
  */
 export function formatCurrency(
   amount: string | number,
@@ -33,18 +34,46 @@ export function formatCurrency(
 }
 
 /**
- * Format date for display
+ * Format date for display (date-only strings treated as local calendar days).
  */
-export function formatDate(date: string | Date | null): string {
+export function formatDate(date: string | Date | null | undefined): string {
   if (!date) return "—";
-  const dateObj = typeof date === "string" ? new Date(date) : date;
+  const dateObj =
+    typeof date === "string"
+      ? /^\d{4}-\d{2}-\d{2}$/.test(date)
+        ? new Date(`${date}T00:00:00`)
+        : new Date(date)
+      : date;
   if (isNaN(dateObj.getTime())) return "—";
 
   return new Intl.DateTimeFormat("en-MY", {
-    year: "numeric",
+    day: "2-digit",
     month: "short",
-    day: "numeric",
+    year: "numeric",
   }).format(dateObj);
+}
+
+export function msg(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return "Something went wrong";
+}
+
+export function formatErrorMessage(error: unknown): string {
+  return msg(error);
+}
+
+export function humanizeRequestError(error: unknown): string {
+  const value = msg(error).toLowerCase();
+  if (value.includes("missing required"))
+    return "Complete all required fields before submitting your request.";
+  if (value.includes("amount")) return "Enter a valid payment amount.";
+  if (value.includes("due date")) return "Enter a valid due date.";
+  if (value.includes("currency")) return "Select a valid currency.";
+  if (value.includes("document")) return "Check the selected document and try again.";
+  if (value.includes("forbidden") || value.includes("permitted"))
+    return "You can no longer perform this action. Refresh the request to see its current status.";
+  return "AIMS could not complete that action. Review the information and try again.";
 }
 
 /**

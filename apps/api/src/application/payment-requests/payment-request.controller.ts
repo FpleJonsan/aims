@@ -5,15 +5,16 @@ import type { Request } from 'express';
 import type { Response } from 'express';
 import { AuthGuard } from '../auth/auth.guard.js';
 import { PaymentDocumentService } from '../documents/payment-document.service.js';
-import { CapturePaymentRequestDto, ListPaymentRequestsDto } from './payment-request.dto.js';
+import { CancelPaymentRequestDto, CapturePaymentRequestDto, ListPaymentRequestsDto } from './payment-request.dto.js';
 import { PaymentRequestService } from './payment-request.service.js';
+import { PaymentRequestCancellationService } from './payment-request-cancellation.service.js';
 
 @ApiTags('payment-requests')
 @ApiBearerAuth()
 @UseGuards(AuthGuard)
 @Controller('payment-requests')
 export class PaymentRequestController {
-  constructor(private readonly requests: PaymentRequestService, private readonly documents: PaymentDocumentService) {}
+  constructor(private readonly requests: PaymentRequestService, private readonly cancellations: PaymentRequestCancellationService, private readonly documents: PaymentDocumentService) {}
 
   @Post()
   initiate(@Req() request: Request) {
@@ -38,6 +39,11 @@ export class PaymentRequestController {
   @Post(':id/submit')
   submit(@Req() request: Request, @Param('id', ParseUUIDPipe) id: string) {
     return this.requests.submit(id, request.principal, request.correlationId);
+  }
+
+  @Post(':id/cancel')
+  cancel(@Req() request: Request, @Param('id', ParseUUIDPipe) id: string, @Body() input: CancelPaymentRequestDto) {
+    return this.cancellations.cancel(id, input, request.principal, request.correlationId);
   }
 
   @Post(':id/documents')

@@ -1,4 +1,4 @@
-import type { PortalSession, Workspace, FinanceView } from "@/app/lib/types";
+import type { FinanceView, PortalSession, Workspace } from "@/app/lib/types";
 import { Brand } from "./Brand";
 import { UserCard } from "./UserCard";
 
@@ -7,13 +7,18 @@ interface SidebarProps {
   workspace: Workspace;
   financeView: FinanceView;
   requesterHome: boolean;
+  requesterPaymentOnly: boolean;
   selected: boolean;
+  mobileNavOpen: boolean;
+  pageTitle: string;
   onNavigate: {
-    goRequester: (home: boolean) => void;
+    goRequester: (home: boolean, paymentOnly?: boolean) => void;
     goFinance: (view: FinanceView) => void;
     initiate: () => void;
     switchWorkspace: (workspace: Workspace) => void;
   };
+  signOut: () => void;
+  onToggleMobileNav: () => void;
 }
 
 export function Sidebar({
@@ -21,30 +26,53 @@ export function Sidebar({
   workspace,
   financeView,
   requesterHome,
+  requesterPaymentOnly,
   selected,
+  mobileNavOpen,
+  pageTitle,
   onNavigate,
+  signOut,
+  onToggleMobileNav,
 }: SidebarProps) {
   const { goRequester, goFinance, initiate, switchWorkspace } = onNavigate;
+
+  const dashboardActive = requesterHome;
+  const requestsActive = !requesterHome && !requesterPaymentOnly;
+  const paymentActive = requesterPaymentOnly;
 
   return (
     <aside className="sideNav">
       <Brand />
 
-      <nav aria-label="Primary navigation" className="primaryNav">
+      <button
+        className="mobileNavToggle"
+        aria-controls="aims-primary-navigation"
+        aria-expanded={mobileNavOpen}
+        onClick={onToggleMobileNav}
+      >
+        <span aria-hidden="true">{mobileNavOpen ? "×" : "☰"}</span>
+        <span>{mobileNavOpen ? "Close menu" : pageTitle}</span>
+      </button>
+
+      <nav
+        id="aims-primary-navigation"
+        aria-label="Primary navigation"
+        className={`primaryNav${mobileNavOpen ? " mobileOpen" : ""}`}
+      >
         {workspace === "requester" ? (
           <>
             <button
-              className={requesterHome && !selected ? "active" : ""}
+              className={dashboardActive ? "active" : ""}
               onClick={() => goRequester(true)}
-              aria-current={requesterHome && !selected ? "page" : undefined}
+              aria-current={dashboardActive && !selected ? "page" : undefined}
             >
               <span aria-hidden="true">▦</span>
               Dashboard
             </button>
             <button
-              className={!requesterHome && !selected ? "active" : ""}
+              className={requestsActive ? "active" : ""}
               onClick={() => goRequester(false)}
-              aria-current={!requesterHome && !selected ? "page" : undefined}
+              aria-current={requestsActive && !selected ? "page" : undefined}
             >
               <span aria-hidden="true">☷</span>
               My Requests
@@ -54,9 +82,9 @@ export function Sidebar({
               New Request
             </button>
             <button
-              onClick={() => {
-                goRequester(false);
-              }}
+              className={paymentActive ? "active" : ""}
+              onClick={() => goRequester(false, true)}
+              aria-current={paymentActive && !selected ? "page" : undefined}
             >
               <span aria-hidden="true">◷</span>
               Payment Status
@@ -64,23 +92,23 @@ export function Sidebar({
           </>
         ) : (
           <>
+            <small>FINANCE COMMAND CENTER</small>
             {session.capabilities.reporting && (
               <button
                 className={financeView === "dashboard" ? "active" : ""}
                 onClick={() => goFinance("dashboard")}
-                aria-current={financeView === "dashboard" ? "page" : undefined}
+                aria-current={financeView === "dashboard" && !selected ? "page" : undefined}
               >
                 <span aria-hidden="true">▦</span>
                 Dashboard
               </button>
             )}
+            <small>OPERATIONS</small>
             {session.capabilities.financeAnalysis && (
               <button
-                className={financeView === "work-queue" && !selected ? "active" : ""}
+                className={financeView === "work-queue" ? "active" : ""}
                 onClick={() => goFinance("work-queue")}
-                aria-current={
-                  financeView === "work-queue" && !selected ? "page" : undefined
-                }
+                aria-current={financeView === "work-queue" && !selected ? "page" : undefined}
               >
                 <span aria-hidden="true">☷</span>
                 Work Queue
@@ -90,7 +118,7 @@ export function Sidebar({
               <button
                 className={financeView === "approvals" ? "active" : ""}
                 onClick={() => goFinance("approvals")}
-                aria-current={financeView === "approvals" ? "page" : undefined}
+                aria-current={financeView === "approvals" && !selected ? "page" : undefined}
               >
                 <span aria-hidden="true">✓</span>
                 Approval Inbox
@@ -101,7 +129,7 @@ export function Sidebar({
                 className={financeView === "finance-control" ? "active" : ""}
                 onClick={() => goFinance("finance-control")}
                 aria-current={
-                  financeView === "finance-control" ? "page" : undefined
+                  financeView === "finance-control" && !selected ? "page" : undefined
                 }
               >
                 <span aria-hidden="true">◆</span>
@@ -112,7 +140,7 @@ export function Sidebar({
               <button
                 className={financeView === "payment-queue" ? "active" : ""}
                 onClick={() => goFinance("payment-queue")}
-                aria-current={financeView === "payment-queue" ? "page" : undefined}
+                aria-current={financeView === "payment-queue" && !selected ? "page" : undefined}
               >
                 <span aria-hidden="true">→</span>
                 Payment Queue
@@ -123,73 +151,47 @@ export function Sidebar({
                 className={financeView === "payment-history" ? "active" : ""}
                 onClick={() => goFinance("payment-history")}
                 aria-current={
-                  financeView === "payment-history" ? "page" : undefined
+                  financeView === "payment-history" && !selected ? "page" : undefined
                 }
               >
                 <span aria-hidden="true">◷</span>
                 Payment History
               </button>
             )}
+            {session.capabilities.reporting && (
+              <>
+                <small>AI INTELLIGENCE</small>
+                <button
+                  className={financeView === "ai" ? "active" : ""}
+                  onClick={() => goFinance("ai")}
+                  aria-current={financeView === "ai" && !selected ? "page" : undefined}
+                >
+                  <span aria-hidden="true">✦</span>
+                  Finance Watch &amp; Ask AIMS
+                </button>
+              </>
+            )}
           </>
         )}
       </nav>
 
-      {workspace === "finance" && (
-        <nav aria-label="AIMS workflow stages" className="workflowNav">
-          <span>
-            <i>1–2</i>Request Capture
-          </span>
-          <span>
-            <i>3</i>Validation
-          </span>
-          <span>
-            <i>4</i>Finance Context
-          </span>
-          <span>
-            <i>5</i>Financial Risk
-          </span>
-          <span>
-            <i>6</i>Policy & Decision
-          </span>
-          <span>
-            <i>7</i>Approval
-          </span>
-          <span>
-            <i>8</i>Final Control
-          </span>
-          <span>
-            <i>9</i>Payment
-          </span>
-        </nav>
-      )}
+      <div className="sideNavFooter">
+        <UserCard session={session} workspace={workspace} />
 
-      {workspace === "finance" && session.capabilities.reporting && (
-        <nav aria-label="Finance reporting" className="reportingNav">
-          <span>
-            <i>10</i>Payment History
-          </span>
-          <span>
-            <i>11</i>Dashboard
-          </span>
-          <span>
-            <i>12</i>AI Intelligence
-          </span>
-        </nav>
-      )}
+        {session.workspaces.requester && session.workspaces.finance && (
+          <button
+            className="workspaceSwitch"
+            aria-label={`Switch from ${workspace} to ${workspace === "requester" ? "Finance" : "Requester"} workspace`}
+            onClick={() =>
+              switchWorkspace(workspace === "requester" ? "finance" : "requester")
+            }
+          >
+            Switch to {workspace === "requester" ? "Finance" : "Requester"} Portal
+          </button>
+        )}
 
-      <UserCard session={session} />
-
-      {session.workspaces.requester && session.workspaces.finance && (
-        <button
-          className="workspaceSwitch"
-          onClick={() =>
-            switchWorkspace(workspace === "requester" ? "finance" : "requester")
-          }
-          aria-label={`Switch to ${workspace === "requester" ? "Finance" : "Requester"} workspace`}
-        >
-          Switch to {workspace === "requester" ? "Finance" : "Requester"}
-        </button>
-      )}
+        <button onClick={signOut}>Sign out</button>
+      </div>
     </aside>
   );
 }

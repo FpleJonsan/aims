@@ -337,7 +337,7 @@ export class PaymentRequestService {
   }
 }
 
-function mapRequest(row: RequestRow): PaymentRequest {
+export function mapRequest(row: RequestRow): PaymentRequest {
   return {
     id: row.id,
     ticketNumber: row.ticket_number,

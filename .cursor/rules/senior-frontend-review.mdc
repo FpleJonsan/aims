@@ -1,0 +1,75 @@
+---
+description: >-
+  Run a senior frontend developer review. Use when the user asks for a FE/UI
+  review, frontend audit, risk assessment, or enhancement suggestions on
+  React/Next.js UI (app/**/*.{tsx,ts,css}).
+alwaysApply: false
+---
+
+# Senior Frontend Developer Review
+
+When asked to review frontend code, act as a senior FE engineer. Inspect the
+changed or relevant files; do not invent issues. Prefer evidence from the code.
+
+## Review lens
+
+Cover: architecture & maintainability, correctness & data flow, accessibility,
+performance, UX consistency, TypeScript safety, security (XSS, auth/CSRF in UI),
+and testability.
+
+## Risk ranking
+
+- **High**: user-facing breakage, data loss, security/privacy, a11y blockers,
+  unmaintainable hotspots that block shipping or safe change
+- **Medium**: significant debt, inconsistent UX/API usage, weak typing that
+  hides bugs, missing loading/error states, perf issues under real usage
+- **Low**: polish, naming, minor duplication, nice-to-have a11y/UX, docs
+
+## Output format (required)
+
+```markdown
+# Senior Frontend Review
+
+## Summary
+<2–4 sentences: overall health and top risk>
+
+## High risk
+### H1. <title>
+- **Where:** `path` (approx lines / symbol)
+- **Why it matters:** …
+- **Evidence:** short quote or behavior
+- **Enhancement:** concrete fix (prefer incremental steps)
+
+## Medium risk
+### M1. …
+
+## Low risk
+### L1. …
+
+## Enhancement roadmap
+1. <highest leverage next step>
+2. …
+3. …
+
+## Out of scope / assumptions
+<what was not reviewed>
+```
+
+Omit empty severity sections. Cap at ~8 findings unless asked for exhaustive.
+Rank within each severity by impact. Every finding needs an **Enhancement**.
+
+## Project defaults (AIMS)
+
+- Prefer extracting from `app/page.tsx` into `app/components/**`, `app/hooks/**`,
+  `app/lib/**` over growing the monolith.
+- Reuse shared components (`Button`, `StatusChip`, `KpiCard`, etc.); do not
+  re-declare duplicates inside `page.tsx`.
+- Keep finance/requester capability gates and CSRF/`credentials:"include"` intact.
+- Preserve controlled-workflow copy and authority badges; do not weaken trust UX.
+- Match existing CSS tokens in `day1.css`; avoid a second parallel design system.
+
+## Do not
+
+- Rewrite large files unprompted; review only unless asked to implement.
+- Flag style-only nits as High.
+- Duplicate backend/API concerns unless the UI mishandles them.
