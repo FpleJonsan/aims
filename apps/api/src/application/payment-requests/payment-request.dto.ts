@@ -21,3 +21,8 @@ export class ListPaymentRequestsDto {
   @IsOptional() @IsIn(['DRAFT', 'SUBMITTED', 'CANCELLED']) status?: string;
   @IsOptional() @IsString() @MaxLength(100) search?: string;
 }
+
+export class CancelPaymentRequestDto {
+  @IsString() @Matches(/\S/) @MaxLength(2000) reason!: string;
+  @IsUUID() commandKey!: string;
+}

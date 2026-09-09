@@ -48,3 +48,19 @@ function completeDraft(): PaymentRequest {
     remark: null, createdBy: 'user-a', createdAt: now, updatedAt: now, submittedAt: null, rowVersion: 1,
   };
 }
+
+test('cancellation endpoint is authenticated POST with validated reason and command key', async () => {
+  const { PaymentRequestController } = await import('../src/application/payment-requests/payment-request.controller.js');
+  const { CancelPaymentRequestDto } = await import('../src/application/payment-requests/payment-request.dto.js');
+  const { AuthGuard } = await import('../src/application/auth/auth.guard.js');
+  const { validate } = await import('class-validator');
+  assert.equal(Reflect.getMetadata('path', PaymentRequestController.prototype.cancel), ':id/cancel');
+  assert.equal(Reflect.getMetadata('method', PaymentRequestController.prototype.cancel), 1);
+  assert.ok(Reflect.getMetadata('__guards__', PaymentRequestController).includes(AuthGuard));
+  for (const input of [{}, {reason:' ',commandKey:'bad'}, {reason:'x'.repeat(2001),commandKey:'bad'}]) {
+    assert.ok((await validate(Object.assign(new CancelPaymentRequestDto(),input))).length>0);
+  }
+  assert.equal((await validate(Object.assign(new CancelPaymentRequestDto(),{
+    reason:'Request withdrawn',commandKey:'10000000-0000-4000-8000-000000000001'
+  }))).length,0);
+});

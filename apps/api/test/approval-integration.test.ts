@@ -1813,3 +1813,18 @@ test("recovery generation fences Approval tokens, Telegram interactions, and bin
     const fresh=await service.createTelegramBindingChallenge(approver.id,admin,"p12-fresh-challenge");assert.notEqual(fresh.challenge,challenge.challenge);
   }finally{process.env.TELEGRAM_WEBHOOK_SECRET=oldWebhook;process.env.TELEGRAM_CALLBACK_SECRET=oldCallback;await migrator.end();await db.onModuleDestroy();}
 });
+
+test('request cancellation closes pending approval steps and prevents later approval', async () => {
+  const db = new Postgres();
+  try {
+    const {r,requests} = await eligible(db);
+    const approval = new ApprovalService(db,requests);
+    const created = await approval.create(r.id,finance,'cancel-approval-create');
+    await requests.cancel(r.id,{reason:'Requester withdrew request',commandKey:randomUUID()},requester,'cancel-approval');
+    assert.equal((await db.pool.query('SELECT status,is_current FROM approval_cases WHERE id=$1',[created.case.id])).rows[0].status,'SUPERSEDED');
+    assert.equal((await db.pool.query("SELECT 1 FROM approval_steps WHERE approval_case_id=$1 AND status IN('ACTIVE','WAITING')",[created.case.id])).rowCount,0);
+    assert.equal((await db.pool.query("SELECT 1 FROM approval_action_tokens WHERE approval_case_id=$1 AND status='ACTIVE'",[created.case.id])).rowCount,0);
+    await assert.rejects(approval.create(r.id,finance,'cancel-reopen'));
+    assert.equal((await requests.get(r.id,requester)).status,'CANCELLED');
+  } finally { await db.onModuleDestroy(); }
+});

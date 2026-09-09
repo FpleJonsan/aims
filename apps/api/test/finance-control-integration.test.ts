@@ -1746,6 +1746,9 @@ test("Day 8 records external payment atomically, idempotently, and immutably", a
         [fixture.request.id],
       )
     ).rows[0];
+    await assert.rejects(fixture.requests.cancel(fixture.request.id,
+      {reason:"Cannot withdraw a paid request",commandKey:randomUUID()},requester,"cancel-paid"),/current state/);
+    assert.equal((await db.pool.query("SELECT 1 FROM audit_events WHERE entity_id=$1 AND action='REQUEST_CANCELLED'",[fixture.request.id])).rowCount,0);
     assert.equal(facts.status, "PAID");
     assert.equal(facts.commitment_status, "CONSUMED");
     assert.equal(facts.commitment_payment_id, facts.payment_id);
@@ -2137,4 +2140,28 @@ test("PAYMENT_RACE_A_SAME_REQUEST_TWO_OPERATORS produces one record and one ledg
   } finally {
     await db.onModuleDestroy();
   }
+});
+
+test('cancellation from ready releases commitment atomically and prevents payment; Finance authority remains scoped',async()=>{
+  const db=new Postgres();
+  try {
+    const ready=await readyPayment(db,'cancel-ready');
+    const {requests,request}=ready.fixture;
+    const command={reason:'Payment no longer required',commandKey:randomUUID()};
+    for(const actor of [adminOnly,scopedFinance,revokedFinance,inactivePayment]) {
+      await assert.rejects(requests.cancel(request.id,command,actor,'cancel-authority'),/not permitted/);
+    }
+    const failing=new PaymentRequestService(db);
+    failing.audit=async()=>{throw new Error('forced cancellation audit failure')};
+    await assert.rejects(failing.cancel(request.id,command,finance,'cancel-rollback'),/forced cancellation audit failure/);
+    assert.equal((await requests.get(request.id,requester)).status,'READY_FOR_PAYMENT');
+    assert.equal((await db.pool.query("SELECT 1 FROM budget_commitments WHERE payment_request_id=$1 AND status='ACTIVE'",[request.id])).rowCount,1);
+    assert.equal((await db.pool.query("SELECT 1 FROM approval_cases WHERE payment_request_id=$1 AND is_current AND status='APPROVED'",[request.id])).rowCount,1);
+    await requests.cancel(request.id,command,finance,'cancel-finance');
+    assert.equal((await requests.get(request.id,requester)).status,'CANCELLED');
+    const commitments=await db.pool.query('SELECT * FROM budget_commitments WHERE payment_request_id=$1',[request.id]);
+    assert.ok(commitments.rows.every(row=>row.status==='RELEASED'&&row.release_reason==='REQUEST_CANCELLED'&&row.released_at));
+    await assert.rejects(ready.service.record(request.id,ready.command,finance,'cancel-payment'));
+    assert.equal((await db.pool.query('SELECT 1 FROM payments WHERE payment_request_id=$1',[request.id])).rowCount,0);
+  } finally {await db.onModuleDestroy()}
 });

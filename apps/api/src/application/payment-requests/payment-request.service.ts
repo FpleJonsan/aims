@@ -18,6 +18,7 @@ import {
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import { redactSensitiveData } from "../../infrastructure/configuration/secret-boundary.js";
 import type {
+  CancelPaymentRequestDto,
   CapturePaymentRequestDto,
   ListPaymentRequestsDto,
 } from "./payment-request.dto.js";
@@ -154,6 +155,53 @@ export class PaymentRequestService {
         correlationId,
         { fields: Object.keys(input) },
       );
+      return mapRequest(result.rows[0]);
+    });
+  }
+
+  async cancel(
+    id: string,
+    input: CancelPaymentRequestDto,
+    actor: Principal,
+    correlationId: string,
+  ): Promise<PaymentRequest> {
+    if (typeof input.reason !== "string" || !input.reason.trim() || input.reason.length > 2000 ||
+        typeof input.commandKey !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.commandKey)) {
+      throw new BadRequestException("Cancellation reason and UUID command key are required");
+    }
+    return this.database.transaction(async (client) => {
+      const current = await this.lockRequest(client, id);
+      const authority = await client.query(
+        `SELECT 1 FROM users u WHERE u.id=$1 AND u.active AND (
+          ($4::boolean AND u.id=$3 AND u.department_id=$2 AND EXISTS(
+            SELECT 1 FROM user_roles WHERE user_id=u.id AND role='REQUESTER')) OR
+          ($5::boolean AND EXISTS(SELECT 1 FROM user_roles WHERE user_id=u.id AND role='FINANCE') AND EXISTS(
+            SELECT 1 FROM finance_control_authorities f WHERE f.user_id=u.id AND f.active
+              AND (f.scope='ORGANIZATION' OR f.department_id=$2)
+              AND (f.allow_self_control OR u.id<>$3))))`,
+        [actor.id, current.departmentId, current.createdBy,
+          actor.roles.includes("REQUESTER") && actor.departmentId === current.departmentId,
+          actor.roles.includes("FINANCE")]);
+      if (!authority.rowCount) throw new ForbiddenException("Request cancellation is not permitted");
+      // Check authority before replaying a completed command.
+      if (current.status === "CANCELLED") return current;
+      if (!["DRAFT", "SUBMITTED", "VALIDATING", "NEEDS_CLARIFICATION", "PENDING_APPROVAL",
+        "APPROVED", "FINANCE_CHECK", "FINANCE_HOLD", "READY_FOR_PAYMENT"].includes(current.status)) {
+        throw new ConflictException("Request cannot be cancelled in its current state");
+      }
+      // Change the request first so existing dependency triggers cannot return it upstream.
+      const result = await client.query<RequestRow>(
+        "UPDATE payment_requests SET status='CANCELLED',updated_at=now(),row_version=row_version+1 WHERE id=$1 RETURNING *", [id]);
+      await client.query(
+        "UPDATE approval_cases SET status='SUPERSEDED',is_current=false,completed_at=COALESCE(completed_at,now()) WHERE payment_request_id=$1 AND is_current", [id]);
+      await client.query(
+        "UPDATE approval_steps SET status='CLOSED',completed_at=COALESCE(completed_at,now()) WHERE approval_case_id IN(SELECT id FROM approval_cases WHERE payment_request_id=$1) AND status IN('ACTIVE','WAITING')", [id]);
+      await client.query(
+        "UPDATE approval_action_tokens SET status='REVOKED' WHERE approval_case_id IN(SELECT id FROM approval_cases WHERE payment_request_id=$1) AND status='ACTIVE'", [id]);
+      await client.query(
+        "UPDATE budget_commitments SET status='RELEASED',released_at=now(),release_reason='REQUEST_CANCELLED',release_reference_type='PAYMENT_REQUEST',release_reference_id=$1 WHERE payment_request_id=$1 AND status='ACTIVE'", [id]);
+      await this.audit(client, actor.id, "REQUEST_CANCELLED", id, current.status, "CANCELLED",
+        correlationId, { reason: input.reason.trim(), commandKey: input.commandKey });
       return mapRequest(result.rows[0]);
     });
   }

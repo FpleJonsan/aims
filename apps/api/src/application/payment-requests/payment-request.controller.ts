@@ -5,7 +5,7 @@ import type { Request } from 'express';
 import type { Response } from 'express';
 import { AuthGuard } from '../auth/auth.guard.js';
 import { PaymentDocumentService } from '../documents/payment-document.service.js';
-import { CapturePaymentRequestDto, ListPaymentRequestsDto } from './payment-request.dto.js';
+import { CancelPaymentRequestDto, CapturePaymentRequestDto, ListPaymentRequestsDto } from './payment-request.dto.js';
 import { PaymentRequestService } from './payment-request.service.js';
 
 @ApiTags('payment-requests')
@@ -33,6 +33,11 @@ export class PaymentRequestController {
   @Patch(':id')
   update(@Req() request: Request, @Param('id', ParseUUIDPipe) id: string, @Body() input: CapturePaymentRequestDto) {
     return this.requests.update(id, input, request.principal, request.correlationId);
+  }
+
+  @Post(':id/cancel')
+  cancel(@Req() request: Request, @Param('id', ParseUUIDPipe) id: string, @Body() input: CancelPaymentRequestDto) {
+    return this.requests.cancel(id, input, request.principal, request.correlationId);
   }
 
   @Post(':id/submit')
