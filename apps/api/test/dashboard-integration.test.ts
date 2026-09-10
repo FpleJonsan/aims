@@ -47,7 +47,7 @@ test("Day 9 dashboard reconciles authoritative financial truth without AI", asyn
       ).rows,
       rawControl = (
         await db.pool.query(
-          "SELECT count(*)FILTER(WHERE f.status='HOLD')::int holds,count(*)FILTER(WHERE f.status='PASSED' AND pr.status='READY_FOR_PAYMENT')::int ready FROM finance_control_runs f JOIN payment_requests pr ON pr.id=f.payment_request_id WHERE f.is_current",
+          "SELECT count(*)FILTER(WHERE f.status='HOLD' AND pr.status='FINANCE_HOLD')::int holds,count(*)FILTER(WHERE f.status='PASSED' AND pr.status='READY_FOR_PAYMENT')::int ready FROM finance_control_runs f JOIN payment_requests pr ON pr.id=f.payment_request_id WHERE f.is_current",
         )
       ).rows[0];
     const toMinor = (x: string) => BigInt(x.replace(".", ""));

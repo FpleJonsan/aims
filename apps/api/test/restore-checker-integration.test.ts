@@ -27,7 +27,7 @@ async function fingerprints(){const tables=["payment_requests","payments","finan
 async function generationState(){return(await admin.query<{generation:string;generation_sequence:string;advanced_at:string;reason:string;correlation_id:string}>("SELECT generation::text,generation_sequence::text,advanced_at::text,reason,correlation_id::text FROM aims_recovery_generation WHERE singleton")).rows[0]}
 async function restoreGeneration(state:Awaited<ReturnType<typeof generationState>>){await admin.query("UPDATE aims_recovery_generation SET generation=$1,generation_sequence=$2,advanced_at=$3,reason=$4,correlation_id=$5 WHERE singleton",[state.generation,state.generation_sequence,state.advanced_at,state.reason,state.correlation_id])}
 async function expectGenerationCorruption(sql:string,values:unknown[]=[]){const state=await generationState();try{await admin.query(sql,values);const result=await check();assert.equal(result.recoveryGeneration.status,"GENERATION_STATE_INVALID");assert.ok(result.findings.some(f=>f.code==="GENERATION_STATE_INVALID"))}finally{await restoreGeneration(state)}}
-async function hydrateStorage(){storage.objects.clear();const rows=(await admin.query<{trusted_storage_object_key:string;trusted_storage_object_version:string;size_bytes:string;sha256:string}>("SELECT trusted_storage_object_key,trusted_storage_object_version,size_bytes::text,sha256 FROM payment_documents WHERE removed_at IS NULL AND security_status='CLEAN' AND storage_binding_state='VERSION_BOUND'")).rows;for(const row of rows)storage.objects.set(row.trusted_storage_object_key,{sizeBytes:Number(row.size_bytes),sha256:row.sha256,objectVersion:row.trusted_storage_object_version})}
+async function hydrateStorage(){storage.objects.clear();const rows=(await admin.query<{trusted_storage_object_key:string;trusted_storage_object_version:string;size_bytes:string;sha256:string}>("SELECT trusted_storage_object_key,trusted_storage_object_version,size_bytes::text,sha256 FROM payment_documents WHERE security_status='CLEAN' AND storage_binding_state='VERSION_BOUND'")).rows;for(const row of rows)storage.objects.set(row.trusted_storage_object_key,{sizeBytes:Number(row.size_bytes),sha256:row.sha256,objectVersion:row.trusted_storage_object_version})}
 
 type FinancialGraph={request:string;payment:string;commitment:string;financeControl:string;approval:string;ledger:string;budget:string};
 async function createFinancialGraph(label:string):Promise<FinancialGraph>{
@@ -142,4 +142,35 @@ test("worker residual failure does not suppress outbox checks",async()=>{await h
 test("outbox query failure preserves earlier evidence and later independent checks",async()=>{await hydrateStorage();const result=await runRestoreChecker({pool:poolWithFailure(/notification_outbox WHERE status=\$1/),storage,manifest:await manifest(),runningApplicationRelease:"release-61",manifestReference:"test"});assert.ok(result.findings.some(f=>f.code==="OUTBOX_PENDING_PRESENT_CHECK_FAILED"));assert.ok(result.checks.some(check=>check.name==="outbox-processing"));assert.ok(result.checks.some(check=>check.name==="active-document-claims"));assert.equal(result.overallStatus,"FAIL")});
 test("connection acquisition cannot outlive the authoritative checker deadline",async()=>{let released=0;const delayed={connect:()=>new Promise<pg.PoolClient>(resolve=>setTimeout(()=>resolve({release:()=>{released+=1}} as unknown as pg.PoolClient),250))} as unknown as pg.Pool;const started=Date.now(),result=await runRestoreChecker({pool:delayed,storage,manifest:await manifest(),runningApplicationRelease:"release-61",manifestReference:"test",overallTimeoutMs:100});assert.ok(Date.now()-started<225);assert.equal(result.overallStatus,"FAIL");assert.ok(result.findings.some(f=>f.code==="VERIFICATION_DEADLINE_EXCEEDED"));await new Promise(resolve=>setTimeout(resolve,200));assert.equal(released,1)});
 test("a delayed final PostgreSQL operation is database-bounded and cannot false-pass",async()=>{await hydrateStorage();const started=Date.now(),result=await runRestoreChecker({pool:poolWithDelayedQuery(/security_status='SCANNING'/,1),storage,manifest:await manifest(),runningApplicationRelease:"release-61",manifestReference:"test",overallTimeoutMs:500});assert.ok(Date.now()-started<900);assert.equal(result.overallStatus,"FAIL");assert.ok(result.findings.some(f=>f.code==="VERIFICATION_DEADLINE_EXCEEDED"));assert.ok(!result.checks.some(check=>check.name==="external-payment-reality"))});
+
+test("retained historical evidence participates in recovery without mutation or false orphans",async()=>{
+ await hydrateStorage();
+ const base=(await admin.query("SELECT id request_id,created_by user_id FROM payment_requests LIMIT 1")).rows[0];
+ const id=randomUUID(),key=`active/${id}`,sha="f".repeat(64);
+ await admin.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference,storage_binding_state,storage_backend_id,storage_object_version,trusted_storage_object_key,trusted_storage_object_version) VALUES($1,$2,$3,'bounded.pdf',$4,'application/pdf',4,$5,'INVOICE',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'TEST_SCANNER','bounded-proof','VERSION_BOUND','test-recovery','source-v1',$7,'trusted-v1')`,[id,base.request_id,randomUUID(),`quarantine/${id}`,sha,base.user_id,key]);
+ await admin.query("UPDATE payment_documents SET removed_at=now() WHERE id=$1",[id]);
+ storage.objects.set(key,{sizeBytes:4,sha256:sha,objectVersion:"trusted-v1"});
+ const before=await fingerprints();
+ const healthy=await check({documentPageSize:1,objectPageSize:1});
+ assert.equal(healthy.documentCoverage.complete,true);
+ assert.equal(healthy.orphanCoverage.orphans,0);
+ assert.ok(healthy.checks.some(c=>c.name==="historical-document-inventory"&&c.count>=1));
+ assert.ok(healthy.checks.some(c=>c.name==="current-document-inventory"&&c.count>=1));
+ assert.deepEqual(await check({documentPageSize:1,objectPageSize:1}),healthy);
+ storage.objects.delete(key);
+ const missing=await check();
+ assert.ok(missing.findings.some(f=>f.code==="CLEAN_DOCUMENT_OBJECT_UNAVAILABLE"&&f.reference===id));
+ assert.equal(missing.documentCoverage.complete,false);
+ storage.objects.set(key,{sizeBytes:4,sha256:"0".repeat(64),objectVersion:"trusted-v1"});
+ assert.ok((await check()).findings.some(f=>f.code==="CLEAN_DOCUMENT_HASH_MISMATCH"&&f.reference===id));
+ storage.objects.set(key,{sizeBytes:5,sha256:sha,objectVersion:"trusted-v1"});
+ assert.ok((await check()).findings.some(f=>f.code==="CLEAN_DOCUMENT_SIZE_MISMATCH"&&f.reference===id));
+ storage.objects.set(key,{sizeBytes:4,sha256:sha,objectVersion:"trusted-v1"});
+ storage.objects.set("active/true-orphan",{sizeBytes:4,sha256:sha,objectVersion:"orphan-v1"});
+ const orphan=await check();assert.equal(orphan.orphanCoverage.orphans,1);
+ assert.ok(orphan.findings.some(f=>f.code==="ORPHAN_OBJECT_PRESENT"&&f.count===1));
+ storage.objects.delete("active/true-orphan");
+ assert.deepEqual(await fingerprints(),before);
+});
+
 test.after(async()=>{await Promise.all([app.end(),admin.end()])});

@@ -113,7 +113,7 @@ export class DashboardService {
         [ds, category, from, to],
       ),
       this.db.pool.query<Row>(
-        `SELECT count(*)FILTER(WHERE f.status='CHECKING')::int pending,count(*)FILTER(WHERE f.status='HOLD')::int holds,count(*)FILTER(WHERE f.status='PASSED' AND pr.status='READY_FOR_PAYMENT')::int ready FROM finance_control_runs f JOIN payment_requests pr ON pr.id=f.payment_request_id WHERE f.is_current AND($1::uuid[] IS NULL OR pr.department_id=ANY($1))AND($2::text IS NULL OR pr.category=$2)`,
+        `SELECT count(*)FILTER(WHERE f.status='CHECKING' AND pr.status='FINANCE_CHECK')::int pending,count(*)FILTER(WHERE f.status='HOLD' AND pr.status='FINANCE_HOLD')::int holds,count(*)FILTER(WHERE f.status='PASSED' AND pr.status='READY_FOR_PAYMENT')::int ready FROM finance_control_runs f JOIN payment_requests pr ON pr.id=f.payment_request_id WHERE f.is_current AND($1::uuid[] IS NULL OR pr.department_id=ANY($1))AND($2::text IS NULL OR pr.category=$2)`,
         [ds, category],
       ),
       this.db.pool.query<Row>(

@@ -119,6 +119,42 @@ export class PaymentDocumentService {
     return{data,mimeType:row.mime_type,filename:sanitizeFilename(row.original_filename)};
   }
 
+  async history(requestId: string, actor: Principal) {
+    await this.requests.get(requestId, actor);
+    const result = await this.database.pool.query(
+      `SELECT id,logical_document_id,original_filename,mime_type,size_bytes,sha256,document_type,
+        version,uploaded_by,uploaded_at,removed_at,
+        (security_status='CLEAN' AND storage_binding_state='VERSION_BOUND'
+          AND trusted_storage_object_key IS NOT NULL AND trusted_storage_object_version IS NOT NULL) downloadable
+       FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NOT NULL
+       ORDER BY logical_document_id,version,id`, [requestId]);
+    return { items: result.rows.map(row => ({ ...row, historical: true, activeEvidence: false })) };
+  }
+
+  async downloadHistorical(requestId: string, documentId: string, actor: Principal, correlationId: string) {
+    const request = await this.requests.get(requestId, actor);
+    const result = await this.database.pool.query<{
+      storage_backend_id: string; trusted_storage_object_key: string; trusted_storage_object_version: string;
+      sha256: string; mime_type: string; original_filename: string; version: number; logical_document_id: string;
+    }>(
+      `SELECT storage_backend_id,trusted_storage_object_key,trusted_storage_object_version,sha256,
+        mime_type,original_filename,version,logical_document_id FROM payment_documents
+       WHERE id=$1 AND payment_request_id=$2 AND removed_at IS NOT NULL
+         AND security_status='CLEAN' AND storage_binding_state='VERSION_BOUND'
+         AND trusted_storage_object_key IS NOT NULL AND trusted_storage_object_version IS NOT NULL`,
+      [documentId, requestId]);
+    if (!result.rowCount) throw new NotFoundException("Downloadable historical document not found");
+    const row = result.rows[0];
+    const data = await this.storage.read(row.storage_backend_id, row.trusted_storage_object_key,
+      row.trusted_storage_object_version, row.sha256);
+    await this.database.transaction(client => this.requests.audit(client, actor.id,
+      "DOCUMENT_HISTORICAL_DOWNLOADED", requestId, request.status, request.status, correlationId,
+      { documentId, logicalDocumentId: row.logical_document_id, version: row.version, historical: true, activeEvidence: false }));
+    return { data, mimeType: row.mime_type,
+      filename: `historical-v${row.version}-${sanitizeFilename(row.original_filename)}`,
+      version: row.version, historical: true, activeEvidence: false };
+  }
+
   private async canUploadClarification(requestId:string,status:string,createdBy:string,actor:Principal):Promise<boolean>{
     if(status!=="NEEDS_CLARIFICATION"||createdBy!==actor.id)return false;
     return Boolean((await this.database.pool.query("SELECT 1 FROM validation_clarifications WHERE payment_request_id=$1 AND status='OPEN'",[requestId])).rowCount);

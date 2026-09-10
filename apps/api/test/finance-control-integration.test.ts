@@ -2211,3 +2211,104 @@ test('Finance Control readiness is false on hold, cancelled and rejected request
   await assert.rejects(held.service.start(rejected.id,finance,'p166-rejected-start'),/Terminal requests/);
  }finally{await db.onModuleDestroy()}
 });
+
+test('payment history totals describe the filtered set across populated and empty pages',async()=>{
+ const db=new Postgres();
+ try{
+  const label=`p167-${randomUUID()}`;
+  const first=await readyPayment(db,label);
+  const paid=await first.service.record(first.fixture.request.id,first.command,finance,'p167-first') as any;
+  const query={page:1,pageSize:1,search:paid.ticketNumber};
+  const one=await first.service.list(finance,query);
+  assert.equal(one.items.length,1);assert.equal(one.total,1);assert.equal(one.page,1);assert.equal(one.pageSize,1);
+  const beyond=await first.service.list(finance,{...query,page:2});
+  assert.deepEqual(beyond.items,[]);assert.equal(beyond.total,1);assert.equal(beyond.page,2);assert.equal(beyond.pageSize,1);
+  const empty=await first.service.list(finance,{...query,search:randomUUID()});
+  assert.deepEqual(empty.items,[]);assert.equal(empty.total,0);
+  const second=await readyPayment(db,label);
+  const earlierDate=new Date(Date.now()-86400000).toISOString().slice(0,10);
+  const paidEarlier=await second.service.record(second.fixture.request.id,{...second.command,paymentDate:earlierDate,confirmPossibleDuplicate:true},finance,'p167-second') as any;
+  // Unique bank-reference prefix isolates these two payments from other fixtures.
+  const all=await first.service.list(finance,{page:1,pageSize:25,search:label});
+  assert.equal(all.total,2);assert.deepEqual(all.items.map((item:any)=>item.id),[paid.id,paidEarlier.id]);
+  for(const page of [1,2,3,100]){
+   const result=await first.service.list(finance,{page,pageSize:1,search:label});
+   assert.equal(result.total,2);assert.equal(result.items.length,page<=2?1:0);
+   if(page<=2)assert.equal(result.items[0].id,all.items[page-1].id);
+  }
+  const todayOnly=await first.service.list(finance,{page:1,pageSize:1,search:label,dateFrom:new Date().toISOString().slice(0,10)});
+  assert.equal(todayOnly.total,1);assert.equal(todayOnly.items[0].id,paid.id);
+  const olderOnly=await first.service.list(finance,{page:2,pageSize:1,search:label,dateTo:earlierDate});
+  assert.equal(olderOnly.total,1);assert.deepEqual(olderOnly.items,[]);
+  const wrongCategory=await first.service.list(finance,{page:1,pageSize:1,search:label,category:'No matching category'});
+  assert.equal(wrongCategory.total,0);assert.deepEqual(wrongCategory.items,[]);
+  const requesterView=await first.service.list(requester,{page:2,pageSize:1,search:paid.ticketNumber});
+  assert.equal(requesterView.total,1);assert.deepEqual(requesterView.items,[]);
+ }finally{await db.onModuleDestroy()}
+});
+
+test('Dashboard counts only business-active Finance Holds and preserves historical evidence',async()=>{
+ const {DashboardService}=await import('../src/application/dashboard/dashboard.service.js');
+ const db=new Postgres(),dashboard=new DashboardService(db);
+ try{
+  const base=await dashboard.summary(finance,{page:1,pageSize:25});
+  const baseline=Number(base.financeControl.holds);
+  const held=await approved(db);
+  const run=await held.service.start(held.request.id,finance,'p168-start') as any;
+  await held.service.finalize(run.run.id,{commandKey:randomUUID()},finance,'p168-hold');
+  assert.equal(Number((await dashboard.summary(finance,{page:1,pageSize:25})).financeControl.holds),baseline+1);
+  const beforeRun=(await db.pool.query('SELECT to_jsonb(f) value FROM finance_control_runs f WHERE id=$1',[run.run.id])).rows[0].value;
+  assert.equal(beforeRun.status,'HOLD');
+  await held.requests.cancel(held.request.id,{reason:'Request withdrawn',commandKey:randomUUID()},requester,'p168-cancel');
+  const after=await dashboard.summary(finance,{page:1,pageSize:25});
+  assert.equal(Number(after.financeControl.holds),baseline);
+  assert.equal(after.requests.CANCELLED.count,(base.requests.CANCELLED?.count??0)+1);
+  const historical=await held.service.history(held.request.id,finance);
+  assert.ok(historical.items.some((row:any)=>row.id===run.run.id&&row.status==='HOLD'));
+  assert.deepEqual((await db.pool.query('SELECT to_jsonb(f) value FROM finance_control_runs f WHERE id=$1',[run.run.id])).rows[0].value,beforeRun);
+  const audit=(await db.pool.query('SELECT to_jsonb(a) value FROM audit_events a WHERE entity_id=$1 ORDER BY id',[held.request.id])).rows;
+  for(let i=0;i<3;i++){
+   const repeated=await dashboard.summary(finance,{page:1,pageSize:25});
+   assert.deepEqual(repeated.financeControl,after.financeControl);
+   assert.deepEqual(repeated.requests,after.requests);
+  }
+  assert.deepEqual((await db.pool.query('SELECT to_jsonb(a) value FROM audit_events a WHERE entity_id=$1 ORDER BY id',[held.request.id])).rows,audit);
+  // Preserve a HOLD record while varying its request lifecycle to exercise the reporting predicate.
+  await db.pool.query("UPDATE payment_requests SET status='REJECTED' WHERE id=$1",[held.request.id]);
+  assert.equal(Number((await dashboard.summary(finance,{page:1,pageSize:25})).financeControl.holds),baseline);
+  const ready=await readyPayment(db,'p168-payment');
+  assert.equal(Number((await dashboard.summary(finance,{page:1,pageSize:25})).financeControl.holds),baseline);
+  await ready.service.record(ready.fixture.request.id,ready.command,finance,'p168-paid');
+  assert.equal((await ready.fixture.requests.get(ready.fixture.request.id,requester)).status,'PAID');
+  assert.equal(Number((await dashboard.summary(finance,{page:1,pageSize:25})).financeControl.holds),baseline);
+ }finally{await db.onModuleDestroy()}
+});
+
+
+test('Dashboard pending Finance work follows the current lifecycle and preserves historical evidence',async()=>{
+ const {DashboardService}=await import('../src/application/dashboard/dashboard.service.js');
+ const db=new Postgres(),dashboard=new DashboardService(db),filter={page:1,pageSize:25};
+ try{
+  const base=await dashboard.summary(finance,filter),pending=Number(base.financeControl.pending);
+  const f=await approved(db),run=await f.service.start(f.request.id,finance,'p1611-start') as any;
+  assert.equal(Number((await dashboard.summary(finance,filter)).financeControl.pending),pending+1);
+  const evidence=(await db.pool.query('SELECT to_jsonb(f) value FROM finance_control_runs f WHERE id=$1',[run.run.id])).rows;
+  await f.requests.cancel(f.request.id,{reason:'Pending request withdrawn',commandKey:randomUUID()},requester,'p1611-cancel');
+  const after=await dashboard.summary(finance,filter);
+  assert.equal(Number(after.financeControl.pending),pending);
+  assert.equal(after.requests.CANCELLED.count,(base.requests.CANCELLED?.count??0)+1);
+  assert.deepEqual((await db.pool.query('SELECT to_jsonb(f) value FROM finance_control_runs f WHERE id=$1',[run.run.id])).rows,evidence);
+  assert.ok((await f.service.history(f.request.id,finance)).items.some((r:any)=>r.id===run.run.id&&r.status==='CHECKING'));
+  const audit=(await db.pool.query('SELECT to_jsonb(a) value FROM audit_events a WHERE entity_id=$1 ORDER BY id',[f.request.id])).rows;
+  for(let i=0;i<3;i++){const repeated=await dashboard.summary(finance,filter);assert.deepEqual({...repeated,dataSnapshotAsOf:after.dataSnapshotAsOf},after);}
+  assert.deepEqual((await db.pool.query('SELECT to_jsonb(a) value FROM audit_events a WHERE entity_id=$1 ORDER BY id',[f.request.id])).rows,audit);
+  for(const pass of [true,false]){
+   const next=await approved(db),started=await next.service.start(next.request.id,finance,'p1611-next') as any;
+   assert.equal(Number((await dashboard.summary(finance,filter)).financeControl.pending),pending+1);
+   if(pass)await confirmRequired(next.service,started.run.id);
+   await next.service.finalize(started.run.id,{commandKey:randomUUID()},finance,'p1611-finalize');
+   assert.equal((await next.requests.get(next.request.id,requester)).status,pass?'READY_FOR_PAYMENT':'FINANCE_HOLD');
+   assert.equal(Number((await dashboard.summary(finance,filter)).financeControl.pending),pending);
+  }
+ }finally{await db.onModuleDestroy()}
+});

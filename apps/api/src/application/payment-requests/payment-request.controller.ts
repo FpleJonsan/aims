@@ -64,6 +64,23 @@ export class PaymentRequestController {
     return this.documents.scan(id,documentId,request.principal,request.correlationId);
   }
 
+  @Get(':id/documents/history')
+  history(@Req() request: Request, @Param('id', ParseUUIDPipe) id: string) {
+    return this.documents.history(id, request.principal);
+  }
+
+  @Get(':id/documents/:documentId/history/download')
+  async downloadHistorical(@Req() request: Request, @Res() response: Response,
+    @Param('id', ParseUUIDPipe) id: string, @Param('documentId', ParseUUIDPipe) documentId: string) {
+    const file = await this.documents.downloadHistorical(id, documentId, request.principal, request.correlationId);
+    response.setHeader('content-type', file.mimeType);
+    response.setHeader('x-content-type-options', 'nosniff');
+    response.setHeader('x-aims-document-historical', 'true');
+    response.setHeader('x-aims-document-version', String(file.version));
+    response.setHeader('content-disposition', safeAttachment(file.filename));
+    response.send(Buffer.from(file.data));
+  }
+
   @Get(':id/documents/:documentId/download')
   async download(@Req() request:Request,@Res() response:Response,@Param('id',ParseUUIDPipe) id:string,@Param('documentId',ParseUUIDPipe) documentId:string){
     const file=await this.documents.download(id,documentId,request.principal,request.correlationId);

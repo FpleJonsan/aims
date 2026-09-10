@@ -192,18 +192,23 @@ export class PaymentService {
       (input.page - 1) * Math.min(input.pageSize, 100),
     ];
     const q = await this.db.pool.query(
-      `SELECT p.*,d.name department_name,u.display_name recorded_by_name,count(*) OVER() total,
+      `WITH filtered AS (
+       SELECT p.*,d.name department_name,u.display_name recorded_by_name,
        EXISTS(SELECT 1 FROM payment_authorities pa JOIN users au ON au.id=pa.user_id AND au.active
          WHERE pa.user_id=$1 AND pa.active AND(pa.scope='ORGANIZATION' OR pa.department_id=p.department_id)) finance_access
       FROM payments p JOIN departments d ON d.id=p.department_id JOIN users u ON u.id=p.recorded_by JOIN payment_requests pr ON pr.id=p.payment_request_id
       WHERE (pr.created_by=$1 OR EXISTS(SELECT 1 FROM payment_authorities pa JOIN users au ON au.id=pa.user_id AND au.active WHERE pa.user_id=$1 AND pa.active AND(pa.scope='ORGANIZATION' OR pa.department_id=p.department_id)))
       AND($2::text IS NULL OR p.ticket_number ILIKE '%'||$2||'%' OR p.payee ILIKE '%'||$2||'%' OR(EXISTS(SELECT 1 FROM payment_authorities pa WHERE pa.user_id=$1 AND pa.active AND(pa.scope='ORGANIZATION' OR pa.department_id=p.department_id)) AND p.bank_reference ILIKE '%'||$2||'%'))
       AND($3::uuid IS NULL OR p.department_id=$3)AND($4::text IS NULL OR p.category=$4)AND($5::date IS NULL OR p.payment_date>=$5)AND($6::date IS NULL OR p.payment_date<=$6)AND($7::text IS NULL OR p.payee ILIKE '%'||$7||'%')
-      ORDER BY p.payment_date DESC,p.id DESC LIMIT $8 OFFSET $9`,
+      ), page_rows AS (
+        SELECT * FROM filtered ORDER BY payment_date DESC,id DESC LIMIT $8 OFFSET $9
+      )
+      SELECT page_rows.*,totals.total FROM (SELECT count(*) total FROM filtered) totals
+      LEFT JOIN page_rows ON true ORDER BY page_rows.payment_date DESC,page_rows.id DESC`,
       values,
     );
     return {
-      items: q.rows.map((x: any) => this.present(x, x.finance_access)),
+      items: q.rows.filter((x: any) => x.id !== null).map((x: any) => this.present(x, x.finance_access)),
       total: Number(q.rows[0]?.total ?? 0),
       page: input.page,
       pageSize: Math.min(input.pageSize, 100),
