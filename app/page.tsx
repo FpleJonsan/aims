@@ -231,20 +231,6 @@ export default function Home() {
               dashboardDrill?.view === "PAYMENT_HISTORY" ? dashboardDrill.filters : {}
             }
           />
-        ) : dashboardDrill?.view === "REPORTING_REQUESTS" ? (
-          <ReportingRequestDrill
-            api={api}
-            drill={dashboardDrill}
-            back={() => setDashboardDrill(null)}
-          />
-        ) : dashboardDrill?.view === "FINANCE_CONTROL" ||
-          dashboardDrill?.view === "PAYMENT_QUEUE" ? (
-          <OperationalDrill
-            api={api}
-            drill={dashboardDrill}
-            open={open}
-            back={() => setDashboardDrill(null)}
-          />
         ) : selected ? (
           <Editor
             item={selected}
@@ -262,6 +248,20 @@ export default function Home() {
               await refresh();
             }}
             back={closeSelected}
+          />
+        ) : dashboardDrill?.view === "REPORTING_REQUESTS" ? (
+          <ReportingRequestDrill
+            api={api}
+            drill={dashboardDrill}
+            back={() => setDashboardDrill(null)}
+          />
+        ) : dashboardDrill?.view === "FINANCE_CONTROL" ||
+          dashboardDrill?.view === "PAYMENT_QUEUE" ? (
+          <OperationalDrill
+            api={api}
+            drill={dashboardDrill}
+            open={open}
+            back={() => setDashboardDrill(null)}
           />
         ) : (
           <>

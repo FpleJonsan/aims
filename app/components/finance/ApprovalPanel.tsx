@@ -58,6 +58,7 @@ export function ApprovalPanel({
     };
   }, [api, item.id]);
   async function create() {
+    setNotice("");
     try {
       await api(`/payment-requests/${item.id}/approval`, {
         method: "POST",
@@ -66,7 +67,12 @@ export function ApprovalPanel({
       await load();
       await changed();
     } catch (e) {
-      setNotice(msg(e));
+      const message = msg(e);
+      setNotice(
+        message === "Approval route is unresolved"
+          ? "Approval route is unresolved. Re-evaluate System Policy after the human-final risk and amount match an active rule (for demo: LOW ≤ MYR 1,000 auto-approves; MEDIUM ≤ MYR 1,000 needs AM review)."
+          : message,
+      );
     }
   }
   async function action(
