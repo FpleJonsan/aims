@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomUUID } from "node:crypto";
+import type { PoolClient } from "pg";
 import {
   ConflictException,
   ForbiddenException,
@@ -151,48 +152,49 @@ export class FinancialAnalysisService {
     correlationId: string,
   ) {
     this.authorize(actor);
-    const eligible = await this.eligible(id);
-    const run = await this.createRun(
-      id,
-      eligible,
-      actor,
-      "MANUAL",
-      correlationId,
-      true,
-    );
-    await this.db.transaction(async (c) => {
-      await c.query(
-        `INSERT INTO financial_risk_assessments(id,analysis_run_id,final_risk,final_priority,final_urgency,suggested_deadline,risk_flags,financial_assessment,spending_assessment,compliance_remarks,evidence_references,remarks) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-        [
-          randomUUID(),
-          run.id,
-          input.riskLevel,
-          input.priority,
-          input.urgency,
-          input.suggestedDeadline ?? null,
-          JSON.stringify(input.riskFlags),
-          input.financialAssessment,
-          input.spendingAssessment,
-          input.complianceRemarks,
-          JSON.stringify(input.evidenceReferences),
-          input.remarks ?? null,
-        ],
-      );
-      await c.query(
-        "UPDATE financial_analysis_runs SET status='FINALIZED',finalized_by=$2,finalized_at=now() WHERE id=$1",
-        [run.id, actor.id],
-      );
-      await this.requests.audit(
-        c,
-        actor.id,
-        "MANUAL_FINANCIAL_ANALYSIS_COMPLETED",
-        id,
-        "VALIDATING",
-        "VALIDATING",
-        correlationId,
-        { analysisId: run.id, financeContextId: eligible.context.id },
-      );
-    });
+    try {
+      await this.db.transaction(async (c) => {
+        await c.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+        await this.requests.lockRequest(c, id);
+        const eligible = await this.eligible(id, c);
+        const run = await this.createRun(id, eligible, actor, "MANUAL", correlationId, true, c);
+        await c.query(
+          `INSERT INTO financial_risk_assessments(id,analysis_run_id,final_risk,final_priority,final_urgency,suggested_deadline,risk_flags,financial_assessment,spending_assessment,compliance_remarks,evidence_references,remarks) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          [
+            randomUUID(),
+            run.id,
+            input.riskLevel,
+            input.priority,
+            input.urgency,
+            input.suggestedDeadline ?? null,
+            JSON.stringify(input.riskFlags),
+            input.financialAssessment,
+            input.spendingAssessment,
+            input.complianceRemarks,
+            JSON.stringify(input.evidenceReferences),
+            input.remarks ?? null,
+          ],
+        );
+        await c.query(
+          "UPDATE financial_analysis_runs SET status='FINALIZED',finalized_by=$2,finalized_at=now() WHERE id=$1",
+          [run.id, actor.id],
+        );
+        await this.requests.audit(
+          c,
+          actor.id,
+          "MANUAL_FINANCIAL_ANALYSIS_COMPLETED",
+          id,
+          "VALIDATING",
+          "VALIDATING",
+          correlationId,
+          { analysisId: run.id, financeContextId: eligible.context.id },
+        );
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code === "40001")
+        throw new ConflictException("Financial assessment changed during submission; reload and retry");
+      throw error;
+    }
     return this.get(id, actor, false);
   }
   async finalize(
@@ -280,18 +282,18 @@ export class FinancialAnalysisService {
     }
     return history ? output : output[0];
   }
-  private async eligible(id: string) {
-    const request = await this.db.pool.query<any>(
+  private async eligible(id: string, reader: Pick<PoolClient, "query"> = this.db.pool) {
+    const request = await reader.query<any>(
       "SELECT * FROM payment_requests WHERE id=$1",
       [id],
     );
     if (!request.rowCount)
       throw new NotFoundException("Payment request not found");
-    const validation = await this.db.pool.query<any>(
+    const validation = await reader.query<any>(
       "SELECT id FROM validation_runs WHERE payment_request_id=$1 AND is_current AND status='COMPLETED' AND overall_result='PASS' AND request_revision=$2",
       [id, request.rows[0].row_version],
     );
-    const context = await this.db.pool.query<any>(
+    const context = await reader.query<any>(
       "SELECT * FROM finance_context_snapshots WHERE payment_request_id=$1 AND is_current AND status='COMPLETED' AND request_revision=$2",
       [id, request.rows[0].row_version],
     );
@@ -342,8 +344,9 @@ export class FinancialAnalysisService {
     source: string,
     correlationId: string,
     supersede = false,
+    client?: PoolClient,
   ) {
-    return this.db.transaction(async (c) => {
+    const create = async (c: PoolClient) => {
       await c.query("SELECT id FROM payment_requests WHERE id=$1 FOR UPDATE", [
         id,
       ]);
@@ -401,7 +404,8 @@ export class FinancialAnalysisService {
         { analysisId: run.rows[0].id, financeContextId: e.context.id },
       );
       return { ...run.rows[0], reused: false };
-    });
+    };
+    return client ? create(client) : this.db.transaction(create);
   }
   private async callAgent(
     runId: string,

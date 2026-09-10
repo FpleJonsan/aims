@@ -76,6 +76,8 @@ export class FinanceControlService {
     return this.db.financeTransaction(actor.id, correlationId, async (c) => {
       const request = await this.requests.lockRequest(c, id);
       await this.authorize(c, actor, request);
+      if (["PAID", "CANCELLED", "REJECTED"].includes(request.status))
+        throw new ConflictException("Terminal requests cannot enter Final Finance Control");
       const current = await c.query<any>(
         "SELECT * FROM finance_control_runs WHERE payment_request_id=$1 AND is_current FOR UPDATE",
         [id],
@@ -918,6 +920,11 @@ export class FinanceControlService {
     return checks;
   }
   private async present(c: any, run: any) {
+    const readiness = await c.query(
+      `SELECT 1 FROM finance_control_runs f JOIN payment_requests p ON p.id=f.payment_request_id
+       WHERE f.id=$1 AND f.is_current AND f.status='PASSED' AND p.status='READY_FOR_PAYMENT'`,
+      [run.id],
+    );
     return {
       run,
       checks: (
@@ -939,7 +946,7 @@ export class FinanceControlService {
             [run.id],
           )
         ).rows[0] ?? null,
-      readyForPayment: run.status === "PASSED",
+      readyForPayment: Boolean(readiness.rowCount),
     };
   }
   private async finalizeReplay(c: any, run: any) {
@@ -949,7 +956,7 @@ export class FinanceControlService {
         ...view,
         idempotent: true,
         result: "PASS",
-        readyForPayment: true,
+        readyForPayment: view.readyForPayment,
       };
     const failedCheckCodes =
       view.exception?.failed_check_codes ??

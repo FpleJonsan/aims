@@ -67,6 +67,17 @@ export class PolicyService {
       await c.query("SELECT id FROM payment_requests WHERE id=$1 FOR UPDATE", [
         id,
       ]);
+      // Evidence clarification remains the current business action, even after
+      // an upload supersedes the policy decision that requested it.
+      const pending = await c.query<any>(
+        `SELECT d.*,e.id exception_id,e.exception_code,e.status exception_status,
+          v.id clarification_id
+         FROM payment_requests p JOIN validation_clarifications v ON v.payment_request_id=p.id AND v.status='OPEN'
+         JOIN policy_decision_runs d ON d.payment_request_id=p.id AND d.validation_run_id=v.validation_run_id
+         JOIN policy_exceptions e ON e.policy_decision_run_id=d.id AND e.exception_code='REQUIRED_EVIDENCE_MISSING'
+         WHERE p.id=$1 AND p.status='NEEDS_CLARIFICATION' ORDER BY d.evaluated_at DESC LIMIT 1`, [id]);
+      if (pending.rowCount) return { ...pending.rows[0], ready_for_approval: false,
+        returnTo: "VALIDATION", clarificationId: pending.rows[0].clarification_id };
       const factsResult = await c.query<any>(
         `SELECT p.*,v.id validation_id,f.id context_id,f.request_amount_minor policy_amount_minor,a.id analysis_id,ra.final_risk,ra.final_priority,ra.risk_flags
    FROM payment_requests p
@@ -118,7 +129,8 @@ export class PolicyService {
         existing.rows[0].financial_analysis_run_id === f.analysis_id &&
         existing.rows[0].policy_version_id === version.id &&
         existing.rows[0].evidence_fingerprint === evidenceFingerprint &&
-        existing.rows[0].existing_exception_status !== "JUSTIFIED"
+        existing.rows[0].existing_exception_status !== "JUSTIFIED" &&
+        existing.rows[0].existing_exception_code !== "REQUIRED_EVIDENCE_MISSING"
       )
         return this.present(existing.rows[0], true);
       if (existing.rowCount)
@@ -247,14 +259,28 @@ export class PolicyService {
             result.exception?.justificationRole ?? "FINANCE",
           ],
         );
+      let clarificationId: string | undefined;
+      if (exceptionCode === "REQUIRED_EVIDENCE_MISSING") {
+        clarificationId = randomUUID();
+        await c.query(
+          `INSERT INTO validation_clarifications(id,payment_request_id,validation_run_id,clarification_type,reason,required_response,requested_by)
+           VALUES($1,$2,$3,'VALIDATION',$4,$5,$6)`,
+          [clarificationId, id, f.validation_id, exceptionReason,
+            "Upload the missing policy evidence and submit a clarification response for re-validation", actor.id]);
+        await c.query(
+          "UPDATE payment_requests SET status='NEEDS_CLARIFICATION',updated_at=now(),row_version=row_version+1 WHERE id=$1", [id]);
+        await this.requests.audit(c, actor.id, "VALIDATION_CLARIFICATION_REQUESTED", id,
+          f.status, "NEEDS_CLARIFICATION", correlationId,
+          { runId: f.validation_id, clarificationId, decisionId, exceptionId: policyExceptionId, source: "POLICY", missingEvidence: result.missingEvidence });
+      }
       if (result.result === "JUSTIFICATION_REQUIRED")
         await this.requests.audit(
           c,
           actor.id,
           "POLICY_JUSTIFICATION_REQUESTED",
           id,
-          "VALIDATING",
-          "VALIDATING",
+          clarificationId ? "NEEDS_CLARIFICATION" : f.status,
+          clarificationId ? "NEEDS_CLARIFICATION" : f.status,
           correlationId,
           {
             decisionId,
@@ -269,8 +295,8 @@ export class PolicyService {
           ? "POLICY_EVALUATION_COMPLETED"
           : "POLICY_EVALUATION_EXCEPTION",
         id,
-        "VALIDATING",
-        "VALIDATING",
+        clarificationId ? "NEEDS_CLARIFICATION" : f.status,
+        clarificationId ? "NEEDS_CLARIFICATION" : f.status,
         correlationId,
         {
           decisionId,
@@ -284,7 +310,7 @@ export class PolicyService {
          FROM policy_decision_runs d LEFT JOIN policy_sets ps ON ps.id=d.policy_set_id LEFT JOIN policy_versions pv ON pv.id=d.policy_version_id LEFT JOIN policy_exceptions e ON e.policy_decision_run_id=d.id WHERE d.id=$1`,
         [decisionId],
       );
-      return { ...created.rows[0], stale: false };
+      return { ...created.rows[0], stale: false, ...(clarificationId ? { returnTo: "VALIDATION", clarificationId } : {}) };
     });
   }
   async justify(
@@ -296,6 +322,7 @@ export class PolicyService {
   ) {
     await this.requests.get(id, actor);
     return this.db.transaction(async (c) => {
+      const request = await this.requests.lockRequest(c, id);
       const e = await c.query<any>(
         "SELECT * FROM policy_exceptions WHERE id=$1 AND payment_request_id=$2 FOR UPDATE",
         [exceptionId, id],
@@ -319,8 +346,8 @@ export class PolicyService {
         actor.id,
         "POLICY_JUSTIFICATION_SUBMITTED",
         id,
-        "VALIDATING",
-        "VALIDATING",
+        request.status,
+        request.status,
         correlationId,
         {
           exceptionId,

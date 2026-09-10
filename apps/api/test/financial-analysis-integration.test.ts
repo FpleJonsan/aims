@@ -4,3 +4,56 @@ async function eligible(db:Postgres,requests:PaymentRequestService){const valida
 const manual={riskLevel:'MEDIUM',priority:'HIGH',urgency:'NORMAL',riskFlags:[{code:'BUDGET_PRESSURE'}],financialAssessment:'Projected budget remains positive.',spendingAssessment:'Historical data reviewed.',complianceRemarks:'Validation is complete.',evidenceReferences:[{source:'FINANCE_CONTEXT',reference:'current snapshot',field:'projected_available_amount_minor'}],remarks:'Manual finance review'};
 test('manual mode finalizes without AI and does not start Policy',async()=>{const db=new Postgres(),requests=new PaymentRequestService(db),service=new FinancialAnalysisService(db,requests,null);try{const r=await eligible(db,requests);await assert.rejects(()=>service.manual(r.id,manual,requester,'d4-noauth'));const result=await service.manual(r.id,manual,finance,'d4-manual');assert.equal(result.status,'FINALIZED');assert.equal(result.readyForPolicyEvaluation,true);assert.equal(result.ai_assessment,null);assert.equal((await requests.get(r.id,requester)).status,'VALIDATING');const approvals=await db.pool.query(`SELECT (SELECT count(*) FROM policy_decision_runs WHERE payment_request_id=$1)+(SELECT count(*) FROM approval_cases WHERE payment_request_id=$1) count`,[r.id]);assert.equal(Number(approvals.rows[0].count),0)}finally{await db.onModuleDestroy()}});
 test('AI master off makes zero provider calls and requests manual assessment',async()=>{const db=new Postgres(),requests=new PaymentRequestService(db);let calls=0;const provider={analyzeFinancialAgent:async()=>{calls++;throw Error('must not call')}};const service=new FinancialAnalysisService(db,requests,provider as never);try{const r=await eligible(db,requests);const result=await service.start(r.id,finance,'d4-off');assert.equal(result.mode,'MANUAL');assert.equal(calls,0)}finally{await db.onModuleDestroy()}});
+
+test('manual submission rolls back every change when completion audit fails', async () => {
+ const db=new Postgres(),requests=new PaymentRequestService(db),service=new FinancialAnalysisService(db,requests,null);
+ try {
+  const r=await eligible(db,requests);
+  const snapshot=async()=>({
+   request:(await db.pool.query('SELECT to_jsonb(r) value FROM payment_requests r WHERE id=$1',[r.id])).rows,
+   runs:(await db.pool.query('SELECT to_jsonb(r) value FROM financial_analysis_runs r WHERE payment_request_id=$1 ORDER BY id',[r.id])).rows,
+   assessments:(await db.pool.query('SELECT to_jsonb(a) value FROM financial_risk_assessments a JOIN financial_analysis_runs r ON r.id=a.analysis_run_id WHERE r.payment_request_id=$1 ORDER BY a.id',[r.id])).rows,
+   audits:(await db.pool.query('SELECT to_jsonb(a) value FROM audit_events a WHERE entity_id=$1 ORDER BY id',[r.id])).rows,
+  });
+  const audit=requests.audit.bind(requests);
+  for(const existing of [false,true]) {
+   if(existing)await service.manual(r.id,manual,finance,'atomic-original');
+   const before=await snapshot();
+   requests.audit=async(...args)=>{if(args[2]==='MANUAL_FINANCIAL_ANALYSIS_COMPLETED')throw new Error('forced completion audit failure');return audit(...args)};
+   await assert.rejects(service.manual(r.id,{...manual,remarks:'Replacement'},finance,'atomic-failed'),/forced completion audit failure/);
+   requests.audit=audit;
+   assert.deepEqual(await snapshot(),before);
+  }
+  await service.manual(r.id,{...manual,remarks:'Successful replacement'},finance,'atomic-replacement');
+  const result=await snapshot();
+  assert.equal(result.runs.length,2);
+  assert.equal(result.runs.filter(row=>row.value.is_current&&row.value.status==='FINALIZED').length,1);
+  assert.equal(result.runs.filter(row=>row.value.status==='PROCESSING').length,0);
+  assert.equal(result.assessments.length,2);
+  assert.equal(result.audits.filter(row=>row.value.action==='MANUAL_FINANCIAL_ANALYSIS_COMPLETED').length,2);
+ } finally {await db.onModuleDestroy()}
+});
+
+test('concurrent manual submissions finalize exactly one command',async()=>{
+ const db=new Postgres(),requests=new PaymentRequestService(db),service=new FinancialAnalysisService(db,requests,null);
+ try {
+  const r=await eligible(db,requests);
+  const lock=requests.lockRequest.bind(requests);
+  let arrivals=0,release!:()=>void;
+  const barrier=new Promise<void>(resolve=>{release=resolve});
+  requests.lockRequest=async(client,id)=>{
+   await client.query('SELECT 1');
+   if(++arrivals===2)release();
+   await barrier;
+   return lock(client,id);
+  };
+  const results=await Promise.allSettled(['a','b'].map(label=>service.manual(r.id,{...manual,remarks:label},finance,`atomic-${label}`)));
+  assert.equal(results.filter(result=>result.status==='fulfilled').length,1);
+  const failure=results.find(result=>result.status==='rejected');
+  assert.ok(failure?.status==='rejected'&&failure.reason.getStatus()===409);
+  const runs=await db.pool.query('SELECT * FROM financial_analysis_runs WHERE payment_request_id=$1',[r.id]);
+  assert.equal(runs.rowCount,1);assert.equal(runs.rows[0].status,'FINALIZED');assert.equal(runs.rows[0].is_current,true);
+  assert.equal((await db.pool.query('SELECT 1 FROM financial_risk_assessments WHERE analysis_run_id=$1',[runs.rows[0].id])).rowCount,1);
+  assert.equal((await db.pool.query("SELECT 1 FROM audit_events WHERE entity_id=$1 AND action='MANUAL_FINANCIAL_ANALYSIS_COMPLETED'",[r.id])).rowCount,1);
+ } finally {await db.onModuleDestroy()}
+});

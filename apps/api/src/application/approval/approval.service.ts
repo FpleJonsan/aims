@@ -202,16 +202,30 @@ export class ApprovalService {
         const generation=await c.query("SELECT 1 FROM aims_recovery_generation WHERE singleton AND generation=$1",[recoveryGeneration]);
         if(!generation.rowCount)throw new ForbiddenException("Stale recovery generation authority");
       }
+      await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+        `approval-command:${input.commandKey.toLowerCase()}`,
+      ]);
       const duplicate = await c.query<any>(
-        "SELECT * FROM approval_actions WHERE command_key=$1",
+        `SELECT a.*,ac.payment_request_id command_request_id,s.approval_case_id command_case_id,
+          cl.required_response command_required_response
+         FROM approval_actions a JOIN approval_cases ac ON ac.id=a.approval_case_id
+         JOIN approval_steps s ON s.id=a.approval_step_id
+         LEFT JOIN approval_clarifications cl ON cl.approval_case_id=a.approval_case_id AND cl.approval_step_id=a.approval_step_id
+         WHERE a.command_key=$1`,
         [input.commandKey],
       );
       if (duplicate.rowCount) {
-        if (duplicate.rows[0].actor_id !== actor.id)
-          throw new ForbiddenException(
-            "Idempotency key belongs to another actor",
-          );
-        return { idempotent: true, action: duplicate.rows[0] };
+        const { command_request_id, command_case_id, command_required_response, ...action } = duplicate.rows[0];
+        if (action.actor_id !== actor.id.toLowerCase() ||
+            command_request_id !== id.toLowerCase() ||
+            action.approval_case_id !== command_case_id ||
+            action.approval_step_id !== stepId.toLowerCase() ||
+            action.action !== input.action || action.channel !== channel ||
+            action.reason !== (input.reason?.trim() ?? null) ||
+            (input.action === "REQUEST_CLARIFICATION" && command_required_response !== input.requiredResponse?.trim())) {
+          throw new ConflictException("Approval command key conflicts with the original command");
+        }
+        return { idempotent: true, action };
       }
       const request = await this.requests.lockRequest(c, id);
       const found = await c.query<any>(

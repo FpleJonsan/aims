@@ -2165,3 +2165,49 @@ test('cancellation from ready releases commitment atomically and prevents paymen
     assert.equal((await db.pool.query('SELECT 1 FROM payments WHERE payment_request_id=$1',[request.id])).rowCount,0);
   } finally {await db.onModuleDestroy()}
 });
+
+test('Finance Control readiness follows payment lifecycle while historical PASS and audit remain unchanged',async()=>{
+ const db=new Postgres();
+ try{
+  const ready=await readyPayment(db,'p166-paid');
+  const {request,service}=ready.fixture;
+  const before=await service.get(request.id,finance) as any;
+  assert.equal(before.readyForPayment,true);
+  const historical=await service.history(request.id,finance);
+  const originalRun=(await db.pool.query('SELECT to_jsonb(f) value FROM finance_control_runs f WHERE id=$1',[before.run.id])).rows[0].value;
+  const originalAudit=(await db.pool.query('SELECT to_jsonb(a) value FROM audit_events a WHERE entity_id=$1 ORDER BY id',[request.id])).rows;
+  await ready.service.record(request.id,ready.command,finance,'p166-pay');
+  const paidAudit=(await db.pool.query('SELECT to_jsonb(a) value FROM audit_events a WHERE entity_id=$1 ORDER BY id',[request.id])).rows;
+  for(const row of originalAudit)assert.ok(paidAudit.some(paid=>JSON.stringify(paid)===JSON.stringify(row)));
+  for(let attempt=0;attempt<3;attempt++){
+   const view=await service.get(request.id,finance) as any;
+   assert.equal(view.readyForPayment,false);assert.equal(view.run.status,'PASSED');
+  }
+  await assert.rejects(service.start(request.id,finance,'p166-restart'),/Terminal requests/);
+  const replay=await service.finalize(before.run.id,{commandKey:before.run.completed_command_key},finance,'p166-replay') as any;
+  assert.equal(replay.idempotent,true);assert.equal(replay.result,'PASS');assert.equal(replay.readyForPayment,false);
+  assert.deepEqual(await service.history(request.id,finance),historical);
+  assert.deepEqual((await db.pool.query('SELECT to_jsonb(f) value FROM finance_control_runs f WHERE id=$1',[before.run.id])).rows[0].value,originalRun);
+  assert.deepEqual((await db.pool.query('SELECT to_jsonb(a) value FROM audit_events a WHERE entity_id=$1 ORDER BY id',[request.id])).rows,paidAudit);
+  assert.equal((await ready.fixture.requests.get(request.id,requester)).status,'PAID');
+ }finally{await db.onModuleDestroy()}
+});
+
+test('Finance Control readiness is false on hold, cancelled and rejected requests',async()=>{
+ const db=new Postgres();
+ try{
+  const held=await approved(db);
+  const started=await held.service.start(held.request.id,finance,'p166-hold-start') as any;
+  await held.service.finalize(started.run.id,{commandKey:randomUUID()},finance,'p166-hold');
+  assert.equal((await held.requests.get(held.request.id,requester)).status,'FINANCE_HOLD');
+  assert.equal((await held.service.get(held.request.id,finance) as any).readyForPayment,false);
+  const ready=await readyPayment(db,'p166-cancel');
+  await ready.fixture.requests.cancel(ready.fixture.request.id,{reason:'Withdraw payment',commandKey:randomUUID()},requester,'p166-cancel');
+  assert.equal((await ready.fixture.service.get(ready.fixture.request.id,finance) as any).readyForPayment,false);
+  await assert.rejects(ready.fixture.service.start(ready.fixture.request.id,finance,'p166-cancel-start'),/Terminal requests/);
+  const rejected=await held.requests.initiate(requester,'p166-rejected-fixture');
+  await db.pool.query("UPDATE payment_requests SET status='REJECTED' WHERE id=$1",[rejected.id]);
+  assert.equal((await held.service.get(rejected.id,finance) as any).readyForPayment,false);
+  await assert.rejects(held.service.start(rejected.id,finance,'p166-rejected-start'),/Terminal requests/);
+ }finally{await db.onModuleDestroy()}
+});

@@ -1828,3 +1828,50 @@ test('request cancellation closes pending approval steps and prevents later appr
     assert.equal((await requests.get(r.id,requester)).status,'CANCELLED');
   } finally { await db.onModuleDestroy(); }
 });
+
+test('Approval command replay binds request, case, step, action, actor and payload',async()=>{
+  const db=new Postgres();
+  try{
+    const a=await eligible(db),b=await eligible(db),service=new ApprovalService(db,a.requests);
+    const av=await service.create(a.r.id,finance,'p165-a'),bv=await service.create(b.r.id,finance,'p165-b');
+    const input={commandKey:randomUUID(),action:'APPROVE' as const,reason:'Reviewed original evidence'};
+    await service.act(a.r.id,av.steps[0].id,input,approver,'p165-original');
+    const snapshot=async()=>({
+      actions:(await db.pool.query('SELECT to_jsonb(a) value FROM approval_actions a WHERE approval_case_id IN($1,$2) ORDER BY id',[av.case.id,bv.case.id])).rows,
+      audits:(await db.pool.query('SELECT to_jsonb(a) value FROM audit_events a WHERE entity_id IN($1,$2) ORDER BY id',[a.r.id,b.r.id])).rows,
+      steps:(await db.pool.query('SELECT to_jsonb(s) value FROM approval_steps s WHERE approval_case_id IN($1,$2) ORDER BY id',[av.case.id,bv.case.id])).rows,
+    });
+    const before=await snapshot();
+    const original=(await db.pool.query('SELECT * FROM approval_actions WHERE command_key=$1',[input.commandKey])).rows[0];
+    const retry=await service.act(a.r.id,av.steps[0].id,input,approver,'p165-retry');
+    assert.equal(retry.idempotent,true);assert.deepEqual(retry.action,original);
+    const attempts=[
+      ()=>service.act(b.r.id,bv.steps[0].id,input,approver,'p165-other-request-case'),
+      ()=>service.act(a.r.id,av.steps[1].id,input,approver,'p165-other-step'),
+      ()=>service.act(a.r.id,av.steps[0].id,{...input,action:'REJECT'},approver,'p165-other-action'),
+      ()=>service.act(a.r.id,av.steps[0].id,{...input,reason:'Changed reason'},approver,'p165-other-payload'),
+      ()=>service.act(a.r.id,av.steps[0].id,input,secondApprover,'p165-other-actor'),
+    ];
+    for(const attempt of attempts){await assert.rejects(attempt,error=>error instanceof Error&&'getStatus' in error&&(error as {getStatus:()=>number}).getStatus()===409);assert.deepEqual(await snapshot(),before)}
+    assert.equal(before.actions.length,1);
+    const clarification={commandKey:randomUUID(),action:'REQUEST_CLARIFICATION' as const,reason:'Need details',requiredResponse:'Explain delivery date'};
+    await service.act(b.r.id,bv.steps[0].id,clarification,approver,'p165-clarify');
+    const clarified=await snapshot();
+    await assert.rejects(service.act(b.r.id,bv.steps[0].id,{...clarification,requiredResponse:'Supply a contract'},approver,'p165-changed-response'),/conflicts with the original command/);
+    const clarificationRetry=await service.act(b.r.id,bv.steps[0].id,clarification,approver,'p165-clarify-retry');
+    assert.equal(clarificationRetry.idempotent,true);
+    assert.deepEqual(await snapshot(),clarified);
+  }finally{await db.onModuleDestroy()}
+});
+
+test('concurrent exact Approval retries record one action and return its original result',async()=>{
+ const db=new Postgres();
+ try{
+  const fixture=await eligible(db),service=new ApprovalService(db,fixture.requests);
+  const view=await service.create(fixture.r.id,finance,'p165-concurrent-create');
+  const input={commandKey:randomUUID(),action:'APPROVE' as const};
+  const results=await Promise.all([service.act(fixture.r.id,view.steps[0].id,input,approver,'p165-one'),service.act(fixture.r.id,view.steps[0].id,input,approver,'p165-two')]);
+  assert.equal(results.filter(result=>result.idempotent).length,1);
+  assert.equal((await db.pool.query('SELECT 1 FROM approval_actions WHERE command_key=$1',[input.commandKey])).rowCount,1);
+ }finally{await db.onModuleDestroy()}
+});

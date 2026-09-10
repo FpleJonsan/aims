@@ -698,3 +698,73 @@ test("application role cannot physically delete payment documents", async () => 
     await db.onModuleDestroy();
   }
 });
+
+test("missing policy CONTRACT opens one executable clarification and returns through new validation to Policy",async()=>{
+  const {mkdtemp,rm}=await import('node:fs/promises');
+  const os=await import('node:os');
+  const {default:path}=await import('node:path');
+  const {default:pg}=await import('pg');
+  const {PaymentDocumentService}=await import('../src/application/documents/payment-document.service.js');
+  const {LocalDocumentStorage}=await import('../src/infrastructure/storage/local-document-storage.js');
+  const {DeterministicLocalMalwareScanner}=await import('../src/infrastructure/security/deterministic-local-malware-scanner.js');
+  const {DocumentScanWorker}=await import('../src/worker/document-scan-worker.js');
+  const root=await mkdtemp(path.join(os.tmpdir(),'aims-policy-clarification-'));
+  const db=new Postgres(),requests=new PaymentRequestService(db),policy=new PolicyService(db,requests);
+  const storage=new LocalDocumentStorage({rootPath:root,maxUploadBytes:10485760,allowedContentTypes:new Set(['application/pdf']),demoMode:true});
+  const pool=new pg.Pool({connectionString:process.env.DOCUMENT_WORKER_DATABASE_URL});
+  const worker=new DocumentScanWorker(pool,storage,new DeterministicLocalMalwareScanner(),{
+    workerId:'policy-evidence-test',pollIntervalMs:100,batchSize:10,leaseSeconds:120,maximumAttempts:3,retryDelaySeconds:1,
+    storageTimeoutMs:1000,scannerTimeoutMs:1000,shutdownGraceMs:1000,telegramEnabled:false,scannerEnabled:true,
+  });
+  try{
+    const set=await policy.createSet({code:`P164-${randomUUID()}`,name:'Required contract'},admin,'p164-set');
+    const version=await policy.createVersion(set.id,{effectiveFrom:'2020-01-01T00:00:00Z'},admin,'p164-version');
+    await policy.addRule(version.id,{...approvalRule('CONTRACT'),requiredEvidence:['CONTRACT']},admin,'p164-rule');
+    await policy.activate(version.id,admin,'p164-active');
+    const r=await eligible(db,requests,'LOW');
+    const original=(await db.pool.query('SELECT to_jsonb(v) value FROM validation_runs v WHERE payment_request_id=$1 AND is_current',[r.id])).rows[0].value;
+    const outcomes=await Promise.all([policy.evaluate(r.id,finance,'p164-eval-a'),policy.evaluate(r.id,finance,'p164-eval-b')]);
+    const decision=outcomes[0];
+    assert.equal(decision.exception_code,'REQUIRED_EVIDENCE_MISSING');
+    assert.equal(decision.clarificationId,outcomes[1].clarificationId);
+    assert.equal(decision.id,outcomes[1].id);
+    assert.equal((await requests.get(r.id,requester)).status,'NEEDS_CLARIFICATION');
+    assert.deepEqual((await db.pool.query('SELECT to_jsonb(v) value FROM validation_runs v WHERE id=$1',[original.id])).rows[0].value,original);
+    const before=(await requests.get(r.id,requester)).audit;
+    await policy.evaluate(r.id,finance,'p164-retry');
+    assert.deepEqual((await requests.get(r.id,requester)).audit,before);
+    const validation=new ValidationService(db,requests,storage,null);
+    const clarification=(await validation.get(r.id,requester)).clarifications[0];
+    assert.match(clarification.reason,/CONTRACT/);
+    const documents=new PaymentDocumentService(db,requests,storage);
+    const buffer=Buffer.from('%PDF-1.7\nSynthetic contract\n%%EOF\n');
+    const uploaded=await documents.upload(r.id,{originalname:'contract.pdf',mimetype:'application/pdf',buffer} as Express.Multer.File,'CONTRACT',requester,'p164-upload') as {id:string};
+    await worker.pollBatch();
+    assert.equal((await db.pool.query('SELECT security_status FROM payment_documents WHERE id=$1',[uploaded.id])).rows[0].security_status,'CLEAN');
+    const afterUpload=(await requests.get(r.id,requester)).audit;
+    const pending=await policy.evaluate(r.id,finance,'p164-upload-retry');
+    assert.equal(pending.clarificationId,clarification.id);
+    assert.equal(pending.ready_for_approval,false);
+    assert.deepEqual((await requests.get(r.id,requester)).audit,afterUpload);
+    await validation.respond(r.id,clarification.id,{response:'Required contract attached'},requester,'p164-respond');
+    assert.equal((await requests.get(r.id,requester)).status,'SUBMITTED');
+    await assert.rejects(policy.evaluate(r.id,finance,'p164-no-bypass'),/Current Validation/);
+    await validation.start(r.id,finance,'p164-new-validation');
+    const current=(await validation.get(r.id,finance)).current;
+    assert.notEqual(current.id,original.id);
+    await validation.finalize(r.id,{overallResult:'PASS',remarks:'Contract checked',findings:[]},finance,'p164-validated');
+    await new FinanceContextService(db,requests).calculate(r.id,finance,'p164-context');
+    await new FinancialAnalysisService(db,requests,null).manual(r.id,{
+      riskLevel:'LOW',priority:'NORMAL',urgency:'NORMAL',riskFlags:[],financialAssessment:'Budget reviewed',spendingAssessment:'Spending reviewed',complianceRemarks:'Contract reviewed',evidenceReferences:[],remarks:'Reassessed',
+    },finance,'p164-analysis');
+    const passed=await policy.evaluate(r.id,finance,'p164-policy-pass');
+    assert.equal(passed.result,'PASS');assert.equal(passed.ready_for_approval,true);
+    assert.equal((await db.pool.query('SELECT 1 FROM approval_cases WHERE payment_request_id=$1',[r.id])).rowCount,0);
+    const events=(await db.pool.query('SELECT * FROM audit_events WHERE entity_id=$1 ORDER BY occurred_at,id',[r.id])).rows;
+    const requested=events.filter(e=>e.action==='VALIDATION_CLARIFICATION_REQUESTED');
+    assert.equal(requested.length,1);assert.equal(requested[0].previous_state,'VALIDATING');assert.equal(requested[0].new_state,'NEEDS_CLARIFICATION');
+    assert.equal(requested[0].actor_id,finance.id);assert.equal(requested[0].safe_metadata.source,'POLICY');
+    assert.equal(events.filter(e=>e.action==='VALIDATION_CLARIFICATION_RESPONDED').length,1);
+    assert.equal((await db.pool.query("SELECT 1 FROM validation_clarifications WHERE payment_request_id=$1 AND status='OPEN'",[r.id])).rowCount,0);
+  }finally{await worker.close();await db.onModuleDestroy();await rm(root,{recursive:true,force:true})}
+});
