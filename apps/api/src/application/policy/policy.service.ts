@@ -230,7 +230,8 @@ export class PolicyService {
             ),
           ),
           result.autoApprovalEligible,
-          result.result === "PASS",
+          result.result === "PASS" &&
+            (result.autoApprovalEligible || result.approvalPlan.length > 0),
           actor.id,
         ],
       );
