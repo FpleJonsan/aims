@@ -3,6 +3,9 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import "./day1.css";
+import {policyReadyForApproval} from "./lib/policy-ready";
+import {dashboardDestination, financePath, navigationFilters} from "./lib/dashboard-navigation";
+import {pollDocuments, type ScanDocument} from "./lib/document-polling";
 import { allowedFinanceView, defaultFinanceView, routeForSession, safeInternalPath, type FinanceView, type Workspace } from "./lib/session-ux";
 import { clarificationActionable, friendlyActivity, requesterActivityVisible, requesterNeedsAction, requesterStatusPresentation, type RequesterStatus } from "./lib/requester-presentation";
 
@@ -138,6 +141,7 @@ export default function Home() {
     [requesterPaymentOnly,setRequesterPaymentOnly]=useState(false),
     [approvalPage, setApprovalPage] = useState(1),
     [approvalPagination, setApprovalPagination] = useState<Pagination|null>(null),
+    [routeQuery,setRouteQuery]=useState(""),
     [dashboardDrill, setDashboardDrill] = useState<DashboardDrill|null>(null),
     [mobileNavOpen,setMobileNavOpen]=useState(false);
   const authorizationRefresh=useRef(false);
@@ -177,10 +181,15 @@ export default function Home() {
     const preferred=stored==="requester"||stored==="finance"?stored:null;
     const destination=routeForSession(next,requestedPath,preferred);
     setWorkspace(destination.workspace);
+    setSelected(null);
+    const search=new URL(destination.path,"http://aims.local").search;
+    setRouteQuery(search);
+    const filters=navigationFilters("dashboard",search);
+    setDashboardDrill(destination.financeView==="dashboard"&&filters.reportView==="RISK_ATTENTION"?{view:"REPORTING_REQUESTS",reportView:"RISK_ATTENTION",filters:{dateFrom:filters.dateFrom??"",dateTo:filters.dateTo??"",departmentId:filters.departmentId??"",category:filters.category??""}}:null);
     if(destination.financeView)setFinanceView(destination.financeView);
     setRequesterPaymentOnly(destination.workspace==="requester"&&destination.path.startsWith("/requester/payment-status"));
     setRequesterHome(destination.workspace==="requester"&&(destination.path==="/requester"||destination.path==="/requester/"));
-    setShowDashboard(destination.workspace==="finance"&&destination.financeView==="dashboard");
+    setShowDashboard(destination.workspace==="finance"&&destination.financeView==="dashboard"&&filters.reportView!=="RISK_ATTENTION");
     setShowPaymentHistory(destination.workspace==="finance"&&destination.financeView==="payment-history");
     setNotice(message);
     setAuthPhase(destination.workspace?"ready":"no-access");
@@ -233,12 +242,12 @@ export default function Home() {
       );
     } else {
       const control = financeView==="finance-control" ? (
-        (await api("/finance-control")) as {
+        (await api(`/finance-control?${new URLSearchParams(navigationFilters("finance-control",routeQuery))}`)) as {
           items: Array<Record<string, unknown>>;
         }
       ).items : [];
       const payment = financeView==="payment-queue" ? (
-        (await api("/payment-queue")) as {
+        (await api(`/payment-queue?${new URLSearchParams(navigationFilters("payment-queue",routeQuery))}`)) as {
           items: Array<Record<string, unknown>>;
         }
       ).items : [];
@@ -258,7 +267,7 @@ export default function Home() {
         ].filter((x, i, a) => a.findIndex((y) => y.id === x.id) === i),
       );
     }
-  }, [api, session, workspace, approvalPage, financeView]);
+  }, [api, session, workspace, approvalPage, financeView, routeQuery]);
   useEffect(() => {
     if (authPhase!=="ready" || !session || !workspace) return;
     let active = true;
@@ -307,6 +316,12 @@ export default function Home() {
     }).catch(error=>{if(active)setNotice(msg(error))});
     return()=>{active=false};
   },[api,authPhase,workspace,selected]);
+  useEffect(()=>{
+    if(!session)return;
+    const restore=()=>applySession(session,window.location.pathname+window.location.search);
+    window.addEventListener("popstate",restore);
+    return()=>window.removeEventListener("popstate",restore);
+  },[session,applySession]);
   async function initiate() {
     try {
       const item = (await api("/payment-requests", {
@@ -369,7 +384,12 @@ export default function Home() {
   const currentStage = selected ? statusStage[selected.status] : -1;
   const profile = {initials:session.user.displayName.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase(),name:session.user.displayName,department:session.user.department};
   const goRequester=(home:boolean,paymentOnly=false)=>{setMobileNavOpen(false);setNotice("");setSelected(null);setRequesterHome(home);setRequesterPaymentOnly(paymentOnly);window.history.pushState({},"",home?"/requester":paymentOnly?"/requester/payment-status":"/requester/requests")};
-  const goFinance=(view:FinanceView)=>{if(!allowedFinanceView(session,view))return;setMobileNavOpen(false);setNotice("");setSelected(null);setDashboardDrill(null);setFinanceView(view);setShowDashboard(view==="dashboard");setShowPaymentHistory(view==="payment-history");window.history.pushState({},"",`/finance/${view}`)};
+  const goFinance=(view:FinanceView,filters:Record<string,string>={})=>{
+    if(!allowedFinanceView(session,view))return;
+    setMobileNavOpen(false);setNotice("");
+    const path=financePath(view,filters);
+    window.history.pushState({},"",path);applySession(session,path);
+  };
   const switchWorkspace=(next:Workspace)=>{if(!session.workspaces[next])return;window.localStorage.setItem("aims.workspace",next);setWorkspace(next);setSelected(null);setItems([]);setDashboardDrill(null);if(next==="requester"){setRequesterHome(true);setShowDashboard(false);setShowPaymentHistory(false);window.history.pushState({},"","/requester")}else{const view=defaultFinanceView(session);if(view)goFinance(view)}};
   return (
     <main className="appShell">
@@ -457,24 +477,29 @@ export default function Home() {
         {notice && <p className="notice" role="status" aria-live="polite">{notice}</p>}
         {workspace==="finance"&&financeView==="payment-queue"&&<p className="controlNotice"><AuthorityBadge>PAYMENT RECORDING</AuthorityBadge><span>AIMS records externally executed payments. AIMS does not execute bank transfers.</span></p>}
         {workspace==="requester"&&requesterHome&&!selected?<RequesterDashboard api={api} open={open} newRequest={()=>void initiate()} viewAll={()=>goRequester(false)}/>:financeView==="ai"&&workspace==="finance"&&session.capabilities.reporting?<FinanceIntelligenceWorkspace api={api}/>:showDashboard && workspace === "finance" && session.capabilities.reporting ? (
-          <FinanceDashboard api={api} onDrill={(drill) => {
-            setDashboardDrill(drill);
-            setShowDashboard(false);
-            setShowPaymentHistory(drill.view === "PAYMENT_HISTORY");
+          <FinanceDashboard api={api} initialFilters={navigationFilters("dashboard",routeQuery)} onDrill={(drill) => {
+            const view=dashboardDestination(drill.view,"reportView" in drill?drill.reportView:undefined);
+            goFinance(view,{...drill.filters,...(view==="dashboard"&&"reportView" in drill?{reportView:drill.reportView}:{})});
           }} />
         ) : showPaymentHistory && workspace === "finance" && (session.capabilities.payment||session.capabilities.reporting) ? (
-          <PaymentHistory api={api} initialFilters={dashboardDrill?.view === "PAYMENT_HISTORY" ? dashboardDrill.filters : {}} />
+          <PaymentHistory api={api} key={routeQuery} initialFilters={navigationFilters("payment-history",routeQuery)} />
         ) : dashboardDrill?.view === "REPORTING_REQUESTS" ? (
-          <ReportingRequestDrill api={api} drill={dashboardDrill} back={()=>setDashboardDrill(null)} />
-        ) : dashboardDrill?.view === "FINANCE_CONTROL" || dashboardDrill?.view === "PAYMENT_QUEUE" ? (
-          <OperationalDrill api={api} drill={dashboardDrill} open={open} back={()=>setDashboardDrill(null)} />
+          <ReportingRequestDrill api={api} drill={dashboardDrill} back={()=>goFinance("dashboard",dashboardDrill.filters)} />
         ) : selected ? (
           <Editor
+            key={selected.id}
             item={selected}
             user={session.user.subject}
             requesterView={workspace==="requester"}
             api={api}
-            changed={async () => {
+            changed={async (signal?:AbortSignal) => {
+              if(signal){
+                const value=await api(workspace==="requester"?`/requester/requests/${selected.id}`:`/payment-requests/${selected.id}`,{signal});
+                if(signal.aborted)return;
+                const next=workspace==="requester"?requesterDetailItem(value as Parameters<typeof requesterDetailItem>[0]):value as Item;
+                setSelected(current=>current?.id===selected.id?next:current);
+                return;
+              }
               if(workspace==="requester")await open(selected.id);
               else setSelected((await api(`/payment-requests/${selected.id}`)) as Item);
               await refresh();
@@ -526,12 +551,6 @@ function ReportingRequestDrill({api,drill,back}:{api:Api;drill:Extract<Dashboard
   return <section className="card reportingDrill"><button className="back" onClick={back}>← Finance Dashboard</button><header><div><small>REPORTING VIEW · READ ONLY</small><h2>{drill.reportView==="PENDING_APPROVAL"?"Pending Approval":"High / Critical Risk"}</h2></div></header>{notice&&<p className="notice">{notice}</p>}<p>{data?.total??0} authoritative records · reporting access does not grant Approval or Payment authority.</p><div className="table">{data?.items.map((x)=><div className="reportingRow" key={String(x.id)}><span className="ticket">{String(x.ticket_number)}</span><span><b>{String(x.payee)}</b><small>{String(x.department)} · {String(x.category)}</small></span><span>{String(x.currency)} {String(x.amount)}<small>{String(x.status)}</small></span><span><b>{String(x.final_risk??"—")}</b><small>{String(x.final_priority??"—")}</small></span></div>)}</div>{data&&!data.items.length&&<p>NO DATA IN SELECTED RANGE</p>}</section>;
 }
 
-function OperationalDrill({api,drill,open,back}:{api:Api;drill:Extract<DashboardDrill,{view:"FINANCE_CONTROL"|"PAYMENT_QUEUE"}>;open:(id:string)=>Promise<void>;back:()=>void}) {
-  const [rows,setRows]=useState<Item[]>([]),[notice,setNotice]=useState("");
-  useEffect(()=>{let active=true;const query=new URLSearchParams(Object.entries({departmentId:drill.filters.departmentId,category:drill.filters.category}).filter(([,v])=>v)).toString(),path=`${drill.view==="FINANCE_CONTROL"?"/finance-control":"/payment-queue"}?${query}`;void api(path).then((x)=>{if(!active)return;const raw=(x as {items:Array<Record<string,unknown>>}).items;const mapped=raw.map(drill.view==="FINANCE_CONTROL"?financeQueueItem:paymentQueueItem);setRows(mapped.filter((item)=>item.status===drill.status));}).catch((e)=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api,drill]);
-  return <section><button className="back" onClick={back}>← Finance Dashboard</button>{notice&&<p className="notice">{notice}</p>}<List items={rows} open={open} empty={()=>Promise.resolve()} canCreate={false} requesterView={false}/></section>;
-}
-
 function FinanceIntelligenceWorkspace({api}:{api:Api}){
   const [watch,setWatch]=useState<any>(null),[answer,setAnswer]=useState<any>(null),[question,setQuestion]=useState(""),[notice,setNotice]=useState("");
   const runWatch=async()=>{try{setNotice("");setWatch(await api("/finance-intelligence/watch",{method:"POST",body:"{}"}))}catch(e){setNotice(msg(e))}};
@@ -539,7 +558,7 @@ function FinanceIntelligenceWorkspace({api}:{api:Api}){
   return <section className="aiWorkspace"><header><div><small>AI FINANCE INTELLIGENCE · READ ONLY</small><h2>Interpretation, grounded in authorized evidence</h2><p>AI can summarize and explain. It cannot approve, calculate authoritative balances, or change workflow state.</p></div><AuthorityBadge ai>AI INTERPRETATION</AuthorityBadge></header>{notice&&<div className="aiDisabled" role="status"><b>AI Finance Intelligence is unavailable.</b><span>The deterministic Finance Dashboard remains available.</span></div>}<div className="aiWorkspaceGrid"><section className="aiPanel"><div className="sectionHeading"><div><small>FINANCE WATCH</small><h3>Operational interpretation</h3></div><AuthorityBadge ai>AI INTERPRETATION</AuthorityBadge></div><p>Generate a bounded, evidence-backed reading of the current authorized finance position.</p><button className="aiButton" onClick={()=>void runWatch()}>Generate Finance Watch</button>{watch&&<article><h4>{String(watch.headline??"Finance Watch")}</h4><p>{String(watch.summary??watch.interpretation??"Interpretation generated from authorized evidence.")}</p></article>}</section><section className="aiPanel"><div className="sectionHeading"><div><small>ASK AIMS</small><h3>Ask about finance evidence</h3></div><AuthorityBadge ai>AI INTERPRETATION</AuthorityBadge></div><form onSubmit={ask}><label htmlFor="aims-question">Question</label><textarea id="aims-question" value={question} onChange={e=>setQuestion(e.target.value)} placeholder="What requires Finance attention?" required/><button className="aiButton">Ask AIMS</button></form>{answer&&<article><h4>Advisory response</h4><p>{String(answer.answer??answer.response??"Response generated from authorized evidence.")}</p></article>}</section></div><footer><AuthorityBadge>SYSTEM CALCULATED DATA REMAINS AUTHORITATIVE</AuthorityBadge><span>AI OFF preserves the complete deterministic workflow.</span></footer></section>;
 }
 
-function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:DashboardDrill)=>void }) {
+function FinanceDashboard({ api, onDrill, initialFilters }: { api: Api; initialFilters:Record<string,string>; onDrill: (drill:DashboardDrill)=>void }) {
   const [summary, setSummary] = useState<any>(null),
     [budget, setBudget] = useState<any[]>([]),
     [trend, setTrend] = useState<any[]>([]),
@@ -550,8 +569,9 @@ function FinanceDashboard({ api, onDrill }: { api: Api; onDrill: (drill:Dashboar
     [answer, setAnswer] = useState<any>(null),
     [watch, setWatch] = useState<any>(null),
     [scope, setScope] = useState<{departments:Array<{id:string;name:string}>}|null>(null),
-    [filters, setFilters] = useState<DashboardFilterState>({ dateFrom:"", dateTo:"", departmentId:"", category:"" });
+    [filters, setFilters] = useState<DashboardFilterState>({ dateFrom:"", dateTo:"", departmentId:"", category:"", ...initialFilters });
   const query = new URLSearchParams(Object.entries(filters).filter(([,v])=>v)).toString();
+  useEffect(()=>{window.history.replaceState({},"",financePath("dashboard",filters))},[filters]);
   useEffect(() => {
     let active = true;
     void Promise.all([
@@ -1247,7 +1267,7 @@ function Editor({
   user: string;
   requesterView:boolean;
   api: Api;
-  changed: () => Promise<void>;
+  changed: (signal?:AbortSignal) => Promise<void>;
   back: () => void;
 }) {
   const [form, setForm] = useState(item),
@@ -1255,7 +1275,13 @@ function Editor({
     [busy, setBusy] = useState(false),
     [fieldErrors,setFieldErrors]=useState<Record<string,string>>({}),
     [confirming,setConfirming]=useState(false),
-    [submittedTicket,setSubmittedTicket]=useState<string|null>(null);
+    [submittedTicket,setSubmittedTicket]=useState<string|null>(null),
+    [policyRevision,setPolicyRevision]=useState(0);
+  const scans=useScanPolling(api,requesterView?`/requester/requests/${item.id}`:`/payment-requests/${item.id}`,async (documents,signal)=>{
+   if(JSON.stringify(documents.map(d=>[d.id,d.security_status]))!==JSON.stringify((item.documents??[]).map(d=>[d.id,d.security_status])))await changed(signal);
+   if(!signal.aborted&&documents.length&&!documents.some(d=>["QUARANTINED","SCANNING"].includes(d.security_status??"")))setNotice(documents.some(d=>["REJECTED","SCAN_FAILED"].includes(d.security_status??""))?"A document was rejected or its check failed. Remove it and upload a replacement.":"Documents ready. Worker checks completed.");
+  });
+  const scanFeedback=<>{scans.state&&<p role="status">{scans.state}</p>}<button type="button" className="secondary" onClick={scans.retry}>Retry document status check</button></>;
   const draft = item.status === "DRAFT";
   const field = (name: keyof Item, value: string) =>
     setForm((x) => ({ ...x, [name]: value }));
@@ -1320,15 +1346,14 @@ function Editor({
     e.preventDefault();
     const target = e.currentTarget;
     await act(async () => {
-      const document=await api(`/payment-requests/${item.id}/documents`, {
+      await api(`/payment-requests/${item.id}/documents`, {
         method: "POST",
         body: new FormData(target),
-      }) as {id:string};
-      setNotice("Document uploaded securely. AIMS is checking it before it can be used as evidence.");
-      const scan=await api(`/payment-requests/${item.id}/documents/${document.id}/scan`,{method:"POST",body:"{}"}) as {securityStatus:string};
+      });
       await changed();
       target.reset();
-      setNotice(scan.securityStatus==="CLEAN"?"Document ready. Its security check completed successfully.":scan.securityStatus==="REJECTED"?"Document rejected. It cannot be used as supporting evidence.":"Document security check failed. It remains unavailable as evidence and may be retried.");
+      scans.retry();
+      setNotice("Document uploaded. Awaiting the worker security check.");
     });
   }
   async function remove(id: string) {
@@ -1356,10 +1381,10 @@ function Editor({
       setSubmittedTicket(submitted.ticketNumber??"Submitted request");await changed();
     });
   }
-  if(requesterView)return <RequesterRequestExperience item={item} form={form} field={field} fieldErrors={fieldErrors} busy={busy} notice={notice} submittedTicket={submittedTicket} confirming={confirming} setConfirming={setConfirming} save={save} reviewSubmission={reviewRequesterSubmission} confirmSubmission={confirmRequesterSubmission} upload={upload} remove={remove} api={api} changed={changed} back={back}/>;
+  if(requesterView)return <>{scanFeedback}<RequesterRequestExperience item={item} form={form} field={field} fieldErrors={fieldErrors} busy={busy} notice={notice} submittedTicket={submittedTicket} confirming={confirming} setConfirming={setConfirming} save={save} reviewSubmission={reviewRequesterSubmission} confirmSubmission={confirmRequesterSubmission} upload={upload} remove={remove} api={api} changed={changed} back={back}/></>;
   const nextAction=financeNextAction(item.status);
   return (
-    <section className="editor">
+    <section className="editor">{scanFeedback}
       <button className="back" onClick={back}>
         ← Request register
       </button>
@@ -1417,7 +1442,7 @@ function Editor({
         "READY_FOR_PAYMENT",
         "PAID",
       ].includes(item.status) && (
-        <PolicyDecisionPanel item={item} user={user} api={api} />
+        <PolicyDecisionPanel item={item} user={user} api={api} completed={async()=>{await changed();setPolicyRevision(value=>value+1)}} />
       )}
       {!requesterView&&[
         "VALIDATING",
@@ -1430,7 +1455,7 @@ function Editor({
         "REJECTED",
         "NEEDS_CLARIFICATION",
       ].includes(item.status) && (
-        <ApprovalPanel item={item} user={user} api={api} changed={changed} />
+        <ApprovalPanel key={`${item.id}-${policyRevision}`} item={item} user={user} api={api} changed={changed} />
       )}
       {!requesterView&&[
         "APPROVED",
@@ -2283,10 +2308,12 @@ function PolicyDecisionPanel({
   item,
   user,
   api,
+  completed,
 }: {
   item: Item;
   user: string;
   api: Api;
+  completed:()=>Promise<void>;
 }) {
   type Step = {
     sequence: number;
@@ -2353,7 +2380,7 @@ function PolicyDecisionPanel({
     return () => {
       active = false;
     };
-  }, [api, item.id]);
+  }, [api, item.id, item.status]);
   async function evaluate() {
     setNotice("");
     try {
@@ -2362,6 +2389,7 @@ function PolicyDecisionPanel({
         body: "{}",
       });
       await load();
+      await completed();
     } catch (error) {
       setNotice(msg(error));
     }
@@ -2512,6 +2540,7 @@ function ApprovalPanel({
     evidence?: Array<Record<string, unknown>>;
     history?: Array<Record<string, unknown>>;
   };
+  const [policy,setPolicy]=useState<{ready_for_approval?:boolean;stale?:boolean}|null>(null);
   const [data, setData] = useState<View | null>(null),
     [notice, setNotice] = useState(""),
     [reason, setReason] = useState("");
@@ -2522,15 +2551,15 @@ function ApprovalPanel({
   );
   useEffect(() => {
     let active = true;
-    void api(`/payment-requests/${item.id}/approval`)
-      .then((v) => {
-        if (active) setData(v as View);
+    void Promise.all([api(`/payment-requests/${item.id}/approval`),api(`/payment-requests/${item.id}/policy-evaluation`).catch(()=>null)])
+      .then(([v,p]) => {
+        if (active){setData(v as View);setPolicy(p as typeof policy);}
       })
       .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, [api, item.id]);
+  }, [api, item.id, item.status]);
   async function create() {
     try {
       await api(`/payment-requests/${item.id}/approval`, {
@@ -2581,7 +2610,7 @@ function ApprovalPanel({
         <span>{data?.case?.status ?? "NOT STARTED"}</span>
       </header>
       {notice && <p className="notice">{notice}</p>}
-      {!data?.case && user === "demo.finance" && (
+      {policyReadyForApproval(policy,data?.case) && user === "demo.finance" && (
         <button className="primary" onClick={create}>
           Create Approval case
         </button>
@@ -2915,6 +2944,24 @@ function FinanceControlPanel({
   );
 }
 
+function useScanPolling(api:Api,path:string,onUpdate:(documents:ScanDocument[],signal:AbortSignal)=>Promise<void>|void){
+ const latest=useRef(onUpdate);
+ useEffect(()=>{latest.current=onUpdate},[onUpdate]);
+ const controller=useRef<AbortController|null>(null);
+ const [state,setState]=useState('');
+ const mounted=useRef(false);
+ const retry=useCallback(()=>{
+  if(!mounted.current)return;
+  controller.current?.abort();const active=new AbortController();controller.current=active;setState('Waiting for document processing…');
+  void pollDocuments({signal:active.signal,read:async signal=>(await api(path,{signal}) as {documents:ScanDocument[]}).documents??[],update:async (documents,signal)=>{if(!signal.aborted)await latest.current(documents,signal)}}).then(result=>{
+   if(active.signal.aborted)return;
+   setState(result==='timeout'?'Document processing is still pending. Retry status check.':'');
+  }).catch(()=>{if(!active.signal.aborted)setState('Unable to check document processing. Retry status check.');});
+ },[api,path]);
+ useEffect(()=>{mounted.current=true;const timer=setTimeout(retry,0);return()=>{mounted.current=false;clearTimeout(timer);controller.current?.abort()}},[retry]);
+ return {state,retry,cancel:()=>controller.current?.abort()};
+}
+
 function PaymentPanel({
   item,
   api,
@@ -2944,31 +2991,21 @@ function PaymentPanel({
         )
         .catch(() => undefined);
   }, [api, item.status, item.ticketNumber]);
+  const uploadedSlip=useRef<string|null>(null);
+  const scans=useScanPolling(api,`/payment-requests/${item.id}`,documents=>{
+   const slip=uploadedSlip.current?documents.find(d=>d.id===uploadedSlip.current):documents.find(d=>d.document_type==='PAYMENT_SLIP'&&d.security_status==='CLEAN');
+   setSlipId(slip?.security_status==='CLEAN'?slip.id:'');
+   if(slip?.security_status==='CLEAN')setNotice('Payment slip ready. Worker security check completed.');
+   else if(slip&&['REJECTED','SCAN_FAILED'].includes(slip.security_status??''))setNotice('Payment slip rejected or scan failed. Upload a replacement.');
+  });
   async function upload(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setBusy(true);
+    e.preventDefault();scans.cancel();setBusy(true);setSlipId('');
     try {
-      const result = (await api(`/payment-requests/${item.id}/payment-slip`, {
-        method: "POST",
-        body: new FormData(e.currentTarget),
-      })) as { id: string };
-      setNotice("Payment slip uploaded securely. AIMS is checking it before it can be used.");
-      const scan = await api(`/payment-requests/${item.id}/documents/${result.id}/scan`, {
-        method: "POST",
-        body: "{}",
-      }) as {securityStatus:string};
-      if(scan.securityStatus === "CLEAN"){
-        setSlipId(result.id);
-        setNotice("Payment slip ready. Its security check completed successfully.");
-      }else{
-        setSlipId("");
-        setNotice(scan.securityStatus === "REJECTED" ? "Payment slip rejected. Choose a different file." : "Payment slip security check failed. Retry the check or upload the file again.");
-      }
-    } catch (error) {
-      setNotice(msg(error));
-    } finally {
-      setBusy(false);
-    }
+      const result=await api(`/payment-requests/${item.id}/payment-slip`,{method:'POST',body:new FormData(e.currentTarget)}) as {id:string};
+      uploadedSlip.current=result.id;
+      setNotice('Payment slip uploaded. Awaiting worker processing.');
+      scans.retry();
+    }catch(error){setNotice(msg(error))}finally{setBusy(false)}
   }
   async function pay() {
     if (
@@ -3001,6 +3038,8 @@ function PaymentPanel({
   }
   return (
     <section className="paymentPanel">
+      {scans.state&&<p role="status">{scans.state}</p>}
+      <button type="button" className="secondary" onClick={scans.retry}>Retry slip status check</button>
       <header>
         <div>
           <small>09 · PAYMENT PROCESSING</small>

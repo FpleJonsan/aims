@@ -28,7 +28,7 @@ export function routeForSession(next:SessionEntitlements,requested:string,prefer
   if(requestedPath.startsWith("/requester")&&next.workspaces.requester)return {workspace:"requester" as const,path:requestedPath,financeView:null};
   if(requestedPath.startsWith("/finance/")&&next.workspaces.finance){
     const view=requestedPath.slice("/finance/".length).split(/[/?#]/)[0] as FinanceView;
-    if(allowedFinanceView(next,view))return {workspace:"finance" as const,path:`/finance/${view}`,financeView:view};
+    if(allowedFinanceView(next,view))return {workspace:"finance" as const,path:`/finance/${view}${new URL(requestedPath,"http://aims.local").search}`,financeView:view};
   }
   if(preferred==="requester"&&next.workspaces.requester)return {workspace:"requester" as const,path:"/requester",financeView:null};
   const financeView=next.workspaces.finance?defaultFinanceView(next):null;
