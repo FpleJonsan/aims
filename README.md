@@ -34,12 +34,43 @@ AI never approves, pays, changes state, calculates authoritative balances, or mo
 
 ## Local setup
 
-1. Copy `.env.example` to the ignored `.env` and provide local PostgreSQL role credentials.
-2. Apply every file in `apps/api/migrations` in lexical order as the PostgreSQL migration administrator.
-3. Run `npm install`, `npm run dev --workspace @aims/api`, and `npm run dev`.
-4. Check `GET /health/live` and `GET /health/ready`. OpenAPI is available at `/openapi` outside production only.
+Prerequisites: Git, Docker with Docker Compose v2, and Node.js 22.13+ with npm. Docker provisions the database; no host PostgreSQL installation or manual SQL provisioning is needed.
 
-See [local development](docs/LOCAL-DEVELOPMENT.md), the [operator runbook](docs/OPERATIONS-RUNBOOK.md), [migration inventory](docs/MIGRATION-INVENTORY.md), and [competition demo](docs/COMPETITION-DEMO.md).
+```bash
+git clone <your-AIMS-repository-url> aims
+cd aims
+npm install
+npm run bootstrap
+npm run local
+```
+
+`npm run bootstrap` runs the existing Compose startup, bootstrap, migration and seed commands in order, stopping on failure. It adds no separate bootstrap logic.
+
+The bootstrap writes an ignored `.env.local` without overwriting an existing file. It uses distinct, **local-only** development passwords for the existing application, Finance, Payment, worker, and migrator roles. PostgreSQL is available on loopback port 55432 and Redis on 56379. Optional `AIMS_LOCAL_POSTGRES_PORT` and `AIMS_LOCAL_REDIS_PORT` overrides must be exported consistently before Compose and bootstrap. These containers use persistent project-scoped volumes.
+
+After bootstrap, the canonical startup command is:
+
+```bash
+npm run local
+```
+
+It reads `.env.local`, checks PostgreSQL schema 61 and Redis, checks service ports, builds the API, then starts API, worker polling, and frontend independently. It reports ready only after API and worker readiness endpoints and the frontend respond. Missing prerequisites fail with instructions; this command never provisions containers or databases. Keep Docker services running with `docker compose up -d`.
+
+The launcher derives `NEXT_PUBLIC_AIMS_API_URL=http://localhost:<API_PORT>` automatically. An explicit value in `.env.local` (or the shell when absent from that file) is preserved. It must address the API being launched; an inconsistent override fails with instructions rather than being overwritten. Readiness includes the browser-facing API health URL and credentialed CORS for `WEB_ORIGIN`.
+
+Ctrl+C stops only the processes launched by this command. Containers, database records, Redis data and documents are preserved. Run `npm run local` again to restart. An occupied port is an error; existing services are never terminated or adopted. Individual API and worker entry points remain available for debugging:
+
+```bash
+node --env-file=.env.local apps/api/dist/src/main.js
+node --env-file=.env.local apps/api/dist/src/worker-main.js
+npm run dev
+```
+
+Visit `http://localhost:3000/login`, select a synthetic local identity, then open the dashboard with the seeded Finance user. Check `http://localhost:3001/health/live` and `/health/ready`. The local deterministic scanner is selected in `.env.local`; start the worker so uploaded evidence can complete scanning. No separate scheduler process is required for the worker polling loop.
+
+Re-running bootstrap preserves credentials and `.env.local`. Re-running migrate on schema 61 checks the existing privilege manifest without replaying migrations. Seed verifies the synthetic data already included in migrations 001–061; it does not insert duplicates. A partially migrated database is rejected rather than replayed or erased. Stop services with `docker compose stop`; restarting retains data. `docker compose down -v` **deletes this Compose project's local database and Redis data** and is only for an intentional disposable reset.
+
+See [local development](docs/LOCAL-DEVELOPMENT.md) for bootstrap details.
 
 ## Validation
 

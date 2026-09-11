@@ -1,80 +1,48 @@
 # AIMS Local Development
 
-## PostgreSQL application role
+## Local setup
 
-The application must not connect as the PostgreSQL administrative user. The normal pool uses restricted `aims_app`. Final Finance Control uses a separate server-only login that is a member of the `aims_finance_executor` NOLOGIN capability role through `FINANCE_DATABASE_URL`.
-
-The trust chain is: HTTP authentication → server-supplied AIMS user → transaction-local database execution identity → database Finance authority check → constrained transition. `aims_app` is not a member of `aims_finance_executor`, cannot `SET ROLE` to it, has no Finance Control table writes, and cannot execute finalization functions.
-
-Day 8 uses an independent `aims_payment_executor` NOLOGIN capability through the server-only `PAYMENT_DATABASE_URL`. Payment Operator authority is separate from Approval and Finance Control authority. The normal `aims_app` role cannot create payments, post actual ledger entries, consume commitments, attach payment slips, or synthesize `PAID`.
-
-1. Open an administrative PostgreSQL session inside the existing Docker container. This uses the container's injected password without printing it or placing it in shell history:
-
-   ```bash
-   docker exec -it PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_PASSWORD" psql -h 127.0.0.1 -U root -d aims'
-   ```
-
-2. Inspect the application role:
-
-   ```sql
-   SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolcanlogin
-   FROM pg_roles
-   WHERE rolname = 'aims_app';
-   ```
-
-3. Confirm that the result reports `false` for superuser, database creation, role creation, and replication. If the role is absent or excessive authority is reported, stop and use the container's bootstrap administrator or initialization mechanism to provision it. Do not grant role-management authority to the runtime application account.
-
-4. Verify the effective database and schema privileges:
-
-   ```sql
-   SELECT has_database_privilege('aims_app', 'aims', 'CONNECT');
-   SELECT has_schema_privilege('aims_app', 'public', 'USAGE');
-   SELECT has_schema_privilege('aims_app', 'public', 'CREATE');
-   ```
-
-   The expected results are `true`, `true`, and `false` respectively.
-
-5. Migrations must grant privileges per table or per narrowly scoped schema. Never grant blanket update or delete authority over all current or future tables. In particular:
-   - audit events, financial ledger entries, approval snapshots, policy versions, and payment history must not grant general `UPDATE` or `DELETE`
-   - append-only tables may grant only the inserts and reads required by their owning service
-   - mutable workflow tables receive only the specific operations required by their domain repository
-   - migrations and administrative corrections use a separate privileged connection that is never available to the running API
-
-Use the administrative account only for reviewed migrations and maintenance. Put the `aims_app` password in the ignored `.env`; never commit it.
-
-### Day 1 database setup
-
-Apply every reviewed migration in lexical order with the container administrator. The runtime API still connects only as `aims_app` through `DATABASE_URL`:
+Prerequisites: Git, Docker with Docker Compose v2, and Node.js 22.13+ with npm. Docker provisions the database; no host PostgreSQL installation or manual SQL provisioning is needed.
 
 ```bash
-docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/001_day1_foundation.sql
-docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/002_local_demo_seed.sql
-docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/003_runtime_grants.sql
-docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/004_day2_validation.sql
-docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/005_day3_finance_context.sql
-docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/006_day3_demo_finance_seed.sql
-docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/007_day3_snapshot_constraint_hardening.sql
-docker exec -i PostgreSQL sh -lc 'PGPASSWORD="$POSTGRESQL_POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d aims' < apps/api/migrations/008_day4_financial_analysis.sql
+git clone <your-AIMS-repository-url> aims
+cd aims
+npm install
+npm run bootstrap
+npm run local
 ```
 
-Continue through the latest numbered file; [the migration inventory](MIGRATION-INVENTORY.md) is authoritative. A shell loop may be used only after reviewing its resolved file list and confirming the target database. Never run local/demo seed migrations against production.
+`npm run bootstrap` runs the existing Compose startup, bootstrap, migration and seed commands in order, stopping on failure. It adds no separate bootstrap logic.
 
-The seed contains synthetic local identities only. Migration 054 maps permitted local identities under the explicit `(provider=local, issuer=aims-local, subject)` namespace. The browser selects an identity only at `POST /auth/local-login`; AIMS then creates a server-side session and sends an opaque HttpOnly cookie. Protected local requests do not accept `x-aims-user`. Finance authority is not stored in the session and continues to be checked from current PostgreSQL records.
+The bootstrap writes an ignored `.env.local` without overwriting an existing file. It uses distinct, **local-only** development passwords for the existing application, Finance, Payment, worker, and migrator roles. PostgreSQL is available on loopback port 55432 and Redis on 56379. Optional `AIMS_LOCAL_POSTGRES_PORT` and `AIMS_LOCAL_REDIS_PORT` overrides must be exported consistently before Compose and bootstrap. These containers use persistent project-scoped volumes.
 
-Competition remains a separate, guarded compatibility environment and may temporarily use its existing header adapter. Staging and Production have no local fallback. Until Company IT supplies and approves a real identity adapter, either environment fails during startup.
-
-Local sessions default to eight hours through `LOCAL_SESSION_LIFETIME_SECONDS=28800`. This is a development default, not an approved Production policy. Keep `LOCAL_COOKIE_SECURE=false` only for local HTTP; an HTTPS environment must use secure cookies.
-
-Run the local API and web application in separate terminals:
+After bootstrap, the canonical startup command is:
 
 ```bash
-npm run dev --workspace @aims/api
+npm run local
+```
+
+It reads `.env.local`, checks PostgreSQL schema 61 and Redis, checks service ports, builds the API, then starts API, worker polling, and frontend independently. It reports ready only after API and worker readiness endpoints and the frontend respond. Missing prerequisites fail with instructions; this command never provisions containers or databases. Keep Docker services running with `docker compose up -d`.
+
+The launcher derives `NEXT_PUBLIC_AIMS_API_URL=http://localhost:<API_PORT>` automatically. An explicit value in `.env.local` (or the shell when absent from that file) is preserved. It must address the API being launched; an inconsistent override fails with instructions rather than being overwritten. Readiness includes the browser-facing API health URL and credentialed CORS for `WEB_ORIGIN`.
+
+Ctrl+C stops only the processes launched by this command. Containers, database records, Redis data and documents are preserved. Run `npm run local` again to restart. An occupied port is an error; existing services are never terminated or adopted. Individual API and worker entry points remain available for debugging:
+
+```bash
+node --env-file=.env.local apps/api/dist/src/main.js
+node --env-file=.env.local apps/api/dist/src/worker-main.js
 npm run dev
 ```
 
-Open `http://localhost:3000/login`, select a mapped local identity, and continue. Logout revokes the server record and clears both cookies. The configured `WEB_ORIGIN` is the only credentialed CORS and mutation origin; do not use a wildcard.
+Visit `http://localhost:3000/login`, select a synthetic local identity, then open the dashboard with the seeded Finance user. Check `http://localhost:3001/health/live` and `/health/ready`. The local deterministic scanner is selected in `.env.local`; start the worker so uploaded evidence can complete scanning. No separate scheduler process is required for the worker polling loop.
 
-The local API listens on `API_HOST`/`API_PORT` (defaults `127.0.0.1:3001`) and exposes OpenAPI at `/openapi` outside production. Use `/health/live` for process liveness and `/health/ready` for dependency/configuration readiness. Optional AI or Telegram being disabled is healthy; enabling either without its required configuration is not.
+Re-running bootstrap preserves credentials and `.env.local`. Re-running migrate on schema 61 checks the existing privilege manifest without replaying migrations. Seed verifies the synthetic data already included in migrations 001–061; it does not insert duplicates. A partially migrated database is rejected rather than replayed or erased. Stop services with `docker compose stop`; restarting retains data. `docker compose down -v` **deletes this Compose project's local database and Redis data** and is only for an intentional disposable reset.
+
+## Database bootstrap and ownership
+
+The bootstrap uses the existing provider-independent `apps/api/database/production/bootstrap-roles.sql` and post-migration hardening/privilege manifest unchanged. The directory name is historical; these SQL contracts also define local P6 role separation. The database and public schema belong to `aims_owner`; the API uses `aims_app`, while Finance, Payment and document scanning retain separate runtime logins. Migrations execute as `aims_owner` through the local container administrator, never through application credentials.
+
+Migrations 001–061 include synthetic identities, budgets and policy seeds. Their contents are unchanged. The seed command verifies availability after migration; it is not a second seed load. Existing manually managed environments may continue using `.env` and their original npm startup commands; the new Compose path explicitly selects `.env.local`.
 
 Day 2 adds Validation without starting Finance Context. AI defaults OFF in `ai_feature_configuration`; `AI_MASTER` and `DOCUMENT_VALIDATION` must both be enabled before the Document Agent can call the configured server-side provider. `DOCUMENT_EXTRACTION` is independently recorded for operational control. With either required flag OFF, no provider call occurs and manual validation remains available. Run `npm run test:ai:live --workspace @aims/api` only when `OPENAI_API_KEY` is intentionally configured; the normal test suite never calls paid AI.
 
