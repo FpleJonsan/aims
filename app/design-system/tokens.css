@@ -1,0 +1,103 @@
+/* AIMS Design System 1.0 — P18.1
+ * Canonical future-facing tokens. Intentionally NOT imported by the application.
+ * Applying this scope to existing screens belongs to a later standardization phase.
+ * Component contracts and semantic mappings: docs/AIMS-DESIGN-SYSTEM.md.
+ */
+.aims-design-system {
+  --aims-font-family: var(--font-body), "DM Sans", system-ui, sans-serif;
+  --aims-font-size-12: 12px;
+  --aims-font-size-14: 14px;
+  --aims-font-size-16: 16px;
+  --aims-font-size-18: 18px;
+  --aims-font-size-22: 22px;
+  --aims-font-size-28: 28px;
+  --aims-font-size-32: 32px;
+  --aims-line-height-12: 18px;
+  --aims-line-height-14: 20px;
+  --aims-line-height-16: 24px;
+  --aims-line-height-18: 26px;
+  --aims-line-height-22: 30px;
+  --aims-line-height-28: 36px;
+  --aims-line-height-32: 40px;
+  --aims-font-weight-regular: 400;
+  --aims-font-weight-medium: 500;
+  --aims-font-weight-semibold: 600;
+  --aims-font-weight-bold: 700;
+
+  --aims-color-primary: #173f2e;
+  --aims-color-primary-hover: #20543d;
+  --aims-color-primary-active: #2c6048;
+  --aims-color-secondary: #5f6f67;
+  --aims-color-secondary-surface: #ffffff;
+  --aims-color-secondary-hover: #f1f3f0;
+  --aims-color-secondary-active: #dce3dd;
+  --aims-color-success: #24784c;
+  --aims-color-success-surface: #e7f3eb;
+  --aims-color-warning: #9a6415;
+  --aims-color-warning-surface: #fff3d8;
+  --aims-color-danger: #ad4038;
+  --aims-color-danger-surface: #fae9e7;
+  --aims-color-danger-hover: #fae9e7;
+  --aims-color-danger-active: #fae9e7;
+  --aims-color-info: #2f6f9f;
+  --aims-color-info-surface: #e8f1f8;
+  --aims-color-neutral: #5f6f67;
+  --aims-color-neutral-surface: #f1f3f0;
+  --aims-color-background: #f5f6f3;
+  --aims-color-surface: #ffffff;
+  --aims-color-surface-muted: #f1f3f0;
+  --aims-color-sidebar: #10231b;
+  --aims-color-border: #dce3dd;
+  --aims-color-control-border: #5f6f67;
+  --aims-color-text-primary: #17251f;
+  --aims-color-text-secondary: #5f6f67;
+  --aims-color-text-inverse: #ffffff;
+  --aims-color-focus: #2f6f9f;
+  --aims-color-focus-gap: #ffffff;
+  --aims-color-ai-advisory: #6d51a8;
+  --aims-color-ai-advisory-surface: #f2eef9;
+  --aims-color-disabled-text: #5f6f67;
+  --aims-color-disabled-surface: #f1f3f0;
+  --aims-color-disabled-border: #dce3dd;
+
+  --aims-space-0: 0;
+  --aims-space-4: 4px;
+  --aims-space-8: 8px;
+  --aims-space-12: 12px;
+  --aims-space-16: 16px;
+  --aims-space-24: 24px;
+  --aims-space-32: 32px;
+  --aims-space-48: 48px;
+  --aims-space-64: 64px;
+  --aims-radius-small: 6px;
+  --aims-radius-medium: 10px;
+  --aims-radius-large: 14px;
+  --aims-radius-pill: 999px;
+  --aims-shadow-none: none;
+  --aims-shadow-card: 0 1px 2px #13271d0a, 0 4px 12px #13271d08;
+  --aims-shadow-overlay: 0 14px 36px #13271d1a;
+  --aims-motion-duration-none: 0ms;
+  --aims-motion-duration-interaction: 140ms;
+  --aims-motion-easing: ease;
+  --aims-layer-base: 0;
+  --aims-layer-sticky: 10;
+  --aims-layer-popover: 20;
+  --aims-layer-backdrop: 30;
+  --aims-layer-dialog: 40;
+  --aims-layer-notification: 50;
+  --aims-icon-small: 16px;
+  --aims-icon-medium: 20px;
+  --aims-icon-large: 24px;
+  --aims-control-height: 40px;
+  --aims-control-touch-height: 44px;
+  --aims-textarea-min-height: 96px;
+  --aims-table-row-compact: 48px;
+  --aims-table-row-default: 56px;
+  --aims-focus-width: 3px;
+  --aims-focus-offset: 2px;
+  --aims-border-width: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aims-design-system { --aims-motion-duration-interaction: 0ms; }
+}
