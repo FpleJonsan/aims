@@ -3,6 +3,8 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import "./day1.css";
+import "./dashboard-ui.css";
+import {UIProvider as UiProvider, Button as UiButton, Card as UiCard, CardHeader as UiCardHeader, CardBody as UiCardBody, Badge as UiBadge, Typography as UiTypography, Input as UiInput, Select as UiSelect, Alert as UiAlert, EmptyState as UiEmptyState, LoadingSpinner as UiSpinner, PageHeader as UiPageHeader, SectionHeader as UiSectionHeader} from "./components/ui";
 import {policyReadyForApproval} from "./lib/policy-ready";
 import {dashboardDestination, financePath, navigationFilters} from "./lib/dashboard-navigation";
 import {pollDocuments, type ScanDocument} from "./lib/document-polling";
@@ -425,7 +427,14 @@ export default function Home() {
         </button>
       </aside>
       <section className="workspace">
-        <header>
+        {workspace === "finance" && showDashboard && session.capabilities.reporting ? <UiProvider className="p183-dashboard p183-pageHeader">
+          <UiTypography variant="metadata">AIMS · PAYMENT & FINANCE CONTROL</UiTypography>
+          <UiPageHeader title={pageTitle} description={financeDescriptions[financeView]} actions={<>
+            {session.capabilities.financeAnalysis && <UiButton onClick={() => goFinance("work-queue")}>Work queue</UiButton>}
+            {(session.capabilities.payment || session.capabilities.reporting) && <UiButton onClick={() => goFinance("payment-history")}>Payment History</UiButton>}
+            {session.capabilities.reporting && <UiButton variant="primary" onClick={() => goFinance("dashboard")}>Finance Dashboard</UiButton>}
+          </>}/>
+        </UiProvider> : (<header>
           <div>
             <small>AIMS · PAYMENT & FINANCE CONTROL</small>
             <h1>{pageTitle}</h1>
@@ -464,7 +473,7 @@ export default function Home() {
               </button>}
             </div>
           )}
-        </header>
+        </header>)}
         {workspace==="finance"&&selected&&<div className="stageRail" aria-label="12-stage AIMS workflow">
           {stages.map((s, i) => (
             <div className={currentStage < 0 ? "available" : i < currentStage ? "completed" : i === currentStage ? "current" : "future"} key={s}>
@@ -623,251 +632,213 @@ function FinanceDashboard({ api, onDrill, initialFilters }: { api: Api; initialF
       setNotice(msg(e));
     }
   }
-  if (!summary)
-    return (
-      <section className="card">
-        <p>{notice || "Loading authoritative finance data…"}</p>
-      </section>
-    );
+  if (!summary) return <UiProvider className="p183-dashboard"><UiCard><UiCardBody>{notice ? <UiAlert tone="danger">{notice}</UiAlert> : <UiSpinner label="Loading authoritative finance data…"/>}</UiCardBody></UiCard></UiProvider>;
   const numericAmount = (value: unknown) => Number(String(value).replace(/[^0-9.-]/g, "")) || 0,
     trendMaximum = new Map<string,number>(),
     vendorsByCurrency = Object.groupBy(summary.vendors as any[],(entry:any)=>String(entry.currency)),
     trendByCurrency = Object.groupBy(trend as any[],(entry:any)=>String(entry.currency));
   for(const entry of trend as any[]) trendMaximum.set(String(entry.currency),Math.max(trendMaximum.get(String(entry.currency))??0,numericAmount(entry.amount)));
   const drill = (view:DashboardDrill["view"],reportView?:"PENDING_APPROVAL"|"RISK_ATTENTION") => onDrill(view==="REPORTING_REQUESTS"?{view,reportView:reportView!,filters}:view==="PAYMENT_HISTORY"?{view,filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),status:"PAID"}}:view==="FINANCE_CONTROL"?{view,status:"FINANCE_HOLD",filters}:{view,status:"READY_FOR_PAYMENT",filters});
-  return (
-    <section className="dashboard">
-      <header className="dashboardHero">
+    return (<UiProvider className="p183-dashboard">
+      <UiCard><UiCardHeader className="p183-dashboardHero">
         <div>
-          <small>11 · FINANCE DASHBOARD</small>
-          <h2>Authoritative finance reporting</h2>
-          <p>
+          <UiTypography as="span" variant="metadata">11 · FINANCE DASHBOARD</UiTypography>
+          <UiTypography as="h2" variant="card">Authoritative finance reporting</UiTypography>
+          <UiTypography as="p" variant="body">
             Live financial position and control · snapshot{" "}
             {new Date(summary.dataSnapshotAsOf).toLocaleString()}
-          </p>
+          </UiTypography>
         </div>
-        <AuthorityBadge>SYSTEM CALCULATED</AuthorityBadge>
-      </header>
-      {notice && <p className="notice">{notice}</p>}
-      <div className="dashboardFilters" aria-label="Finance dashboard filters">
-        <label><span>From</span><input type="date" value={filters.dateFrom} onChange={(e)=>setFilters(x=>({...x,dateFrom:e.target.value}))}/></label>
-        <label><span>To</span><input type="date" value={filters.dateTo} onChange={(e)=>setFilters(x=>({...x,dateTo:e.target.value}))}/></label>
-        <label><span>Department</span><select value={filters.departmentId} onChange={(e)=>setFilters(x=>({...x,departmentId:e.target.value}))}>
+        <UiBadge tone="info">SYSTEM CALCULATED</UiBadge>
+      </UiCardHeader></UiCard>
+      {notice && <UiAlert tone="danger">{notice}</UiAlert>}
+      <UiCard><UiCardBody className="p183-dashboardFilters" role="group" aria-label="Finance dashboard filters">
+        <UiInput type="date" value={filters.dateFrom} onChange={(e) => setFilters(x => ({ ...x, dateFrom: e.target.value }))} label="From"/>
+        <UiInput type="date" value={filters.dateTo} onChange={(e) => setFilters(x => ({ ...x, dateTo: e.target.value }))} label="To"/>
+        <UiSelect value={filters.departmentId} onChange={(e) => setFilters(x => ({ ...x, departmentId: e.target.value }))} label="Department">
           <option value="">All authorized departments</option>
-          {scope?.departments.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}
-        </select></label>
-        <label><span>Category</span><input placeholder="All categories" value={filters.category} onChange={(e)=>setFilters(x=>({...x,category:e.target.value}))}/></label>
-        <button className="secondary" onClick={()=>setFilters({dateFrom:"",dateTo:"",departmentId:"",category:""})}>Clear</button>
-      </div>
-      <small>One authorized filter context applies throughout. Budget position remains live; dated metrics use the displayed source semantics.</small>
-      {(filters.dateFrom || filters.dateTo) && (
-        <p className="notice" role="status">
+          {scope?.departments.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+        </UiSelect>
+        <UiInput placeholder="All categories" value={filters.category} onChange={(e) => setFilters(x => ({ ...x, category: e.target.value }))} label="Category"/>
+        <UiButton onClick={() => setFilters({ dateFrom: "", dateTo: "", departmentId: "", category: "" })} variant="secondary">Clear</UiButton>
+      </UiCardBody></UiCard>
+      <UiTypography as="span" variant="metadata">One authorized filter context applies throughout. Budget position remains live; dated metrics use the displayed source semantics.</UiTypography>
+      {(filters.dateFrom || filters.dateTo) && (<UiTypography className="p183-notice" role="status" as="p" variant="body">
           Finance Control: current queue — live operational status, not date filtered.
-        </p>
-      )}
-      <div className="sectionHeading"><div><small>A · FINANCIAL POSITION</small><h3>Live budget position by currency</h3><span>Original-currency positions · no FX conversion</span></div><AuthorityBadge>SYSTEM CALCULATED</AuthorityBadge></div>
-      {summary.financialPositions.length ? summary.financialPositions.map((position:any)=>{
-        const availableNegative=String(position.available).startsWith("-");
-        return <section className="currencyPosition" key={position.currency} aria-label={`${position.currency} financial position`}><h4>{position.currency}</h4><div className="kpiGrid financialKpis">
-          <KpiCard icon="▤" label="Active budget" value={formatMoney(position.currency,position.budget)} detail="System calculated · live approved budget" tone="info" />
-          <KpiCard icon="↘" label="Actual spending" value={formatMoney(position.currency,position.actual)} detail="System calculated · authoritative ledger" />
-          <KpiCard icon="◇" label="Active committed" value={formatMoney(position.currency,position.committed)} detail="System calculated · active reservations" tone="warning" />
-          <KpiCard icon="◎" label="Available budget" value={formatMoney(position.currency,position.available)} detail={`System calculated · ${availableNegative?"over committed":"available to commit"}`} tone={availableNegative?"danger":"success"} />
+        </UiTypography>)}
+      <div className="p183-sectionHeading"><UiTypography variant="metadata">A · FINANCIAL POSITION</UiTypography><UiSectionHeader title="Live budget position by currency" description="Original-currency positions · no FX conversion" actions={<UiBadge tone="info">SYSTEM CALCULATED</UiBadge>}/></div>
+      {summary.financialPositions.length ? summary.financialPositions.map((position: any) => {
+            const availableNegative = String(position.available).startsWith("-");
+            return <section className="p183-currencyPosition" key={position.currency} aria-label={`${position.currency} financial position`}><UiTypography as="h3" variant="section">{position.currency}</UiTypography><div className="p183-kpiGrid p183-financialKpis">
+          <UiCard><UiCardBody className="p183-metric"><><UiBadge tone={"info"} aria-hidden="true">{"\u25A4"}</UiBadge><UiTypography as="span" variant="metadata">{"Active budget"}</UiTypography><UiTypography as="span" variant="card">{formatMoney(position.currency, position.budget)}</UiTypography><UiTypography as="span" variant="metadata">{"System calculated \u00B7 live approved budget"}</UiTypography></></UiCardBody></UiCard>
+          <UiCard><UiCardBody className="p183-metric"><><UiBadge tone={"neutral"} aria-hidden="true">{"\u2198"}</UiBadge><UiTypography as="span" variant="metadata">{"Actual spending"}</UiTypography><UiTypography as="span" variant="card">{formatMoney(position.currency, position.actual)}</UiTypography><UiTypography as="span" variant="metadata">{"System calculated \u00B7 authoritative ledger"}</UiTypography></></UiCardBody></UiCard>
+          <UiCard><UiCardBody className="p183-metric"><><UiBadge tone={"warning"} aria-hidden="true">{"\u25C7"}</UiBadge><UiTypography as="span" variant="metadata">{"Active committed"}</UiTypography><UiTypography as="span" variant="card">{formatMoney(position.currency, position.committed)}</UiTypography><UiTypography as="span" variant="metadata">{"System calculated \u00B7 active reservations"}</UiTypography></></UiCardBody></UiCard>
+          <UiCard><UiCardBody className="p183-metric"><><UiBadge tone={availableNegative ? "danger" : "success"} aria-hidden="true">{"\u25CE"}</UiBadge><UiTypography as="span" variant="metadata">{"Available budget"}</UiTypography><UiTypography as="span" variant="card">{formatMoney(position.currency, position.available)}</UiTypography><UiTypography as="span" variant="metadata">{`System calculated · ${availableNegative ? "over committed" : "available to commit"}`}</UiTypography></></UiCardBody></UiCard>
         </div></section>;
-      }):<div className="emptyState"><b>No financial position available</b><span>No active budget or authoritative posting exists in this scope.</span></div>}
-      <div className="sectionHeading"><div><small>B · NEEDS ATTENTION</small><h3>Priorities requiring action</h3></div><span>Live operational state</span></div>
-      <div className="kpiGrid attentionKpis">
-        <KpiCard icon="▲" label="High / critical risk" value={String((summary.risk.HIGH??0)+(summary.risk.CRITICAL??0))} detail="Human final assessment · review risk" tone="danger" onClick={()=>drill("REPORTING_REQUESTS","RISK_ATTENTION")} />
-        <KpiCard icon="◷" label="Pending approval" value={String(summary.requests.PENDING_APPROVAL?.count??0)} detail="Awaiting authorized decision" tone="info" onClick={()=>drill("REPORTING_REQUESTS","PENDING_APPROVAL")} />
-        <KpiCard icon="!" label="Finance holds" value={String(summary.financeControl.holds)} detail="Requires resolution" tone="warning" onClick={()=>drill("FINANCE_CONTROL")} />
-        <KpiCard icon="→" label="Ready for payment" value={String(summary.financeControl.ready)} detail="Awaiting external payment recording" tone="info" onClick={()=>drill("PAYMENT_QUEUE")} />
+        }) : <UiEmptyState title="No financial position available"><span>No active budget or authoritative posting exists in this scope.</span></UiEmptyState>}
+      <div className="p183-sectionHeading"><UiTypography variant="metadata">B · NEEDS ATTENTION</UiTypography><UiSectionHeader title="Priorities requiring action" actions={<span>Live operational state</span>}/></div>
+      <div className="p183-kpiGrid p183-attentionKpis">
+        <UiCard><UiButton variant="text" className="p183-metric" onClick={() => drill("REPORTING_REQUESTS", "RISK_ATTENTION")}><><UiBadge tone={"danger"} aria-hidden="true">{"\u25B2"}</UiBadge><UiTypography as="span" variant="metadata">{"High / critical risk"}</UiTypography><UiTypography as="span" variant="card">{String((summary.risk.HIGH ?? 0) + (summary.risk.CRITICAL ?? 0))}</UiTypography><UiTypography as="span" variant="metadata">{"Human final assessment \u00B7 review risk"}</UiTypography></></UiButton></UiCard>
+        <UiCard><UiButton variant="text" className="p183-metric" onClick={() => drill("REPORTING_REQUESTS", "PENDING_APPROVAL")}><><UiBadge tone={"info"} aria-hidden="true">{"\u25F7"}</UiBadge><UiTypography as="span" variant="metadata">{"Pending approval"}</UiTypography><UiTypography as="span" variant="card">{String(summary.requests.PENDING_APPROVAL?.count ?? 0)}</UiTypography><UiTypography as="span" variant="metadata">{"Awaiting authorized decision"}</UiTypography></></UiButton></UiCard>
+        <UiCard><UiButton variant="text" className="p183-metric" onClick={() => drill("FINANCE_CONTROL")}><><UiBadge tone={"warning"} aria-hidden="true">{"!"}</UiBadge><UiTypography as="span" variant="metadata">{"Finance holds"}</UiTypography><UiTypography as="span" variant="card">{String(summary.financeControl.holds)}</UiTypography><UiTypography as="span" variant="metadata">{"Requires resolution"}</UiTypography></></UiButton></UiCard>
+        <UiCard><UiButton variant="text" className="p183-metric" onClick={() => drill("PAYMENT_QUEUE")}><><UiBadge tone={"info"} aria-hidden="true">{"\u2192"}</UiBadge><UiTypography as="span" variant="metadata">{"Ready for payment"}</UiTypography><UiTypography as="span" variant="card">{String(summary.financeControl.ready)}</UiTypography><UiTypography as="span" variant="metadata">{"Awaiting external payment recording"}</UiTypography></></UiButton></UiCard>
       </div>
-      <div className="sectionHeading"><div><small>C · OPERATIONS</small><h3>Current Finance activity</h3></div><span>Controlled workflow</span></div>
-      <div className="kpiGrid operationsSummary">
-        {summary.payments.amounts.length ? summary.payments.amounts.map((amount:any)=><KpiCard key={amount.currency} icon="✓" label={`Paid this period · ${amount.currency}`} value={formatMoney(amount.currency,amount.paidAmount)} detail="Immutable payment records · original currency" tone="success" onClick={()=>drill("PAYMENT_HISTORY")} />):<KpiCard icon="✓" label="Paid this period" value="—" detail="No payment records in this period" tone="success" onClick={()=>drill("PAYMENT_HISTORY")} />}
-        <KpiCard icon="☷" label="Requests processed" value={String(workflow.processed)} detail="Completed operational workload" tone="info" />
-        <KpiCard icon="◉" label="Average request to paid" value={workflow.avg_request_to_paid_seconds?`${Math.round(Number(workflow.avg_request_to_paid_seconds)/3600)} h`:"—"} detail="Measured processing time" />
+      <div className="p183-sectionHeading"><UiTypography variant="metadata">C · OPERATIONS</UiTypography><UiSectionHeader title="Current Finance activity" actions={<span>Controlled workflow</span>}/></div>
+      <div className="p183-kpiGrid p183-operationsSummary">
+        {summary.payments.amounts.length ? summary.payments.amounts.map((amount: any) => <UiCard key={amount.currency}><UiButton variant="text" className="p183-metric" onClick={() => drill("PAYMENT_HISTORY")}><><UiBadge tone={"success"} aria-hidden="true">{"\u2713"}</UiBadge><UiTypography as="span" variant="metadata">{`Paid this period · ${amount.currency}`}</UiTypography><UiTypography as="span" variant="card">{formatMoney(amount.currency, amount.paidAmount)}</UiTypography><UiTypography as="span" variant="metadata">{"Immutable payment records \u00B7 original currency"}</UiTypography></></UiButton></UiCard>) : <UiCard><UiButton variant="text" className="p183-metric" onClick={() => drill("PAYMENT_HISTORY")}><><UiBadge tone={"success"} aria-hidden="true">{"\u2713"}</UiBadge><UiTypography as="span" variant="metadata">{"Paid this period"}</UiTypography><UiTypography as="span" variant="card">{"\u2014"}</UiTypography><UiTypography as="span" variant="metadata">{"No payment records in this period"}</UiTypography></></UiButton></UiCard>}
+        <UiCard><UiCardBody className="p183-metric"><><UiBadge tone={"info"} aria-hidden="true">{"\u2637"}</UiBadge><UiTypography as="span" variant="metadata">{"Requests processed"}</UiTypography><UiTypography as="span" variant="card">{String(workflow.processed)}</UiTypography><UiTypography as="span" variant="metadata">{"Completed operational workload"}</UiTypography></></UiCardBody></UiCard>
+        <UiCard><UiCardBody className="p183-metric"><><UiBadge tone={"neutral"} aria-hidden="true">{"\u25C9"}</UiBadge><UiTypography as="span" variant="metadata">{"Average request to paid"}</UiTypography><UiTypography as="span" variant="card">{workflow.avg_request_to_paid_seconds ? `${Math.round(Number(workflow.avg_request_to_paid_seconds) / 3600)} h` : "\u2014"}</UiTypography><UiTypography as="span" variant="metadata">{"Measured processing time"}</UiTypography></></UiCardBody></UiCard>
       </div>
-      <div className="dashboardGrid">
-        {summary.financialPositions.map((position:any)=>{const utilisation=position.utilisationBasisPoints===null?null:position.utilisationBasisPoints/100,availableNegative=String(position.available).startsWith("-");return <section className="card utilizationCard" key={position.currency}>
-          <header><div><small>BUDGET UTILISATION</small><h3>Authoritative position</h3></div><AuthorityBadge>SYSTEM CALCULATED</AuthorityBadge></header>
-          <div className="utilizationBody">
-            <div className={`utilizationRing ${availableNegative?"overBudget":""}`} style={{"--utilization":Math.max(0,Math.min(utilisation??0,100))} as CSSProperties}><span><b>{utilisation===null?"—":`${utilisation.toFixed(1)}%`}</b><small>{position.currency} budget used</small></span></div>
-            <div className="metricLegend"><p><i className="actualDot"/>Actual spending <b>{formatMoney(position.currency,position.actual)}</b></p><p><i className="commitDot"/>Active committed <b>{formatMoney(position.currency,position.committed)}</b></p><p><i className="availableDot"/>Available budget <b>{formatMoney(position.currency,position.available)}</b></p>{availableNegative&&<strong>Budget is over committed</strong>}</div>
+      <div className="p183-dashboardGrid">
+        {summary.financialPositions.map((position: any) => {
+            const utilisation = position.utilisationBasisPoints === null ? null : position.utilisationBasisPoints / 100, availableNegative = String(position.available).startsWith("-");
+            return <UiCard className="p183-utilizationCard" key={position.currency}><UiCardHeader><div><UiTypography as="span" variant="metadata">BUDGET UTILISATION</UiTypography><UiTypography as="h3" variant="section">Authoritative position</UiTypography></div><UiBadge tone="info">SYSTEM CALCULATED</UiBadge></UiCardHeader><UiCardBody>
+
+          <div className="p183-utilizationBody">
+            <div className={`p183-utilizationRing ${availableNegative ? "p183-overBudget" : ""}`} style={{ "--utilization": Math.max(0, Math.min(utilisation ?? 0, 100)) } as CSSProperties}><span><UiTypography as="span" variant="label">{utilisation === null ? "—" : `${utilisation.toFixed(1)}%`}</UiTypography><UiTypography as="span" variant="metadata">{position.currency} budget used</UiTypography></span></div>
+            <div className="p183-metricLegend"><UiTypography as="p" variant="body"><i className="p183-actualDot"/>Actual spending <UiTypography as="span" variant="label">{formatMoney(position.currency, position.actual)}</UiTypography></UiTypography><UiTypography as="p" variant="body"><i className="p183-commitDot"/>Active committed <UiTypography as="span" variant="label">{formatMoney(position.currency, position.committed)}</UiTypography></UiTypography><UiTypography as="p" variant="body"><i className="p183-availableDot"/>Available budget <UiTypography as="span" variant="label">{formatMoney(position.currency, position.available)}</UiTypography></UiTypography>{availableNegative && <UiTypography as="span" variant="label">Budget is over committed</UiTypography>}</div>
           </div>
-        </section>})}
-        <section className="card">
-          <header>
+        </UiCardBody></UiCard>;
+        })}
+        <UiCard className=""><UiCardHeader>
             <div>
-              <small>BUDGET PERFORMANCE</small>
-              <h3>Department & category position</h3>
+              <UiTypography as="span" variant="metadata">BUDGET PERFORMANCE</UiTypography>
+              <UiTypography as="h3" variant="section">Department & category position</UiTypography>
             </div>
-          </header>
-          <div className="budgetRows">
-            {budget.length ? (
-              budget.map((x: any) => (
-                <button className="budgetDrill" key={`${x.department_id}-${x.category}`} onClick={()=>onDrill({view:"PAYMENT_HISTORY",filters:{departmentId:String(x.department_id),category:String(x.category),status:"PAID"}})}>
+          </UiCardHeader><UiCardBody>
+
+          <div className="p183-budgetRows">
+            {budget.length ? (budget.map((x: any) => (<UiButton key={`${x.department_id}-${x.category}`} onClick={() => onDrill({ view: "PAYMENT_HISTORY", filters: { departmentId: String(x.department_id), category: String(x.category), status: "PAID" } })} variant="secondary" className="p183-budgetDrill">
                   <span>
-                    <b>{x.department}</b>
-                    <small>{x.category}</small>
+                    <UiTypography as="span" variant="label">{x.department}</UiTypography>
+                    <UiTypography as="span" variant="metadata">{x.category}</UiTypography>
                   </span>
                   <span>
-                    {formatMoney(x.currency,x.actual)} actual
+                    {formatMoney(x.currency, x.actual)} actual
                   </span>
-                  <span>{formatMoney(x.currency,x.available)} available</span>
-                  <strong
-                    className={
-                      x.utilisationBasisPoints >= 9000 ? "pressure" : ""
-                    }
-                  >
+                  <span>{formatMoney(x.currency, x.available)} available</span>
+                  <UiTypography className={x.utilisationBasisPoints >= 9000 ? "p183-pressure" : ""} as="span" variant="label">
                     {x.utilisationBasisPoints === null
-                      ? "NO DATA"
-                      : `${(x.utilisationBasisPoints / 100).toFixed(1)}%`}
-                  </strong>
-                </button>
-              ))
-            ) : (
-              <p>NO DATA IN SELECTED RANGE</p>
-            )}
+                ? "NO DATA"
+                : `${(x.utilisationBasisPoints / 100).toFixed(1)}%`}
+                  </UiTypography>
+                </UiButton>))) : (<UiTypography as="p" variant="body">NO DATA IN SELECTED RANGE</UiTypography>)}
           </div>
-        </section>
-        <section className="card">
-          <header>
+        </UiCardBody></UiCard>
+        <UiCard className=""><UiCardHeader>
             <div>
-              <small>MONTHLY ACTUAL</small>
-              <h3>Spending trend</h3>
+              <UiTypography as="span" variant="metadata">MONTHLY ACTUAL</UiTypography>
+              <UiTypography as="h3" variant="section">Spending trend</UiTypography>
             </div>
-          </header>
-          {trend.length ? Object.entries(trendByCurrency).map(([currency,entries])=>(
-            <div className="currencySeries" key={currency}><h4>{currency}</h4><div className="trendChart">{(entries??[]).map((x: any) => (
-              <div className="trendRow" key={`${currency}-${x.month}`}>
-                <b>{x.month}</b>
-                <i style={{width:`${Math.max(3, trendMaximum.get(currency) ? (numericAmount(x.amount)/(trendMaximum.get(currency)??1))*100 : 0)}%`}}/><span>{formatMoney(currency,x.amount)}</span>
-              </div>
-            ))}</div></div>
-          )) : (
-            <p>NO PAYMENTS IN PERIOD</p>
-          )}
-          <small>Values come from Actual ledger posting dates.</small>
-        </section>
-        <section className="card">
-          <header>
+          </UiCardHeader><UiCardBody>
+
+          {trend.length ? Object.entries(trendByCurrency).map(([currency, entries]) => (<div className="p183-currencySeries" key={currency}><UiTypography as="h4" variant="section">{currency}</UiTypography><div className="p183-trendChart">{(entries ?? []).map((x: any) => (<div className="p183-trendRow" key={`${currency}-${x.month}`}>
+                <UiTypography as="span" variant="label">{x.month}</UiTypography>
+                <i style={{ width: `${Math.max(3, trendMaximum.get(currency) ? (numericAmount(x.amount) / (trendMaximum.get(currency) ?? 1)) * 100 : 0)}%` }}/><span>{formatMoney(currency, x.amount)}</span>
+              </div>))}</div></div>)) : (<UiTypography as="p" variant="body">NO PAYMENTS IN PERIOD</UiTypography>)}
+          <UiTypography as="span" variant="metadata">Values come from Actual ledger posting dates.</UiTypography>
+        </UiCardBody></UiCard>
+        <UiCard className=""><UiCardHeader>
             <div>
-              <small>WORKFLOW PRODUCTIVITY</small>
-              <h3>Processing performance</h3>
+              <UiTypography as="span" variant="metadata">WORKFLOW PRODUCTIVITY</UiTypography>
+              <UiTypography as="h3" variant="section">Processing performance</UiTypography>
             </div>
-          </header>
-          <p>
-            Processed requests · <b>{workflow.processed}</b>
-          </p>
-          <p>
+          </UiCardHeader><UiCardBody>
+
+          <UiTypography as="p" variant="body">
+            Processed requests · <UiTypography as="span" variant="label">{workflow.processed}</UiTypography>
+          </UiTypography>
+          <UiTypography as="p" variant="body">
             Average request-to-paid ·{" "}
-            <b>
+            <UiTypography as="span" variant="label">
               {workflow.avg_request_to_paid_seconds
-                ? `${Math.round(Number(workflow.avg_request_to_paid_seconds) / 3600)} hours`
-                : "NO DATA"}
-            </b>
-          </p>
-          <p>
-            AI-assisted validation · <b>{workflow.ai_validation}</b>
-          </p>
-          <p>
-            Manual validation · <b>{workflow.manual_validation}</b>
-          </p>
-          <p>{workflow.timeSaved}</p>
-        </section>
-        <section className="card">
-          <header>
+            ? `${Math.round(Number(workflow.avg_request_to_paid_seconds) / 3600)} hours`
+            : "NO DATA"}
+            </UiTypography>
+          </UiTypography>
+          <UiTypography as="p" variant="body">
+            AI-assisted validation · <UiTypography as="span" variant="label">{workflow.ai_validation}</UiTypography>
+          </UiTypography>
+          <UiTypography as="p" variant="body">
+            Manual validation · <UiTypography as="span" variant="label">{workflow.manual_validation}</UiTypography>
+          </UiTypography>
+          <UiTypography as="p" variant="body">{workflow.timeSaved}</UiTypography>
+        </UiCardBody></UiCard>
+        <UiCard className=""><UiCardHeader>
             <div>
-              <small>AI OPERATIONS</small>
-              <h3>Usage & reliability</h3>
+              <UiTypography as="span" variant="metadata">AI OPERATIONS</UiTypography>
+              <UiTypography as="h3" variant="section">Usage & reliability</UiTypography>
             </div>
-          </header>
-          <p>
-            Calls · <b>{usage.calls}</b>
-          </p>
-          <p>
-            Tokens · <b>{usage.total_tokens}</b>
-          </p>
-          <p>
-            Average latency · <b>{usage.average_latency_ms} ms</b>
-          </p>
-          <p>
-            Failures · <b>{usage.failures}</b>
-          </p>
-          <p>{usage.estimatedCost}</p>
-        </section>
+          </UiCardHeader><UiCardBody>
+
+          <UiTypography as="p" variant="body">
+            Calls · <UiTypography as="span" variant="label">{usage.calls}</UiTypography>
+          </UiTypography>
+          <UiTypography as="p" variant="body">
+            Tokens · <UiTypography as="span" variant="label">{usage.total_tokens}</UiTypography>
+          </UiTypography>
+          <UiTypography as="p" variant="body">
+            Average latency · <UiTypography as="span" variant="label">{usage.average_latency_ms} ms</UiTypography>
+          </UiTypography>
+          <UiTypography as="p" variant="body">
+            Failures · <UiTypography as="span" variant="label">{usage.failures}</UiTypography>
+          </UiTypography>
+          <UiTypography as="p" variant="body">{usage.estimatedCost}</UiTypography>
+        </UiCardBody></UiCard>
       </div>
-      <section className="card topPayees"><header><div><small>TOP PAYEES</small><h3>Paid concentration</h3></div><button className="textButton" onClick={()=>drill("PAYMENT_HISTORY")}>View all →</button></header>
-        {summary.vendors.length ? Object.entries(vendorsByCurrency).map(([currency,entries])=>{const currencyEntries=entries??[],maximum=Math.max(0,...currencyEntries.map((entry:any)=>numericAmount(entry.amount)));return <div className="currencyPayeeGroup" key={currency}><h4>{currency}</h4>{currencyEntries.slice(0,6).map((x:any,index:number)=><button className="payeeDrill" key={`${currency}-${x.payee}`} onClick={()=>onDrill({view:"PAYMENT_HISTORY",filters:{...Object.fromEntries(Object.entries(filters).filter(([,v])=>v)),search:x.payee,status:"PAID"}})}><span className="rank">{String(index+1).padStart(2,"0")}</span><span><b title={x.payee}>{x.payee}</b><i style={{width:`${Math.max(3,maximum?(numericAmount(x.amount)/maximum)*100:0)}%`}}/></span><strong>{formatMoney(currency,x.amount)}<small>{x.payment_count} payments</small></strong></button>)}</div>}):<div className="emptyState"><b>No payment records</b><span>No paid transactions exist in the selected period.</span></div>}
-      </section>
-      <div className="sectionHeading"><div><small>D · INTELLIGENCE</small><h3>Advisory interpretation</h3></div><AuthorityBadge ai>AI ADVISORY</AuthorityBadge></div>
-      <section className="card aiWatch">
-        <header>
+      <UiCard className="p183-topPayees"><UiCardHeader><div><UiTypography as="span" variant="metadata">TOP PAYEES</UiTypography><UiTypography as="h3" variant="section">Paid concentration</UiTypography></div><UiButton onClick={() => drill("PAYMENT_HISTORY")} variant="text">View all →</UiButton></UiCardHeader><UiCardBody>
+        {summary.vendors.length ? Object.entries(vendorsByCurrency).map(([currency, entries]) => { const currencyEntries = entries ?? [], maximum = Math.max(0, ...currencyEntries.map((entry: any) => numericAmount(entry.amount))); return <div className="p183-currencyPayeeGroup" key={currency}><UiTypography as="h4" variant="section">{currency}</UiTypography>{currencyEntries.slice(0, 6).map((x: any, index: number) => <UiButton key={`${currency}-${x.payee}`} onClick={() => onDrill({ view: "PAYMENT_HISTORY", filters: { ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)), search: x.payee, status: "PAID" } })} variant="secondary" className="p183-payeeDrill"><span className="p183-rank">{String(index + 1).padStart(2, "0")}</span><span><UiTypography title={x.payee} as="span" variant="label">{x.payee}</UiTypography><i style={{ width: `${Math.max(3, maximum ? (numericAmount(x.amount) / maximum) * 100 : 0)}%` }}/></span><UiTypography as="span" variant="label">{formatMoney(currency, x.amount)}<UiTypography as="span" variant="metadata">{x.payment_count} payments</UiTypography></UiTypography></UiButton>)}</div>; }) : <UiEmptyState title="No payment records"><span>No paid transactions exist in the selected period.</span></UiEmptyState>}
+      </UiCardBody></UiCard>
+      <div className="p183-sectionHeading"><UiTypography variant="metadata">D · INTELLIGENCE</UiTypography><UiSectionHeader title="Advisory interpretation" actions={<UiBadge tone="ai">AI ADVISORY</UiBadge>}/></div>
+      <UiCard className="p183-aiWatch"><UiCardHeader>
           <div>
-            <small>12 · AI FINANCE INTELLIGENCE</small>
-            <h3>Finance Watch</h3>
+            <UiTypography as="span" variant="metadata">12 · AI FINANCE INTELLIGENCE</UiTypography>
+            <UiTypography as="h3" variant="section">Finance Watch</UiTypography>
           </div>
-          <button className="secondary aiButton" onClick={() => void generateWatch()}>
+          <UiButton onClick={() => void generateWatch()} variant="secondary">
             Refresh AI insights
-          </button>
-        </header>
-        <p>
-          <AuthorityBadge ai>AI INTERPRETATION</AuthorityBadge> · generated only from the deterministic
+          </UiButton>
+        </UiCardHeader><UiCardBody>
+
+        <UiTypography as="p" variant="body">
+          <UiBadge tone="ai">AI INTERPRETATION</UiBadge> · generated only from the deterministic
           evidence catalog.
-        </p>
-        {watch?.insights?.length ? (
-          watch.insights.map((x: any) => (
-            <article key={x.title}>
+        </UiTypography>
+        {watch?.insights?.length ? (watch.insights.map((x: any) => (<article key={x.title}>
               <span>{x.severity}</span>
-              <b>{x.title}</b>
-              <p>{x.summary}</p>
-              <small>
+              <UiTypography as="span" variant="label">{x.title}</UiTypography>
+              <UiTypography as="p" variant="body">{x.summary}</UiTypography>
+              <UiTypography as="span" variant="metadata">
                 {x.evidence
-                  .map((e: any) => `${e.metric}: ${e.value}`)
-                  .join(" · ")}
-              </small>
-            </article>
-          ))
-        ) : <div className="emptyState aiEmpty"><b>No AI insights generated</b><span>Generate an evidence-backed interpretation of the current authorized finance context.</span><button className="secondary aiButton" onClick={() => void generateWatch()}>Generate insights</button></div>}
-      </section>
-      <section className="card askAims">
-        <header>
+                .map((e: any) => `${e.metric}: ${e.value}`)
+                .join(" · ")}
+              </UiTypography>
+            </article>))) : <UiEmptyState title="No AI insights generated"><span>Generate an evidence-backed interpretation of the current authorized finance context.</span><UiButton onClick={() => void generateWatch()} variant="secondary">Generate insights</UiButton></UiEmptyState>}
+      </UiCardBody></UiCard>
+      <UiCard className="p183-askAims"><UiCardHeader>
           <div>
-            <small>ASK AIMS</small>
-            <h3>Finance copilot</h3>
+            <UiTypography as="span" variant="metadata">ASK AIMS</UiTypography>
+            <UiTypography as="h3" variant="section">Finance copilot</UiTypography>
           </div>
-        </header>
-        <div className="askForm">
-          <input
-            aria-label="Ask AIMS finance question"
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Which department has the highest budget pressure?"
-            maxLength={500}
-          />
-          <button
-            className="primary"
-            disabled={question.trim().length < 2}
-            onClick={() => void ask()}
-          >
+        </UiCardHeader><UiCardBody>
+
+        <div className="p183-askForm">
+          <UiInput aria-label="Ask AIMS finance question" value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Which department has the highest budget pressure?" maxLength={500} label="Ask AIMS finance question"/>
+          <UiButton disabled={question.trim().length < 2} onClick={() => void ask()} variant="primary">
             Ask
-          </button>
+          </UiButton>
         </div>
-        {answer && (
-          <div>
-            <p>{answer.answer}</p>
-            <small>
+        {answer && (<div>
+            <UiTypography as="p" variant="body">{answer.answer}</UiTypography>
+            <UiTypography as="span" variant="metadata">
               {answer.evidenceReferences
                 ?.map((e: any) => `${e.metric}: ${e.value}`)
                 .join(" · ")}
-            </small>
-          </div>
-        )}
-        <div className="assistantGuardrails"><span>Controlled analytics only</span><span>No arbitrary SQL</span><span>No bank details</span><span>Read-only</span></div>
-      </section>
-    </section>
-  );
+            </UiTypography>
+          </div>)}
+        <div className="p183-assistantGuardrails"><UiBadge tone="ai">Controlled analytics only</UiBadge><UiBadge tone="ai">No arbitrary SQL</UiBadge><UiBadge tone="ai">No bank details</UiBadge><UiBadge tone="ai">Read-only</UiBadge></div>
+      </UiCardBody></UiCard>
+    </UiProvider>);
 }
 
 type PaymentRow = {

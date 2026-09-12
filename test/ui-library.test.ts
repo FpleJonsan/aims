@@ -60,7 +60,7 @@ test('CSS uses one token source, valid references, unique selectors and no liter
  assert.doesNotMatch(css,/#[0-9a-f]{3,8}\b|\b\d+(?:px|rem|em|ms)\b/i);
  const selectors=new Set<string>();postcss.parse(css).walkRules(rule=>{const key=`${rule.parent?.type==='atrule'?String((rule.parent as {params?:string}).params):''}:${rule.selector}`;assert.ok(!selectors.has(key),key);selectors.add(key)});
  assert.equal((css.match(/@import/g)||[]).length,1);
- for(const path of ['app/page.tsx','app/layout.tsx','app/globals.css','app/day1.css'])assert.doesNotMatch(await readFile(path,'utf8'),/components\/ui|ui\/ui.css/);
+ for(const path of ['app/layout.tsx','app/globals.css','app/day1.css'])assert.doesNotMatch(await readFile(path,'utf8'),/components\/ui|ui\/ui.css/);
 });
 test('compact tables, success fields, heading semantics and spinner announcements render',()=>{
  assert.match(render(h(ui.TableContainer,{label:'History',density:'compact'})),/data-density="compact"/);
