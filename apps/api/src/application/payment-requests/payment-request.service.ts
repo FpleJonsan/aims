@@ -33,7 +33,7 @@ type RequestRow = {
   amount: string | null;
   currency: string | null;
   department_id: string;
-  due_date: string | Date | null;
+  due_date: string | null;
   payment_method: string | null;
   payment_details: string | null;
   remark: string | null;
@@ -396,10 +396,7 @@ function mapRequest(row: RequestRow): PaymentRequest {
     amount: row.amount,
     currency: row.currency,
     departmentId: row.department_id,
-    dueDate:
-      row.due_date instanceof Date
-        ? row.due_date.toISOString().slice(0, 10)
-        : row.due_date,
+    dueDate: row.due_date,
     paymentMethod: row.payment_method,
     paymentDetails: row.payment_details,
     remark: row.remark,
@@ -412,10 +409,10 @@ function mapRequest(row: RequestRow): PaymentRequest {
 }
 
 function clean(
-  value: string | undefined,
+  value: string | null | undefined,
   fallback: string | null,
 ): string | null {
-  return value === undefined ? fallback : value.trim() || null;
+  return value == null ? fallback : value.trim() || null;
 }
 
 export function businessYear(date: Date, timeZone: string): number {

@@ -1,7 +1,11 @@
 import { Injectable, OnModuleDestroy } from "@nestjs/common";
-import { Pool, type PoolClient } from "pg";
+import { Pool, types, type PoolClient } from "pg";
 import {failureCategory,metrics,operationalLog,safeErrorCode} from "../observability/telemetry.js";
 import { loadDatabasePoolConfig } from "../configuration/runtime-foundation.js";
+
+// PostgreSQL DATE is a calendar value, not an instant. Preserve its wire string
+// across application pools; timestamp parsers remain unchanged.
+types.setTypeParser(types.builtins.DATE, (value: string) => value);
 
 @Injectable()
 export class Postgres implements OnModuleDestroy {
