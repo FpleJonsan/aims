@@ -69,3 +69,4 @@
 .aims-pagination { padding-block:var(--aims-space-16); font-size:var(--aims-font-size-14); line-height:var(--aims-line-height-14); }
 .aims-button:disabled,.aims-control:disabled { background:var(--aims-color-disabled-surface); border-color:var(--aims-color-disabled-border); color:var(--aims-color-disabled-text); cursor:not-allowed; opacity:1; }
 @media (pointer:coarse) { .aims-button,.aims-control { min-height:var(--aims-control-touch-height); } .aims-card-header,.aims-card-body,.aims-card-footer { padding:var(--aims-space-16); } }
+.aims-visually-hidden { position:absolute; width:var(--aims-border-width); height:var(--aims-border-width); padding:var(--aims-space-0); margin:calc(var(--aims-border-width) * -1); overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:var(--aims-space-0); }

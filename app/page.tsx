@@ -13,7 +13,7 @@ import "./financial-analysis-ui.css";
 import "./finance-control-ui.css";
 import "./payment-ui.css";
 import "./history-ui.css";
-import {UIProvider as UiProvider, Button as UiButton, Card as UiCard, CardHeader as UiCardHeader, CardBody as UiCardBody, Badge as UiBadge, Typography as UiTypography, Input as UiInput, Select as UiSelect, Alert as UiAlert, EmptyState as UiEmptyState, LoadingSpinner as UiSpinner, PageHeader as UiPageHeader, SectionHeader as UiSectionHeader, Textarea as UiTextarea, StatusChip as UiStatusChip, TableContainer as UiTableContainer, Pagination as UiPagination} from "./components/ui";
+import {UIProvider as UiProvider, Button as UiButton, Card as UiCard, CardHeader as UiCardHeader, CardBody as UiCardBody, Badge as UiBadge, Typography as UiTypography, Input as UiInput, Select as UiSelect, Alert as UiAlert, EmptyState as UiEmptyState, LoadingSpinner as UiSpinner, PageHeader as UiPageHeader, SectionHeader as UiSectionHeader, Textarea as UiTextarea, StatusChip as UiStatusChip, TableContainer as UiTableContainer, TableHeaderRow as UiTableHeaderRow, Pagination as UiPagination, Dialog as UiDialog} from "./components/ui";
 import {policyReadyForApproval} from "./lib/policy-ready";
 import {dashboardDestination, financePath, navigationFilters} from "./lib/dashboard-navigation";
 import {pollDocuments, type ScanDocument} from "./lib/document-polling";
@@ -403,28 +403,29 @@ export default function Home() {
   };
   const switchWorkspace=(next:Workspace)=>{if(!session.workspaces[next])return;window.localStorage.setItem("aims.workspace",next);setWorkspace(next);setSelected(null);setItems([]);setDashboardDrill(null);if(next==="requester"){setRequesterHome(true);setShowDashboard(false);setShowPaymentHistory(false);window.history.pushState({},"","/requester")}else{const view=defaultFinanceView(session);if(view)goFinance(view)}};
   return (
-    <main className="appShell">
+    <div className="appShell">
+      <a href="#aims-main-content" className="skipLink" onClick={()=>{document.getElementById("aims-main-content")?.focus();}}>Skip to main content</a>
       <aside className="sideNav">
-        <Brand />
+        <header role="banner"><Brand /></header>
         <button className="mobileNavToggle" aria-controls="aims-primary-navigation" aria-expanded={mobileNavOpen} onClick={()=>setMobileNavOpen(open=>!open)}>
           <span aria-hidden="true">{mobileNavOpen?"×":"☰"}</span><span>{mobileNavOpen?"Close menu":pageTitle}</span>
         </button>
         <nav id="aims-primary-navigation" aria-label="Primary navigation" className={`primaryNav${mobileNavOpen?" mobileOpen":""}`}>
           {workspace==="requester"?<>
-            <button className={requesterHome&&!selected?"active":""} onClick={()=>goRequester(true)}><span>▦</span>Dashboard</button>
-            <button className={!requesterHome&&!requesterPaymentOnly&&!selected?"active":""} onClick={()=>goRequester(false)}><span>☷</span>My Requests</button>
-            <button onClick={()=>void initiate()}><span>＋</span>New Request</button>
-            <button className={requesterPaymentOnly&&!selected?"active":""} onClick={()=>goRequester(false,true)}><span>◷</span>Payment Status</button>
+            <button className={requesterHome&&!selected?"active":""} aria-current={requesterHome&&!selected?"page":undefined} onClick={()=>goRequester(true)}><span aria-hidden="true">▦</span>Dashboard</button>
+            <button className={!requesterHome&&!requesterPaymentOnly&&!selected?"active":""} aria-current={!requesterHome&&!requesterPaymentOnly&&!selected?"page":undefined} onClick={()=>goRequester(false)}><span aria-hidden="true">☷</span>My Requests</button>
+            <button onClick={()=>void initiate()}><span aria-hidden="true">＋</span>New Request</button>
+            <button className={requesterPaymentOnly&&!selected?"active":""} aria-current={requesterPaymentOnly&&!selected?"page":undefined} onClick={()=>goRequester(false,true)}><span aria-hidden="true">◷</span>Payment Status</button>
           </>:<>
             <small>FINANCE COMMAND CENTER</small>
-            {session.capabilities.reporting&&<button className={financeView==="dashboard"?"active":""} onClick={()=>goFinance("dashboard")}><span>▦</span>Dashboard</button>}
+            {session.capabilities.reporting&&<button className={financeView==="dashboard"?"active":""} aria-current={financeView==="dashboard"?"page":undefined} onClick={()=>goFinance("dashboard")}><span aria-hidden="true">▦</span>Dashboard</button>}
             <small>OPERATIONS</small>
-            {session.capabilities.financeAnalysis&&<button className={financeView==="work-queue"&&!selected?"active":""} onClick={()=>goFinance("work-queue")}><span>☷</span>Work Queue</button>}
-            {session.capabilities.approval&&<button className={financeView==="approvals"?"active":""} onClick={()=>goFinance("approvals")}><span>✓</span>Approval Inbox</button>}
-            {session.capabilities.financeControl&&<button className={financeView==="finance-control"?"active":""} onClick={()=>goFinance("finance-control")}><span>◆</span>Finance Control</button>}
-            {session.capabilities.payment&&<button className={financeView==="payment-queue"?"active":""} onClick={()=>goFinance("payment-queue")}><span>→</span>Payment Queue</button>}
-            {(session.capabilities.payment||session.capabilities.reporting)&&<button className={financeView==="payment-history"?"active":""} onClick={()=>goFinance("payment-history")}><span>◷</span>Payment History</button>}
-            {session.capabilities.reporting&&<><small>ANALYTICS</small><button onClick={()=>goFinance("dashboard")}><span>◉</span>Budget &amp; Spending</button><button onClick={()=>goFinance("dashboard")}><span>↗</span>Reports</button><small>AI INTELLIGENCE</small><button className={financeView==="ai"?"active":""} onClick={()=>goFinance("ai")}><span>✦</span>Finance Watch &amp; Ask AIMS</button></>}
+            {session.capabilities.financeAnalysis&&<button className={financeView==="work-queue"&&!selected?"active":""} aria-current={financeView==="work-queue"&&!selected?"page":undefined} onClick={()=>goFinance("work-queue")}><span aria-hidden="true">☷</span>Work Queue</button>}
+            {session.capabilities.approval&&<button className={financeView==="approvals"?"active":""} aria-current={financeView==="approvals"?"page":undefined} onClick={()=>goFinance("approvals")}><span aria-hidden="true">✓</span>Approval Inbox</button>}
+            {session.capabilities.financeControl&&<button className={financeView==="finance-control"?"active":""} aria-current={financeView==="finance-control"?"page":undefined} onClick={()=>goFinance("finance-control")}><span aria-hidden="true">◆</span>Finance Control</button>}
+            {session.capabilities.payment&&<button className={financeView==="payment-queue"?"active":""} aria-current={financeView==="payment-queue"?"page":undefined} onClick={()=>goFinance("payment-queue")}><span aria-hidden="true">→</span>Payment Queue</button>}
+            {(session.capabilities.payment||session.capabilities.reporting)&&<button className={financeView==="payment-history"?"active":""} aria-current={financeView==="payment-history"?"page":undefined} onClick={()=>goFinance("payment-history")}><span aria-hidden="true">◷</span>Payment History</button>}
+            {session.capabilities.reporting&&<><small>ANALYTICS</small><button onClick={()=>goFinance("dashboard")}><span aria-hidden="true">◉</span>Budget &amp; Spending</button><button onClick={()=>goFinance("dashboard")}><span aria-hidden="true">↗</span>Reports</button><small>AI INTELLIGENCE</small><button className={financeView==="ai"?"active":""} aria-current={financeView==="ai"?"page":undefined} onClick={()=>goFinance("ai")}><span aria-hidden="true">✦</span>Finance Watch &amp; Ask AIMS</button></>}
           </>}
         </nav>
         <div className="userCard"><b>{profile.initials}</b><span><strong>{profile.name}</strong><small>{profile.department}</small><small>Current workspace: {workspace==="requester"?"Requester":"Finance"}</small></span></div>
@@ -435,7 +436,7 @@ export default function Home() {
           Sign out
         </button>
       </aside>
-      <section className="workspace">
+      <main id="aims-main-content" className="workspace" tabIndex={-1}>
         {workspace === "finance" && showDashboard && session.capabilities.reporting ? <UiProvider className="p183-dashboard p183-pageHeader">
           <UiTypography variant="metadata">AIMS · PAYMENT & FINANCE CONTROL</UiTypography>
           <UiPageHeader title={pageTitle} description={financeDescriptions[financeView]} actions={<>
@@ -483,15 +484,15 @@ export default function Home() {
             </div>
           )}
         </header>)}
-        {workspace==="finance"&&selected&&<div className="stageRail" aria-label="12-stage AIMS workflow">
+        {workspace==="finance"&&selected&&<nav className="stageRail" aria-label="12-stage AIMS workflow">
           {stages.map((s, i) => (
-            <div className={currentStage < 0 ? "available" : i < currentStage ? "completed" : i === currentStage ? "current" : "future"} key={s}>
+            <div className={currentStage < 0 ? "available" : i < currentStage ? "completed" : i === currentStage ? "current" : "future"} aria-current={i===currentStage?"step":undefined} key={s}>
               <span>{String(i + 1).padStart(2, "0")}</span>
               <b>{s}</b>
               <small>{currentStage < 0 ? "Available" : i < currentStage ? "Completed" : i === currentStage ? "Current" : "Locked"}</small>
             </div>
           ))}
-        </div>}
+        </nav>}
         {notice && <p className="notice" role="status" aria-live="polite">{notice}</p>}
         {workspace==="finance"&&financeView==="payment-queue"&&<p className="controlNotice"><AuthorityBadge>PAYMENT RECORDING</AuthorityBadge><span>AIMS records externally executed payments. AIMS does not execute bank transfers.</span></p>}
         {workspace==="requester"&&requesterHome&&!selected?<RequesterDashboard api={api} open={open} newRequest={()=>void initiate()} viewAll={()=>goRequester(false)}/>:financeView==="ai"&&workspace==="finance"&&session.capabilities.reporting?<FinanceIntelligenceWorkspace api={api}/>:showDashboard && workspace === "finance" && session.capabilities.reporting ? (
@@ -539,8 +540,8 @@ export default function Home() {
             )}
           </>
         )}
-      </section>
-    </main>
+      </main>
+    </div>
   );
 }
 
@@ -1094,28 +1095,29 @@ function PaymentHistory({ api, initialFilters = {} }: { api: Api; initialFilters
         <UiCardBody>
           {rows.length ? (
             <UiTableContainer label="Payment history results">
-              <div className="p18310-rows">
+              <div className="p18310-rows" role="table" aria-label="Payment history results">
+                <UiTableHeaderRow columns={["Ticket","Payee","Amount","Recorded by","Status","Action"]}/>
                 {rows.map((row, index) => (
-                  <button key={`${row.id}-${index}`} onClick={() => void open(row.id)}>
-                    <span className="ticket">{row.ticketNumber}</span>
-                    <span>
+                  <button role="row" key={`${row.id}-${index}`} onClick={() => void open(row.id)}>
+                    <span className="ticket" role="cell">{row.ticketNumber}</span>
+                    <span role="cell">
                       <b>{row.payee}</b>
                       <small>
                         {row.departmentName} · {row.category} · {row.purpose}
                       </small>
                     </span>
-                    <span>
+                    <span role="cell">
                       {row.currency} {row.amount}
                       <small>
                         {row.paymentDate?.slice(0, 10)} · {row.paymentMethod}
                       </small>
                     </span>
-                    <span>
+                    <span role="cell">
                       {row.recordedByName}
                       <small>{row.recordedAt}</small>
                     </span>
-                    {historyStatusChip(row.status)}
-                    <strong>Detail →</strong>
+                    <span role="cell">{historyStatusChip(row.status)}</span>
+                    <strong role="cell">Detail →</strong>
                   </button>
                 ))}
               </div>
@@ -1260,23 +1262,24 @@ function List({
       </header>
       {requesterView&&<div className="requesterFilters" aria-label="Filter my requests"><label>Search<input value={requesterFilters.search} onChange={event=>setRequesterFilters(value=>({...value,search:event.target.value}))} placeholder="Ticket, payee or purpose"/></label><label>Status<select value={requesterFilters.status} onChange={event=>setRequesterFilters(value=>({...value,status:event.target.value}))}><option value="">All statuses</option>{Object.entries(requesterStatusPresentation).filter(([status])=>!paymentOnly||status==="READY_FOR_PAYMENT"||status==="PAID").map(([status,meta])=><option key={status} value={status}>{meta.label}</option>)}</select></label><label>From<input type="date" value={requesterFilters.dateFrom} onChange={event=>setRequesterFilters(value=>({...value,dateFrom:event.target.value}))}/></label><label>To<input type="date" value={requesterFilters.dateTo} onChange={event=>setRequesterFilters(value=>({...value,dateTo:event.target.value}))}/></label><button className="secondary" onClick={()=>setRequesterFilters({search:"",status:"",dateFrom:"",dateTo:""})}>Clear</button></div>}
       {visibleItems.length ? (
-        <div className={`table ${requesterView?"requesterRequestList":"financeQueueList"}`}>
+        <div className={`table ${requesterView?"requesterRequestList":"financeQueueList"}`} role="table" aria-label={`${requesterView?(paymentOnly?"Payment status":"My requests"):(financeCopy?.title??"Current requests")} results`}>
+          <div role="row" className="visuallyHidden">{(requesterView?["Ticket","Payee","Amount","Status","Updated","Action"]:["Ticket","Payee","Amount","Risk","Status","Action"]).map(label=><span role="columnheader" key={label}>{label}</span>)}</div>
           {visibleItems.map((x,index) => (
-            <button className={requesterView&&requesterNeedsAction(x.status)?"requiresAction":""} key={`${x.id}-${index}`} onClick={() => open(x.id)}>
-              <span className="ticket">
+            <button role="row" className={requesterView&&requesterNeedsAction(x.status)?"requiresAction":""} key={`${x.id}-${index}`} onClick={() => open(x.id)}>
+              <span className="ticket" role="cell">
                 {x.ticketNumber ?? "Draft · no ticket"}
               </span>
-              <span>
+              <span role="cell">
                 <b>{x.payee ?? "Untitled request"}</b>
                 <small>{x.purpose ?? "Capture not completed"}</small>
                 {!requesterView&&<small>Due {formatDate(x.dueDate)} · Action: {financeNextAction(x.status).label}</small>}
                 {requesterView&&<small>{x.submittedAt?`Submitted ${formatDate(x.submittedAt)}`:"Not submitted to Finance"}</small>}
               </span>
-              <span>{formatMoney(x.currency,x.amount)}</span>
-              {x.humanFinalRisk && <span>Human risk: {x.humanFinalRisk}</span>}
-              <span className="requestProgress"><StatusChip status={x.status}/>{requesterView&&<><small>Next owner: {requesterStatusPresentation[x.status].owner}</small><small>{requesterStatusPresentation[x.status].action}</small></>}</span>
-              {requesterView&&<span>{formatDate(x.updatedAt)}<small>Updated</small></span>}
-              <strong>{requesterView?"Open":"Open Request"} →</strong>
+              <span role="cell">{formatMoney(x.currency,x.amount)}</span>
+              {x.humanFinalRisk && <span role="cell">Human risk: {x.humanFinalRisk}</span>}
+              <span className="requestProgress" role="cell"><StatusChip status={x.status}/>{requesterView&&<><small>Next owner: {requesterStatusPresentation[x.status].owner}</small><small>{requesterStatusPresentation[x.status].action}</small></>}</span>
+              {requesterView&&<span role="cell">{formatDate(x.updatedAt)}<small>Updated</small></span>}
+              <strong role="cell">Open Request →</strong>
             </button>
           ))}
         </div>
@@ -1704,7 +1707,7 @@ function RequesterRequestExperience({ item, form, field, fieldErrors, busy, noti
       </form>
       <RequesterDocuments item={item} editable upload={upload} remove={remove} busy={busy}/>
       <UiCard className="p1832-requestReview"><UiCardBody><div className="p1832-sectionHeading"><UiBadge>4</UiBadge><div><UiTypography as="span" variant="metadata">REVIEW & SUBMIT</UiTypography><UiTypography as="h3" variant="section">Check your request</UiTypography></div></div><div className="p1832-reviewSummary"><UiTypography as="p" variant="body"><span>Payee</span><UiTypography as="span" variant="label">{form.payee || "Not added"}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Purpose</span><UiTypography as="span" variant="label">{form.purpose || "Not added"}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Amount</span><UiTypography as="span" variant="label">{formatMoney(form.currency, form.amount)}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Due date</span><UiTypography as="span" variant="label">{formatDate(form.dueDate)}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Documents</span><UiTypography as="span" variant="label">{item.documents?.length ?? 0} attached</UiTypography></UiTypography></div><UiButton disabled={busy} onClick={reviewSubmission} variant="primary" type="button" busy={busy}>Review and Submit →</UiButton></UiCardBody></UiCard>
-      {confirming && <div className="p1832-submitConfirmation" role="dialog" aria-modal="true" aria-labelledby="submit-title"><UiCard><UiCardBody><UiTypography as="span" variant="metadata">FINAL CONFIRMATION</UiTypography><UiTypography id="submit-title" as="h2" variant="section">Submit this request?</UiTypography><UiTypography as="p" variant="body">After submission, Finance will begin reviewing the request. Editing becomes restricted. If corrections are needed later, Finance may request clarification or revised information.</UiTypography><div><UiButton onClick={() => setConfirming(false)} variant="secondary" type="button">Continue Editing</UiButton><UiButton disabled={busy} onClick={() => void confirmSubmission()} variant="primary" type="button" busy={busy}>Submit Request</UiButton></div></UiCardBody></UiCard></div>}
+      {confirming && <UiDialog className="p1832-submitConfirmation" labelledBy="submit-title" describedBy="submit-description" dismissible={!busy} onClose={() => setConfirming(false)}><UiCard><UiCardBody><UiTypography as="span" variant="metadata">FINAL CONFIRMATION</UiTypography><UiTypography id="submit-title" as="h2" variant="section">Submit this request?</UiTypography><UiTypography id="submit-description" as="p" variant="body">After submission, Finance will begin reviewing the request. Editing becomes restricted. If corrections are needed later, Finance may request clarification or revised information.</UiTypography><span role="status" aria-live="polite" className="aims-visually-hidden">{busy?"Submitting request…":""}</span><div><UiButton disabled={busy} onClick={() => setConfirming(false)} variant="secondary" type="button">Continue Editing</UiButton><UiButton disabled={busy} onClick={() => void confirmSubmission()} variant="primary" type="button" busy={busy}>Submit Request</UiButton></div></UiCardBody></UiCard></UiDialog>}
     </> : <RequesterSubmittedDetail item={item} api={api} changed={changed} upload={upload} busy={busy}/>}
   </div>;
 }

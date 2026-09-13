@@ -1,8 +1,9 @@
 "use client";
 
-import {useId, type ReactNode, type HTMLAttributes, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes} from 'react';
+import {useId, useEffect, useRef, type ReactNode, type HTMLAttributes, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes} from 'react';
 
 const cx = (...values: (string | undefined | false)[]) => values.filter(Boolean).join(' ');
+const FOCUSABLE_SELECTOR = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 type Box = HTMLAttributes<HTMLDivElement>;
 type Tone = 'success' | 'warning' | 'danger' | 'neutral' | 'info' | 'ai';
 export function UIProvider({className, ...props}: Box) {
@@ -47,6 +48,69 @@ export function StatusChip({status,...props}:Omit<BadgeProps,'tone'|'children'>&
 export function Alert({tone='info',children,title,className,...props}:Box&{tone?:Tone;title?:string}){
   return <div {...props} role={tone==='danger'?'alert':'status'} className={cx('aims-alert',`aims-tone-${tone}`,className)}>{title&&<Typography variant="label">{title}</Typography>}{children}</div>;
 }
+export type DialogProps = Omit<Box,'aria-labelledby'|'aria-describedby'|'role'> & {
+  labelledBy: string;
+  describedBy?: string;
+  onClose?: () => void;
+  dismissible?: boolean;
+};
+/**
+ * Shared accessible dialog primitive: the one authoritative implementation of
+ * focus trap, focus return, Escape-to-dismiss, background inertness, and
+ * scroll lock for AIMS. Mount it only while the dialog should be open (e.g.
+ * `{open && <Dialog ...>}`) — setup runs once on mount and its cleanup runs
+ * once on unmount, which is what makes focus return to the trigger reliable.
+ * `dismissible`/`onClose` are read live (via a ref) so a dialog that becomes
+ * busy mid-lifetime can suppress Escape without needing to remount.
+ */
+export function Dialog({labelledBy,describedBy,onClose,dismissible=true,className,children,...props}:DialogProps){
+  const ref=useRef<HTMLDivElement>(null);
+  const live=useRef({onClose,dismissible});
+  useEffect(()=>{live.current={onClose,dismissible};});
+  useEffect(()=>{
+    const node=ref.current;
+    if(!node)return;
+    const returnFocusTo=document.activeElement instanceof HTMLElement?document.activeElement:null;
+    const restoreInert:Array<()=>void>=[];
+    let el:HTMLElement|null=node;
+    while(el&&el!==document.body){
+      const parent:HTMLElement|null=el.parentElement;
+      if(parent){
+        Array.from(parent.children).forEach(sibling=>{
+          if(sibling!==el&&sibling instanceof HTMLElement&&!sibling.hasAttribute('inert')){
+            sibling.setAttribute('inert','');
+            restoreInert.push(()=>sibling.removeAttribute('inert'));
+          }
+        });
+      }
+      el=parent;
+    }
+    const previousOverflow=document.body.style.overflow;
+    document.body.style.overflow='hidden';
+    const focusable=node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+    (focusable[0]??node).focus();
+    const onKeyDown=(event:KeyboardEvent)=>{
+      if(event.key==='Escape'){
+        if(live.current.dismissible&&live.current.onClose){event.stopPropagation();live.current.onClose();}
+        return;
+      }
+      if(event.key!=='Tab')return;
+      const items=Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+      if(items.length===0){event.preventDefault();return;}
+      const first=items[0],last=items[items.length-1];
+      if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+    };
+    document.addEventListener('keydown',onKeyDown,true);
+    return ()=>{
+      document.removeEventListener('keydown',onKeyDown,true);
+      document.body.style.overflow=previousOverflow;
+      restoreInert.forEach(fn=>fn());
+      returnFocusTo?.focus();
+    };
+  },[]);
+  return <div ref={ref} {...props} role="dialog" aria-modal="true" aria-labelledby={labelledBy} aria-describedby={describedBy} tabIndex={-1} className={cx('aims-dialog',className)}>{children}</div>;
+}
 export function EmptyState({title,children,action,...props}:Omit<Box,'title'>&{title:string;action?:ReactNode}){
   return <div {...props} className={cx('aims-empty',props.className)}><Typography variant="section">{title}</Typography><div>{children}</div>{action&&<div>{action}</div>}</div>;
 }
@@ -82,6 +146,21 @@ export function PageHeader(props:HeaderProps){return <Header {...props} level="p
 export function SectionHeader(props:HeaderProps){return <Header {...props} level="section"/>;}
 export function TableContainer({label,density='default',children,className,...props}:Box&{label:string;density?:'default'|'compact'}){
   return <div {...props} className={cx('aims-table-container',className)} role="region" aria-label={label} tabIndex={0} data-density={density}>{children}</div>;
+}
+/**
+ * The one shared header-row pattern for AIMS's ARIA-table lists: a
+ * visually-hidden `role="row"` of `role="columnheader"` cells, meant to be
+ * the first child of a `role="table"` container whose visible rows are
+ * `role="row"` elements with `role="cell"` children in the same column
+ * order. Chosen over a native `<table>` for these specific screens because
+ * their rows/columns are governed by frozen, per-breakpoint CSS Grid rules
+ * (P18.4 Responsive) that a native table would require rewriting; the ARIA
+ * table pattern gives the same header/cell association without touching
+ * that CSS. Reuse this for every workflow list — do not hand-roll a second
+ * hidden header row.
+ */
+export function TableHeaderRow({columns}:{columns:string[]}){
+  return <div role="row" className="aims-visually-hidden">{columns.map(label=><span role="columnheader" key={label}>{label}</span>)}</div>;
 }
 export type PaginationProps={page:number;totalPages?:number;total?:number;hasPreviousPage:boolean;hasNextPage:boolean;onPrevious:()=>void;onNext:()=>void;busy?:boolean;label?:string};
 export function Pagination({page,totalPages,total,hasPreviousPage,hasNextPage,onPrevious,onNext,busy=false,label='Pagination'}:PaginationProps){

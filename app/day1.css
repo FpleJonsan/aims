@@ -6,6 +6,26 @@
   grid-template-columns: 240px 1fr;
 }
 
+/* P19.3A: skip-navigation link. Off-screen until keyboard-focused, then
+   pinned to the top-left corner above all other content. Adds no visible
+   change to the default (unfocused) rendering of any screen. */
+.skipLink {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 1000;
+  background: #14231c;
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 0 0 8px 0;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.skipLink:focus {
+  left: 0;
+}
+
 .sideNav {
   background: #14231c;
   color: #fff;
@@ -186,6 +206,20 @@
 }
 .ticket {
   font: 700 11px monospace;
+}
+/* P19.3C: visually-hidden ARIA table header row for the legacy .table/
+   .financeQueueList/.requesterRequestList row-button lists. Off-screen by
+   default; adds no visible change to any screen. */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .draft,
 .submitted {

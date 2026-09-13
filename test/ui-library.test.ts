@@ -18,7 +18,9 @@ test('every public component renders without an existing page',()=>{
  Alert:{title:'Notice',children:'Details'},EmptyState:{title:'No requests',children:'Nothing to show'},FormField:{id:'custom',label:'Label',children:h('input',{id:'custom'})},
  Input:{label:'Payee'},Textarea:{label:'Reason'},Select:{label:'Currency',children:h('option',null,'MYR')},PageHeader:{title:'Payments'},SectionHeader:{title:'Documents'},
  TableContainer:{label:'Payment records',children:h('table',null,h('tbody',null,h('tr',null,h('td',null,'10.00'))))},
- Pagination:{page:1,totalPages:2,total:2,hasPreviousPage:false,hasNextPage:true,onPrevious:()=>{},onNext:()=>{}}
+ Pagination:{page:1,totalPages:2,total:2,hasPreviousPage:false,hasNextPage:true,onPrevious:()=>{},onNext:()=>{}},
+ Dialog:{labelledBy:'dialog-title',children:h('h2',{id:'dialog-title'},'Confirm')},
+ TableHeaderRow:{columns:['Ticket','Payee']}
  };
  assert.deepEqual(Object.keys(ui).sort(),Object.keys(cases).sort());
  for(const [name,props] of Object.entries(cases))assert.ok(render(h(ui[name],props)),name);
@@ -61,6 +63,19 @@ test('CSS uses one token source, valid references, unique selectors and no liter
  const selectors=new Set<string>();postcss.parse(css).walkRules(rule=>{const key=`${rule.parent?.type==='atrule'?String((rule.parent as {params?:string}).params):''}:${rule.selector}`;assert.ok(!selectors.has(key),key);selectors.add(key)});
  assert.equal((css.match(/@import/g)||[]).length,1);
  for(const path of ['app/layout.tsx','app/globals.css','app/day1.css'])assert.doesNotMatch(await readFile(path,'utf8'),/components\/ui|ui\/ui.css/);
+});
+test('dialog exposes required accessible name and optional description, never unnamed',()=>{
+ const named=render(h(ui.Dialog,{labelledBy:'dialog-title'},h('h2',{id:'dialog-title'},'Confirm')));
+ assert.match(named,/role="dialog"/);assert.match(named,/aria-modal="true"/);assert.match(named,/aria-labelledby="dialog-title"/);
+ assert.doesNotMatch(named,/aria-describedby="/);
+ const described=render(h(ui.Dialog,{labelledBy:'dialog-title',describedBy:'dialog-desc'},h('h2',{id:'dialog-title'},'Confirm'),h('p',{id:'dialog-desc'},'Details')));
+ assert.match(described,/aria-describedby="dialog-desc"/);
+});
+test('table header row exposes one columnheader per column, hidden visually',()=>{
+ const html=render(h(ui.TableHeaderRow,{columns:['Ticket','Payee','Amount']}));
+ assert.match(html,/role="row"/);assert.equal((html.match(/role="columnheader"/g)||[]).length,3);
+ assert.match(html,/>Ticket</);assert.match(html,/>Payee</);assert.match(html,/>Amount</);
+ assert.match(html,/class="aims-visually-hidden"/);
 });
 test('compact tables, success fields, heading semantics and spinner announcements render',()=>{
  assert.match(render(h(ui.TableContainer,{label:'History',density:'compact'})),/data-density="compact"/);
