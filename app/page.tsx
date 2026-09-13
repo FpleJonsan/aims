@@ -80,6 +80,7 @@ type Item = {
 };
 type Api = (path: string, init?: RequestInit) => Promise<unknown>;
 type Pagination = { page:number;pageSize:number;total:number;totalPages:number;hasNextPage:boolean;hasPreviousPage:boolean };
+type WorkQueuePagination = { page:number;hasNextPage:boolean;hasPreviousPage:boolean };
 type DashboardFilterState = { dateFrom:string;dateTo:string;departmentId:string;category:string };
 type DashboardDrill =
   | { view:"REPORTING_REQUESTS"; reportView:"PENDING_APPROVAL"|"RISK_ATTENTION"; filters:DashboardFilterState }
@@ -153,12 +154,16 @@ export default function Home() {
     [requesterPaymentOnly,setRequesterPaymentOnly]=useState(false),
     [approvalPage, setApprovalPage] = useState(1),
     [approvalPagination, setApprovalPagination] = useState<Pagination|null>(null),
+    [workQueuePage, setWorkQueuePage] = useState(1),
+    [workQueuePagination, setWorkQueuePagination] = useState<WorkQueuePagination|null>(null),
+    [financeControlPage, setFinanceControlPage] = useState(1),
+    [financeControlPagination, setFinanceControlPagination] = useState<Pagination|null>(null),
     [routeQuery,setRouteQuery]=useState(""),
     [dashboardDrill, setDashboardDrill] = useState<DashboardDrill|null>(null),
     [mobileNavOpen,setMobileNavOpen]=useState(false);
   const authorizationRefresh=useRef(false);
   const clearProtectedState=useCallback(()=>{
-    setItems([]);setSelected(null);setApprovalPagination(null);setDashboardDrill(null);
+    setItems([]);setSelected(null);setApprovalPagination(null);setWorkQueuePagination(null);setFinanceControlPagination(null);setDashboardDrill(null);
     setShowDashboard(false);setShowPaymentHistory(false);
   },[]);
   const api = useCallback(
@@ -253,23 +258,24 @@ export default function Home() {
         })),
       );
     } else {
-      const control = financeView==="finance-control" ? (
-        (await api(`/finance-control?${new URLSearchParams(navigationFilters("finance-control",routeQuery))}`)) as {
-          items: Array<Record<string, unknown>>;
-        }
-      ).items : [];
+      let control:Array<Record<string, unknown>>=[];
+      if(financeView==="finance-control"){
+        const params=new URLSearchParams(navigationFilters("finance-control",routeQuery));
+        params.set("page",String(financeControlPage));params.set("pageSize","25");
+        const rows=(await api(`/finance-control?${params}`)) as {items:Array<Record<string,unknown>>} & Pagination;
+        control=rows.items;
+        setFinanceControlPagination(rows);
+      }
       const payment = financeView==="payment-queue" ? (
         (await api(`/payment-queue?${new URLSearchParams(navigationFilters("payment-queue",routeQuery))}`)) as {
           items: Array<Record<string, unknown>>;
         }
       ).items : [];
-      const work:Item[]=[];
+      let work:Item[]=[];
       if(financeView==="work-queue"){
-        for(let page=1;page<=100;page+=1){
-          const batch=((await api(`/payment-requests?page=${page}&pageSize=100`)) as {items:Item[]}).items;
-          work.push(...batch.filter(item=>["SUBMITTED","VALIDATING","NEEDS_CLARIFICATION"].includes(item.status)));
-          if(batch.length<100)break;
-        }
+        const batch=((await api(`/payment-requests?page=${workQueuePage}&pageSize=100`)) as {items:Item[]}).items;
+        work=batch.filter(item=>["SUBMITTED","VALIDATING","NEEDS_CLARIFICATION"].includes(item.status));
+        setWorkQueuePagination({page:workQueuePage,hasNextPage:batch.length===100,hasPreviousPage:workQueuePage>1});
       }
       setItems(
         [
@@ -279,7 +285,7 @@ export default function Home() {
         ].filter((x, i, a) => a.findIndex((y) => y.id === x.id) === i),
       );
     }
-  }, [api, session, workspace, approvalPage, financeView, routeQuery]);
+  }, [api, session, workspace, approvalPage, workQueuePage, financeControlPage, financeView, routeQuery]);
   useEffect(() => {
     if (authPhase!=="ready" || !session || !workspace) return;
     let active = true;
@@ -290,7 +296,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [refresh, authPhase, session, workspace, approvalPage]);
+  }, [refresh, authPhase, session, workspace, approvalPage, workQueuePage, financeControlPage]);
   useEffect(()=>{
     void Promise.resolve().then(()=>bootstrapSession(window.location.pathname+window.location.search));
   },[bootstrapSession]);
@@ -334,6 +340,12 @@ export default function Home() {
     window.addEventListener("popstate",restore);
     return()=>window.removeEventListener("popstate",restore);
   },[session,applySession]);
+  useEffect(()=>{
+    if(!mobileNavOpen)return;
+    const onKeyDown=(event:KeyboardEvent)=>{if(event.key==="Escape")setMobileNavOpen(false);};
+    document.addEventListener("keydown",onKeyDown);
+    return()=>document.removeEventListener("keydown",onKeyDown);
+  },[mobileNavOpen]);
   async function initiate() {
     try {
       const item = (await api("/payment-requests", {
@@ -538,6 +550,28 @@ export default function Home() {
                 <span>Page {approvalPagination.page} of {Math.max(1, approvalPagination.totalPages)} · {approvalPagination.total} eligible approvals</span>
                 <button aria-label="Next approval page" disabled={!approvalPagination.hasNextPage} onClick={() => setApprovalPage((page) => page + 1)}>Next</button>
               </nav>
+            )}
+            {workspace==="finance"&&financeView==="work-queue"&&workQueuePagination && (
+              <UiPagination
+                page={workQueuePagination.page}
+                hasPreviousPage={workQueuePagination.hasPreviousPage}
+                hasNextPage={workQueuePagination.hasNextPage}
+                onPrevious={() => setWorkQueuePage((page) => Math.max(1, page - 1))}
+                onNext={() => setWorkQueuePage((page) => page + 1)}
+                label="Work queue pages"
+              />
+            )}
+            {workspace==="finance"&&financeView==="finance-control"&&financeControlPagination && (
+              <UiPagination
+                page={financeControlPagination.page}
+                totalPages={financeControlPagination.totalPages}
+                total={financeControlPagination.total}
+                hasPreviousPage={financeControlPagination.hasPreviousPage}
+                hasNextPage={financeControlPagination.hasNextPage}
+                onPrevious={() => setFinanceControlPage((page) => Math.max(1, page - 1))}
+                onNext={() => setFinanceControlPage((page) => page + 1)}
+                label="Finance control pages"
+              />
             )}
           </>
         )}
