@@ -1,0 +1,14 @@
+/* Validation-only composition. All primitive styling comes from the frozen library. */
+.p1833-validation { display:grid; gap:var(--aims-space-24); min-width:0; }
+.p1833-validation .aims-card-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--aims-space-16); }
+.p1833-validation .aims-card-body { display:grid; gap:var(--aims-space-16); min-width:0; }
+.p1833-sectionHeading { display:grid; gap:var(--aims-space-8); }
+.p1833-validationMeta { display:flex; flex-wrap:wrap; align-items:center; gap:var(--aims-space-8); }
+.p1833-extractedFacts dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--aims-space-8); margin:var(--aims-space-0); }
+.p1833-extractedFacts dl > div { display:grid; gap:var(--aims-space-4); min-width:0; overflow-wrap:anywhere; }
+.p1833-extractedFacts dt { font-size:var(--aims-font-size-12); line-height:var(--aims-line-height-12); color:var(--aims-color-text-secondary); text-transform:capitalize; }
+.p1833-extractedFacts dd { margin:var(--aims-space-0); }
+.p1833-findings article { display:grid; gap:var(--aims-space-8); }
+.p1833-findings article > div { display:flex; flex-wrap:wrap; align-items:center; gap:var(--aims-space-8); }
+.p1833-actions { display:flex; flex-wrap:wrap; gap:var(--aims-space-12); }
+@media(max-width:600px) { .p1833-extractedFacts dl { grid-template-columns:1fr; } }

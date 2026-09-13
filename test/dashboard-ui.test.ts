@@ -54,8 +54,12 @@ test('populated financial positions preserve original currency values',()=>{
  for(const amount of ['121,000.00','20,000.00','5,000.00','96,000.00'])assert.ok(html.includes(`MYR ${amount}`));
  assert.match(html,/<h3[^>]*>MYR<\/h3>/);
 });
-test('new library usage is confined to Dashboard and its conditional header',()=>{
- const rest=source.replace(dashboard.getText(ast),'');
+test('new library usage is confined to approved Dashboard, Request, Validation, Policy, Approval, Finance Context, and Financial Analysis surfaces',()=>{
+ let rest=source.replace(dashboard.getText(ast),'');
+ for(const name of ['RequesterRequestExperience','RequesterDocuments','RequesterSubmittedDetail','RequesterDetailOverview','ValidationPanel','PolicyDecisionPanel','ApprovalPanel','FinanceContextPanel','FinancialAnalysisPanel']){const fn=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name)!;rest=rest.replace(fn.getText(ast),'');}
+ for(const name of ['validationSourceBadge','validationRunStatusChip','validationOutcomeBadge','validationCheckStatusBadge','validationSeverityBadge','policyResultBadge','policyFreshnessBadge','policyFlagBadge','policyExceptionStatusBadge','approvalStatusChip','approvalStepBadge','approvalCommitmentBadge','approvalRiskBadge','approvalPriorityBadge','approvalSourceLabel','approvalActionLabel','approvalChannelLabel','financeContextStatusChip','financeExceptionBadge','currencyLabel','financialAnalysisStatusChip','agentStatusChip','riskLevelBadge','priorityBadge']){const fn=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name)!;rest=rest.replace(fn.getText(ast),'');}
+ rest=rest.replace(/if\(requesterView\)return <UiProvider[\s\S]*?<\/UiProvider>;/,'');
+ rest=rest.replace(/workspace === "requester" && selected \? <UiProvider[\s\S]*?<\/UiProvider>/,'');
  const start=rest.indexOf('{workspace === "finance" && showDashboard && session.capabilities.reporting ? <UiProvider');
  const end=rest.indexOf('</UiProvider>',start)+13;
  assert.ok(start>=0);assert.doesNotMatch(rest.slice(0,start)+rest.slice(end),/<Ui[A-Z]/);

@@ -4,7 +4,13 @@
 import { FormEvent, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import "./day1.css";
 import "./dashboard-ui.css";
-import {UIProvider as UiProvider, Button as UiButton, Card as UiCard, CardHeader as UiCardHeader, CardBody as UiCardBody, Badge as UiBadge, Typography as UiTypography, Input as UiInput, Select as UiSelect, Alert as UiAlert, EmptyState as UiEmptyState, LoadingSpinner as UiSpinner, PageHeader as UiPageHeader, SectionHeader as UiSectionHeader} from "./components/ui";
+import "./request-ui.css";
+import "./validation-ui.css";
+import "./policy-ui.css";
+import "./approval-ui.css";
+import "./finance-context-ui.css";
+import "./financial-analysis-ui.css";
+import {UIProvider as UiProvider, Button as UiButton, Card as UiCard, CardHeader as UiCardHeader, CardBody as UiCardBody, Badge as UiBadge, Typography as UiTypography, Input as UiInput, Select as UiSelect, Alert as UiAlert, EmptyState as UiEmptyState, LoadingSpinner as UiSpinner, PageHeader as UiPageHeader, SectionHeader as UiSectionHeader, Textarea as UiTextarea, StatusChip as UiStatusChip} from "./components/ui";
 import {policyReadyForApproval} from "./lib/policy-ready";
 import {dashboardDestination, financePath, navigationFilters} from "./lib/dashboard-navigation";
 import {pollDocuments, type ScanDocument} from "./lib/document-polling";
@@ -434,7 +440,7 @@ export default function Home() {
             {(session.capabilities.payment || session.capabilities.reporting) && <UiButton onClick={() => goFinance("payment-history")}>Payment History</UiButton>}
             {session.capabilities.reporting && <UiButton variant="primary" onClick={() => goFinance("dashboard")}>Finance Dashboard</UiButton>}
           </>}/>
-        </UiProvider> : (<header>
+        </UiProvider> : workspace === "requester" && selected ? <UiProvider className="p1832-request p1832-pageHeader"><UiTypography variant="metadata">AIMS · PAYMENT & FINANCE CONTROL</UiTypography><UiPageHeader title={pageTitle} description="Track your requests, required actions, and payment progress." actions={<UiButton variant="primary" onClick={initiate}>＋ New request</UiButton>}/></UiProvider> : (<header>
           <div>
             <small>AIMS · PAYMENT & FINANCE CONTROL</small>
             <h1>{pageTitle}</h1>
@@ -1352,7 +1358,7 @@ function Editor({
       setSubmittedTicket(submitted.ticketNumber??"Submitted request");await changed();
     });
   }
-  if(requesterView)return <>{scanFeedback}<RequesterRequestExperience item={item} form={form} field={field} fieldErrors={fieldErrors} busy={busy} notice={notice} submittedTicket={submittedTicket} confirming={confirming} setConfirming={setConfirming} save={save} reviewSubmission={reviewRequesterSubmission} confirmSubmission={confirmRequesterSubmission} upload={upload} remove={remove} api={api} changed={changed} back={back}/></>;
+  if(requesterView)return <UiProvider className="p1832-request">{scans.state&&<UiAlert>{scans.state}</UiAlert>}<UiButton onClick={scans.retry}>Retry document status check</UiButton><RequesterRequestExperience item={item} form={form} field={field} fieldErrors={fieldErrors} busy={busy} notice={notice} submittedTicket={submittedTicket} confirming={confirming} setConfirming={setConfirming} save={save} reviewSubmission={reviewRequesterSubmission} confirmSubmission={confirmRequesterSubmission} upload={upload} remove={remove} api={api} changed={changed} back={back}/></UiProvider>;
   const nextAction=financeNextAction(item.status);
   return (
     <section className="editor">{scanFeedback}
@@ -1589,40 +1595,59 @@ function Editor({
   );
 }
 
-function RequesterRequestExperience({item,form,field,fieldErrors,busy,notice,submittedTicket,confirming,setConfirming,save,reviewSubmission,confirmSubmission,upload,remove,api,changed,back}:{item:Item;form:Item;field:(name:keyof Item,value:string)=>void;fieldErrors:Record<string,string>;busy:boolean;notice:string;submittedTicket:string|null;confirming:boolean;setConfirming:(value:boolean)=>void;save:(event:FormEvent)=>Promise<void>;reviewSubmission:()=>void;confirmSubmission:()=>Promise<void>;upload:(event:FormEvent<HTMLFormElement>)=>Promise<void>;remove:(id:string)=>Promise<void>;api:Api;changed:()=>Promise<void>;back:()=>void}){
-  const draft=item.status==="DRAFT";
-  if(submittedTicket)return <section className="requesterSuccess" role="status"><span aria-hidden="true">✓</span><small>REQUEST SUBMITTED</small><h2>{submittedTicket}</h2><p>Finance can now begin reviewing your request. If Finance needs more information, AIMS will highlight it in Needs My Attention.</p><div><button className="primary" onClick={()=>void changed()}>View Request</button><button onClick={back}>Back to My Requests</button></div></section>;
-  return <section className="requesterRequestExperience">
-    <button className="back" onClick={back}>← My Requests</button>
-    <header className="requesterRequestHeader"><div><small>{item.ticketNumber??"DRAFT · NOT SUBMITTED"}</small><h2>{draft?"New Payment Request":item.payee||"Payment request"}</h2><p>{draft?"Complete the sections below, attach supporting documents, then review before submitting.":item.purpose}</p></div><StatusChip status={item.status}/></header>
-    {notice&&<p className="notice" role="status" aria-live="polite">{notice}</p>}
-    {draft?<>
-      <form className="requesterDraftForm" onSubmit={save} noValidate>
-        <section><header><span>1</span><div><small>PAYMENT DETAILS</small><h3>What is this payment for?</h3></div></header><div className="fields">
-          <Field id="request-payee" label="Payee / Payer" value={form.payee} set={value=>field("payee",value)} disabled={false} required error={fieldErrors.payee}/>
-          <Field id="request-category" label="Category" value={form.category} set={value=>field("category",value)} disabled={false} required error={fieldErrors.category}/>
-          <Field id="request-purpose" label="Purpose" help="Explain what this payment is for." value={form.purpose} set={value=>field("purpose",value)} disabled={false} required error={fieldErrors.purpose} wide/>
-          <Field id="request-amount" label="Amount" value={form.amount} set={value=>field("amount",value)} disabled={false} required error={fieldErrors.amount}/>
-          <label className={fieldErrors.currency?"fieldInvalid":""} htmlFor="request-currency"><span>Currency <b>Required</b></span><select id="request-currency" value={form.currency??""} onChange={event=>field("currency",event.target.value)} aria-invalid={Boolean(fieldErrors.currency)} aria-describedby={fieldErrors.currency?"request-currency-error":undefined}><option value="">Select currency</option>{["MYR","USD","SGD","EUR","GBP"].map(value=><option key={value}>{value}</option>)}</select>{fieldErrors.currency&&<small id="request-currency-error" role="alert">{fieldErrors.currency}</small>}</label>
-          <label className={fieldErrors.dueDate?"fieldInvalid":""} htmlFor="request-dueDate"><span>Due Date <b>Required</b></span><small>When should Finance complete this payment?</small><input id="request-dueDate" type="date" value={form.dueDate??""} onChange={event=>field("dueDate",event.target.value)} aria-invalid={Boolean(fieldErrors.dueDate)} aria-describedby={fieldErrors.dueDate?"request-dueDate-error":undefined}/>{fieldErrors.dueDate&&<small id="request-dueDate-error" role="alert">{fieldErrors.dueDate}</small>}</label>
-          <label><span>Department</span><small>Your assigned department will be used.</small><input value="Your assigned department" disabled/></label>
-        </div></section>
-        <section><header><span>2</span><div><small>PAYMENT METHOD</small><h3>How should Finance complete it?</h3></div></header><div className="fields">
-          <label className={fieldErrors.paymentMethod?"fieldInvalid":""} htmlFor="request-paymentMethod"><span>Payment Method <b>Required</b></span><select id="request-paymentMethod" value={form.paymentMethod??""} onChange={event=>field("paymentMethod",event.target.value)} aria-invalid={Boolean(fieldErrors.paymentMethod)}><option value="">Select payment method</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CARD">Corporate card</option><option value="CASH">Cash</option></select>{fieldErrors.paymentMethod&&<small role="alert">{fieldErrors.paymentMethod}</small>}</label>
-          <Field id="request-paymentDetails" label="Payment Details" help="Provide the information Finance needs to complete the external payment." value={form.paymentDetails} set={value=>field("paymentDetails",value)} disabled={false} required error={fieldErrors.paymentDetails} wide/>
-          <Field id="request-remark" label="Remark" help="Add any additional context for Finance." value={form.remark} set={value=>field("remark",value)} disabled={false} optional wide/>
-        </div></section>
-        <footer><button disabled={busy}>Save Draft</button><span>Saving a draft does not submit it to Finance.</span></footer>
+function RequesterRequestExperience({ item, form, field, fieldErrors, busy, notice, submittedTicket, confirming, setConfirming, save, reviewSubmission, confirmSubmission, upload, remove, api, changed, back }: {
+    item: Item;
+    form: Item;
+    field: (name: keyof Item, value: string) => void;
+    fieldErrors: Record<string, string>;
+    busy: boolean;
+    notice: string;
+    submittedTicket: string | null;
+    confirming: boolean;
+    setConfirming: (value: boolean) => void;
+    save: (event: FormEvent) => Promise<void>;
+    reviewSubmission: () => void;
+    confirmSubmission: () => Promise<void>;
+    upload: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+    remove: (id: string) => Promise<void>;
+    api: Api;
+    changed: () => Promise<void>;
+    back: () => void;
+}) {
+    const draft = item.status === "DRAFT";
+    if (submittedTicket)
+        return <UiCard className="p1832-requesterSuccess" role="status"><UiCardBody><span aria-hidden="true">✓</span><UiTypography as="span" variant="metadata">REQUEST SUBMITTED</UiTypography><UiTypography as="h2" variant="section">{submittedTicket}</UiTypography><UiTypography as="p" variant="body">Finance can now begin reviewing your request. If Finance needs more information, AIMS will highlight it in Needs My Attention.</UiTypography><div><UiButton onClick={() => void changed()} variant="primary" type="button">View Request</UiButton><UiButton onClick={back} variant="secondary" type="button">Back to My Requests</UiButton></div></UiCardBody></UiCard>;
+    return <div className="p1832-requesterRequestExperience">
+    <UiButton onClick={back} variant="text" type="button">← My Requests</UiButton>
+    <UiCard className="p1832-requesterRequestHeader"><UiCardBody><div><UiTypography as="span" variant="metadata">{item.ticketNumber ?? "DRAFT · NOT SUBMITTED"}</UiTypography><UiSectionHeader title={draft ? "New Payment Request" : item.payee || "Payment request"} description={draft ? "Complete the sections below, attach supporting documents, then review before submitting." : item.purpose ?? undefined}/></div><UiStatusChip status={item.status}/></UiCardBody></UiCard>
+    {notice && <UiAlert className="" role="status" aria-live="polite">{notice}</UiAlert>}
+    {draft ? <>
+      <form className="p1832-requesterDraftForm" onSubmit={save} noValidate>
+        <UiCard><UiCardBody><div className="p1832-sectionHeading"><UiBadge>1</UiBadge><div><UiTypography as="span" variant="metadata">PAYMENT DETAILS</UiTypography><UiTypography as="h3" variant="section">What is this payment for?</UiTypography></div></div><div className="p1832-fields">
+          <div><UiInput id={"request-payee"} label={"Payee / Payer"} helper={undefined} value={form.payee ?? ""} onChange={event => (value => field("payee", value))(event.target.value)} disabled={false} required={true} error={fieldErrors.payee}/></div>
+          <div><UiInput id={"request-category"} label={"Category"} helper={undefined} value={form.category ?? ""} onChange={event => (value => field("category", value))(event.target.value)} disabled={false} required={true} error={fieldErrors.category}/></div>
+          <div className="p1832-wide"><UiTextarea id={"request-purpose"} label={"Purpose"} helper={"Explain what this payment is for."} value={form.purpose ?? ""} onChange={event => (value => field("purpose", value))(event.target.value)} disabled={false} required={true} error={fieldErrors.purpose}/></div>
+          <div><UiInput id={"request-amount"} label={"Amount"} helper={undefined} value={form.amount ?? ""} onChange={event => (value => field("amount", value))(event.target.value)} disabled={false} required={true} error={fieldErrors.amount}/></div>
+          <UiSelect id="request-currency" value={form.currency ?? ""} onChange={event => field("currency", event.target.value)} label="Currency" required={true} error={fieldErrors.currency}><option value="">Select currency</option>{["MYR", "USD", "SGD", "EUR", "GBP"].map(value => <option key={value}>{value}</option>)}</UiSelect>
+          <UiInput id="request-dueDate" type="date" value={form.dueDate ?? ""} onChange={event => field("dueDate", event.target.value)} label="Due Date" helper="When should Finance complete this payment?" required={true} error={fieldErrors.dueDate}/>
+          <UiInput value="Your assigned department" disabled label="Department" helper="Your assigned department will be used."/>
+        </div></UiCardBody></UiCard>
+        <UiCard><UiCardBody><div className="p1832-sectionHeading"><UiBadge>2</UiBadge><div><UiTypography as="span" variant="metadata">PAYMENT METHOD</UiTypography><UiTypography as="h3" variant="section">How should Finance complete it?</UiTypography></div></div><div className="p1832-fields">
+          <UiSelect id="request-paymentMethod" value={form.paymentMethod ?? ""} onChange={event => field("paymentMethod", event.target.value)} label="Payment Method" required={true} error={fieldErrors.paymentMethod}><option value="">Select payment method</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CARD">Corporate card</option><option value="CASH">Cash</option></UiSelect>
+          <div className="p1832-wide"><UiTextarea id={"request-paymentDetails"} label={"Payment Details"} helper={"Provide the information Finance needs to complete the external payment."} value={form.paymentDetails ?? ""} onChange={event => (value => field("paymentDetails", value))(event.target.value)} disabled={false} required={true} error={fieldErrors.paymentDetails}/></div>
+          <div className="p1832-wide"><UiTextarea id={"request-remark"} label={"Remark"} helper={"Optional. Add any additional context for Finance."} value={form.remark ?? ""} onChange={event => (value => field("remark", value))(event.target.value)} disabled={false} required={false} error={undefined}/></div>
+        </div></UiCardBody></UiCard>
+        <UiCard><UiCardBody className="p1832-actions"><UiButton disabled={busy} variant="secondary" type="submit" busy={busy}>Save Draft</UiButton><span>Saving a draft does not submit it to Finance.</span></UiCardBody></UiCard>
       </form>
       <RequesterDocuments item={item} editable upload={upload} remove={remove} busy={busy}/>
-      <section className="requestReview"><header><span>4</span><div><small>REVIEW & SUBMIT</small><h3>Check your request</h3></div></header><div className="reviewSummary"><p><span>Payee</span><b>{form.payee||"Not added"}</b></p><p><span>Purpose</span><b>{form.purpose||"Not added"}</b></p><p><span>Amount</span><b>{formatMoney(form.currency,form.amount)}</b></p><p><span>Due date</span><b>{formatDate(form.dueDate)}</b></p><p><span>Documents</span><b>{item.documents?.length??0} attached</b></p></div><button className="primary" disabled={busy} onClick={reviewSubmission}>Review and Submit →</button></section>
-      {confirming&&<div className="submitConfirmation" role="dialog" aria-modal="true" aria-labelledby="submit-title"><section><small>FINAL CONFIRMATION</small><h2 id="submit-title">Submit this request?</h2><p>After submission, Finance will begin reviewing the request. Editing becomes restricted. If corrections are needed later, Finance may request clarification or revised information.</p><div><button onClick={()=>setConfirming(false)}>Continue Editing</button><button className="primary" disabled={busy} onClick={()=>void confirmSubmission()}>Submit Request</button></div></section></div>}
-    </>:<RequesterSubmittedDetail item={item} api={api} changed={changed} upload={upload} busy={busy}/>}
-  </section>;
+      <UiCard className="p1832-requestReview"><UiCardBody><div className="p1832-sectionHeading"><UiBadge>4</UiBadge><div><UiTypography as="span" variant="metadata">REVIEW & SUBMIT</UiTypography><UiTypography as="h3" variant="section">Check your request</UiTypography></div></div><div className="p1832-reviewSummary"><UiTypography as="p" variant="body"><span>Payee</span><UiTypography as="span" variant="label">{form.payee || "Not added"}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Purpose</span><UiTypography as="span" variant="label">{form.purpose || "Not added"}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Amount</span><UiTypography as="span" variant="label">{formatMoney(form.currency, form.amount)}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Due date</span><UiTypography as="span" variant="label">{formatDate(form.dueDate)}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Documents</span><UiTypography as="span" variant="label">{item.documents?.length ?? 0} attached</UiTypography></UiTypography></div><UiButton disabled={busy} onClick={reviewSubmission} variant="primary" type="button" busy={busy}>Review and Submit →</UiButton></UiCardBody></UiCard>
+      {confirming && <div className="p1832-submitConfirmation" role="dialog" aria-modal="true" aria-labelledby="submit-title"><UiCard><UiCardBody><UiTypography as="span" variant="metadata">FINAL CONFIRMATION</UiTypography><UiTypography id="submit-title" as="h2" variant="section">Submit this request?</UiTypography><UiTypography as="p" variant="body">After submission, Finance will begin reviewing the request. Editing becomes restricted. If corrections are needed later, Finance may request clarification or revised information.</UiTypography><div><UiButton onClick={() => setConfirming(false)} variant="secondary" type="button">Continue Editing</UiButton><UiButton disabled={busy} onClick={() => void confirmSubmission()} variant="primary" type="button" busy={busy}>Submit Request</UiButton></div></UiCardBody></UiCard></div>}
+    </> : <RequesterSubmittedDetail item={item} api={api} changed={changed} upload={upload} busy={busy}/>}
+  </div>;
 }
 
 function RequesterDocuments({item,editable,upload,remove,busy}:{item:Item;editable:boolean;upload:(event:FormEvent<HTMLFormElement>)=>Promise<void>;remove?:(id:string)=>Promise<void>;busy:boolean}){
-  return <section className="requesterDocuments" id="supporting-documents"><header><span>3</span><div><small>SUPPORTING DOCUMENTS</small><h3>Invoices and supporting files</h3><p>Uploaded files are checked before AIMS accepts them as supporting evidence.</p></div></header>{editable&&<form className="upload" onSubmit={upload}><label>Choose document<input name="file" type="file" accept="application/pdf,image/jpeg,image/png" required/></label><label>Document type <small>Optional</small><input name="documentType" placeholder="Invoice, quotation, contract…"/></label><button disabled={busy}>{busy?"Checking document…":"Upload Document"}</button><small>PDF, JPG or PNG · maximum 10 MB · private security check required</small></form>}<div className="requesterDocumentList">{item.documents?.map(document=><article key={document.id}><span>DOC</span><div><b>{document.original_filename}</b><small>{document.document_type||"Supporting document"} · {Math.ceil(Number(document.size_bytes)/1024)} KB{document.uploaded_at?` · ${formatDate(document.uploaded_at)}`:""}</small><DocumentSecurityStatus status={document.security_status}/></div>{editable&&remove&&<button aria-label={`Remove ${document.original_filename}`} onClick={()=>void remove(document.id)}>Remove</button>}</article>)}</div>{!item.documents?.length&&<div className="emptyState"><b>No documents attached</b><span>Add the files Finance needs to review this payment.</span></div>}{!editable&&<p className="documentLock">Only documents marked Ready are trusted supporting evidence. Documents are locked after submission unless Finance requests a replacement.</p>}</section>;
+    return <UiCard className="p1832-requesterDocuments" id="supporting-documents"><UiCardBody><div className="p1832-sectionHeading"><UiBadge>3</UiBadge><div><UiTypography as="span" variant="metadata">SUPPORTING DOCUMENTS</UiTypography><UiTypography as="h3" variant="section">Invoices and supporting files</UiTypography><UiTypography as="p" variant="body">Uploaded files are checked before AIMS accepts them as supporting evidence.</UiTypography></div></div>{editable && <form className="p1832-upload" onSubmit={upload}><UiInput name="file" type="file" accept="application/pdf,image/jpeg,image/png" required label="Choose document"/><UiInput name="documentType" placeholder="Invoice, quotation, contract…" label="Document type" helper="Optional"/><UiButton disabled={busy} variant="secondary" type="submit" busy={busy}>{busy ? "Checking document…" : "Upload Document"}</UiButton><UiTypography as="span" variant="metadata">PDF, JPG or PNG · maximum 10 MB · private security check required</UiTypography></form>}<div className="p1832-requesterDocumentList">{item.documents?.map(document => <article key={document.id}><span>DOC</span><div><UiTypography as="span" variant="label">{document.original_filename}</UiTypography><UiTypography as="span" variant="metadata">{document.document_type || "Supporting document"} · {Math.ceil(Number(document.size_bytes) / 1024)} KB{document.uploaded_at ? ` · ${formatDate(document.uploaded_at)}` : ""}</UiTypography><UiStatusChip status={document.security_status ?? "QUARANTINED"} role="status"/></div>{editable && remove && <UiButton aria-label={`Remove ${document.original_filename}`} onClick={() => void remove(document.id)} variant="danger" type="button">Remove</UiButton>}</article>)}</div>{!item.documents?.length && <UiEmptyState title="No documents attached"><span>Add the files Finance needs to review this payment.</span></UiEmptyState>}{!editable && <UiTypography className="p1832-documentLock" as="p" variant="body">Only documents marked Ready are trusted supporting evidence. Documents are locked after submission unless Finance requests a replacement.</UiTypography>}</UiCardBody></UiCard>;
 }
 
 function DocumentSecurityStatus({status}:{status?:"QUARANTINED"|"SCANNING"|"CLEAN"|"REJECTED"|"SCAN_FAILED"}){
@@ -1634,25 +1659,53 @@ function RequesterSubmittedDetail({item,api,changed,upload,busy}:{item:Item;api:
   const [response,setResponse]=useState(""),[responseNotice,setResponseNotice]=useState(""),[responding,setResponding]=useState(false);
   const active=item.clarifications?.find(value=>clarificationActionable(value.status)),history=item.clarifications??[],visibleActivity=item.audit?.filter(event=>requesterActivityVisible(event.action))??[];
   async function respond(){if(!active||!response.trim())return;setResponding(true);setResponseNotice("");try{const path=active.type==="APPROVAL"?`/payment-requests/${item.id}/approval-clarifications/${active.id}/respond`:active.type==="POLICY"?`/payment-requests/${item.id}/policy-clarifications/${active.id}/respond`:`/payment-requests/${item.id}/clarifications/${active.id}/respond`;await api(path,{method:"POST",body:JSON.stringify(active.type==="POLICY"?{justification:response.trim()}:{response:response.trim()})});setResponseNotice("Your response was submitted. Finance can continue reviewing the request.");setResponse("");await changed()}catch(error){setResponseNotice(humanizeRequestError(error))}finally{setResponding(false)}}
-  return <div className="requesterSubmittedDetail"><RequesterDetailOverview item={item}/>{active&&<section className="clarificationPanel" aria-labelledby="clarification-title"><small>ACTION REQUIRED</small><h2 id="clarification-title">Finance needs information from you</h2><p>Your request cannot continue until you respond.</p><dl><div><dt>Requested by</dt><dd>{active.type==="APPROVAL"?"Approval team":active.type==="POLICY"?"Finance policy review":"Finance"}</dd></div><div><dt>Requested</dt><dd>{formatDate(active.requestedAt)}</dd></div><div><dt>Information needed</dt><dd>{active.question}</dd></div></dl><label htmlFor="clarification-response">Your response <b>Required</b></label><textarea id="clarification-response" value={response} onChange={event=>setResponse(event.target.value)} placeholder="Provide the requested information" maxLength={4000}/>{item.status==="NEEDS_CLARIFICATION"&&<RequesterDocuments item={item} editable upload={upload} busy={busy}/>}<button className="primary" disabled={responding||!response.trim()} onClick={()=>void respond()}>Submit Response</button>{responseNotice&&<p className="notice" role="status">{responseNotice}</p>}</section>}
-    <section className="requestDetailsCard"><div className="sectionHeading"><div><small>REQUEST DETAILS</small><h3>Payment request</h3></div></div><dl><div><dt>Ticket</dt><dd>{item.ticketNumber}</dd></div><div><dt>Payee</dt><dd>{item.payee}</dd></div><div><dt>Purpose</dt><dd>{item.purpose}</dd></div><div><dt>Category</dt><dd>{item.category}</dd></div><div><dt>Amount</dt><dd>{formatMoney(item.currency,item.amount)}</dd></div><div><dt>Due date</dt><dd>{formatDate(item.dueDate)}</dd></div><div><dt>Payment method</dt><dd>{item.paymentMethod?.replaceAll("_"," ")}</dd></div><div><dt>Submitted</dt><dd>{formatDate(item.submittedAt)}</dd></div></dl></section>
-    {!active&&<RequesterDocuments item={item} editable={false} upload={upload} busy={busy}/>}
-    <section className="requesterStatusCard"><small>APPROVAL & FINANCE STATUS</small><h3>{requesterStatusPresentation[item.status].label}</h3><p>{item.status==="READY_FOR_PAYMENT"?"All required approval and Finance checks are complete. Payment has not yet been recorded.":item.status==="PAID"?"Finance has recorded the completed external payment in AIMS.":item.status==="REJECTED"?"This request was not approved. Review the requester-visible activity below for available information.":requesterStatusPresentation[item.status].action}</p></section>
-    {history.length>0&&<section className="clarificationHistory"><small>CLARIFICATION HISTORY</small><h3>Conversation</h3>{history.map(entry=><article key={entry.id}><div><b>{entry.type==="APPROVAL"?"Approval team":entry.type==="POLICY"?"Finance policy review":"Finance"}</b><small>{formatDate(entry.requestedAt)}</small><p>{entry.question}</p></div>{entry.response&&<div className="requesterReply"><b>You</b><small>{formatDate(entry.respondedAt)}</small><p>{entry.response}</p></div>}{entry.status!=="OPEN"&&!entry.response&&<p className="staleClarification">This clarification is no longer active.</p>}</article>)}</section>}
-    {visibleActivity.length>0&&<section className="requesterActivity"><small>ACTIVITY</small><h3>Request history</h3>{visibleActivity.map(event=><div className="activity" key={event.id}><i/><p><b>{friendlyActivity(event.action)}</b><small>{formatDate(event.occurred_at)}</small></p></div>)}</section>}
+    return <div className="p1832-requesterSubmittedDetail"><RequesterDetailOverview item={item}/>{active && <UiCard className="p1832-clarificationPanel" aria-labelledby="clarification-title"><UiCardBody><UiTypography as="span" variant="metadata">ACTION REQUIRED</UiTypography><UiTypography id="clarification-title" as="h2" variant="section">Finance needs information from you</UiTypography><UiTypography as="p" variant="body">Your request cannot continue until you respond.</UiTypography><dl><div><dt>Requested by</dt><dd>{active.type === "APPROVAL" ? "Approval team" : active.type === "POLICY" ? "Finance policy review" : "Finance"}</dd></div><div><dt>Requested</dt><dd>{formatDate(active.requestedAt)}</dd></div><div><dt>Information needed</dt><dd>{active.question}</dd></div></dl><UiTextarea label="Your response" required id="clarification-response" value={response} onChange={event => setResponse(event.target.value)} placeholder="Provide the requested information" maxLength={4000}/>{item.status === "NEEDS_CLARIFICATION" && <RequesterDocuments item={item} editable upload={upload} busy={busy}/>}<UiButton disabled={responding || !response.trim()} onClick={() => void respond()} variant="primary" type="button" busy={responding}>Submit Response</UiButton>{responseNotice && <UiAlert className="" role="status">{responseNotice}</UiAlert>}</UiCardBody></UiCard>}
+    <UiCard className="p1832-requestDetailsCard"><UiCardBody><div className="p1832-sectionHeading"><div><UiTypography as="span" variant="metadata">REQUEST DETAILS</UiTypography><UiTypography as="h3" variant="section">Payment request</UiTypography></div></div><dl><div><dt>Ticket</dt><dd>{item.ticketNumber}</dd></div><div><dt>Payee</dt><dd>{item.payee}</dd></div><div><dt>Purpose</dt><dd>{item.purpose}</dd></div><div><dt>Category</dt><dd>{item.category}</dd></div><div><dt>Amount</dt><dd>{formatMoney(item.currency, item.amount)}</dd></div><div><dt>Due date</dt><dd>{formatDate(item.dueDate)}</dd></div><div><dt>Payment method</dt><dd>{item.paymentMethod?.replaceAll("_", " ")}</dd></div><div><dt>Submitted</dt><dd>{formatDate(item.submittedAt)}</dd></div></dl></UiCardBody></UiCard>
+    {!active && <RequesterDocuments item={item} editable={false} upload={upload} busy={busy}/>}
+    <UiCard className="p1832-requesterStatusCard"><UiCardBody><UiTypography as="span" variant="metadata">APPROVAL & FINANCE STATUS</UiTypography><UiTypography as="h3" variant="section">{requesterStatusPresentation[item.status].label}</UiTypography><UiTypography as="p" variant="body">{item.status === "READY_FOR_PAYMENT" ? "All required approval and Finance checks are complete. Payment has not yet been recorded." : item.status === "PAID" ? "Finance has recorded the completed external payment in AIMS." : item.status === "REJECTED" ? "This request was not approved. Review the requester-visible activity below for available information." : requesterStatusPresentation[item.status].action}</UiTypography></UiCardBody></UiCard>
+    {history.length > 0 && <UiCard className="p1832-clarificationHistory"><UiCardBody><UiTypography as="span" variant="metadata">CLARIFICATION HISTORY</UiTypography><UiTypography as="h3" variant="section">Conversation</UiTypography>{history.map(entry => <article key={entry.id}><div><UiTypography as="span" variant="label">{entry.type === "APPROVAL" ? "Approval team" : entry.type === "POLICY" ? "Finance policy review" : "Finance"}</UiTypography><UiTypography as="span" variant="metadata">{formatDate(entry.requestedAt)}</UiTypography><UiTypography as="p" variant="body">{entry.question}</UiTypography></div>{entry.response && <div className="p1832-requesterReply"><UiTypography as="span" variant="label">You</UiTypography><UiTypography as="span" variant="metadata">{formatDate(entry.respondedAt)}</UiTypography><UiTypography as="p" variant="body">{entry.response}</UiTypography></div>}{entry.status !== "OPEN" && !entry.response && <UiTypography className="p1832-staleClarification" as="p" variant="body">This clarification is no longer active.</UiTypography>}</article>)}</UiCardBody></UiCard>}
+    {visibleActivity.length > 0 && <UiCard className="p1832-requesterActivity"><UiCardBody><UiTypography as="span" variant="metadata">ACTIVITY</UiTypography><UiTypography as="h3" variant="section">Request history</UiTypography>{visibleActivity.map(event => <div className="p1832-activity" key={event.id}><i /><UiTypography as="p" variant="body"><UiTypography as="span" variant="label">{friendlyActivity(event.action)}</UiTypography><UiTypography as="span" variant="metadata">{formatDate(event.occurred_at)}</UiTypography></UiTypography></div>)}</UiCardBody></UiCard>}
   </div>;
 }
 
 function RequesterDetailOverview({item}:{item:Item}){
   const meta=requesterStatusPresentation[item.status],current=statusStage[item.status];
   const groups=[{label:"Request Submitted",at:1},{label:"Validation",at:2},{label:"Financial Review",at:3},{label:"Approval",at:6},{label:"Final Finance Review",at:7},{label:"Payment",at:8}];
-  return <section className="requesterDetailOverview" aria-label="Request progress and required actions">
-    <div className="requesterSnapshot"><div><small>CURRENT STATUS</small><StatusChip status={item.status}/><p>{meta.action}</p></div><div><small>NEXT OWNER</small><b>{meta.owner}</b><p>{item.status==="PAID"?"No further action required.":meta.action}</p></div><div><small>REQUEST VALUE</small><b>{formatMoney(item.currency,item.amount)}</b><p>{item.payee||"Payee not added"}</p></div><div><small>SUBMITTED</small><b>{formatDate(item.submittedAt)}</b><p>{item.dueDate?`Due ${formatDate(item.dueDate)}`:"No due date"}</p></div></div>
-    <div className="requesterJourney"><div className="sectionHeading"><div><small>PROGRESS</small><h3>Your request journey</h3></div><span>{meta.action}</span></div><div className="journeySummary" role="list" aria-label="Simplified request progress">{groups.map(group=><div role="listitem" key={group.label} className={current>group.at?"completed":current===group.at?"current":"upcoming"}><span>{current>group.at?"✓":""}</span><b>{group.label}</b></div>)}</div><details><summary>View all 12 AIMS stages</summary><div className="compactJourney" role="list">{stages.map((stage,index)=><div role="listitem" key={stage} className={index<current?"completed":index===current?item.status==="NEEDS_CLARIFICATION"||item.status==="FINANCE_HOLD"?"blocked":"current":"upcoming"}><span>{index<current?"✓":String(index+1).padStart(2,"0")}</span><b>{stage}</b></div>)}</div></details></div>
-    {item.paymentSummary&&<section className="requesterPayment"><div><small>PAYMENT SUMMARY</small><h3>Paid</h3><p>Finance has recorded the completed external payment in AIMS.</p></div><dl><div><dt>Payment date</dt><dd>{formatDate(item.paymentSummary.paymentDate)}</dd></div><div><dt>Amount</dt><dd>{item.paymentSummary.currency} {(Number(item.paymentSummary.amountMinor)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</dd></div><div><dt>Method</dt><dd>{item.paymentSummary.paymentMethod.replaceAll("_"," ")}</dd></div><div><dt>Status</dt><dd><StatusChip status="PAID"/></dd></div></dl></section>}
-  </section>;
+    return <div className="p1832-requesterDetailOverview" aria-label="Request progress and required actions">
+    <UiCard className="p1832-requesterSnapshot"><UiCardBody><div><UiTypography as="span" variant="metadata">CURRENT STATUS</UiTypography><UiStatusChip status={item.status}/><UiTypography as="p" variant="body">{meta.action}</UiTypography></div><div><UiTypography as="span" variant="metadata">NEXT OWNER</UiTypography><UiTypography as="span" variant="label">{meta.owner}</UiTypography><UiTypography as="p" variant="body">{item.status === "PAID" ? "No further action required." : meta.action}</UiTypography></div><div><UiTypography as="span" variant="metadata">REQUEST VALUE</UiTypography><UiTypography as="span" variant="label">{formatMoney(item.currency, item.amount)}</UiTypography><UiTypography as="p" variant="body">{item.payee || "Payee not added"}</UiTypography></div><div><UiTypography as="span" variant="metadata">SUBMITTED</UiTypography><UiTypography as="span" variant="label">{formatDate(item.submittedAt)}</UiTypography><UiTypography as="p" variant="body">{item.dueDate ? `Due ${formatDate(item.dueDate)}` : "No due date"}</UiTypography></div></UiCardBody></UiCard>
+    <UiCard className="p1832-requesterJourney"><UiCardBody><div className="p1832-sectionHeading"><div><UiTypography as="span" variant="metadata">PROGRESS</UiTypography><UiTypography as="h3" variant="section">Your request journey</UiTypography></div><span>{meta.action}</span></div><div className="p1832-journeySummary" role="list" aria-label="Simplified request progress">{groups.map(group => <div role="listitem" key={group.label} className={current > group.at ? "completed" : current === group.at ? "current" : "upcoming"}><span>{current > group.at ? "✓" : ""}</span><UiTypography as="span" variant="label">{group.label}</UiTypography></div>)}</div><details><summary>View all 12 AIMS stages</summary><div className="p1832-compactJourney" role="list">{stages.map((stage, index) => <div role="listitem" key={stage} className={index < current ? "completed" : index === current ? item.status === "NEEDS_CLARIFICATION" || item.status === "FINANCE_HOLD" ? "blocked" : "current" : "upcoming"}><span>{index < current ? "✓" : String(index + 1).padStart(2, "0")}</span><UiTypography as="span" variant="label">{stage}</UiTypography></div>)}</div></details></UiCardBody></UiCard>
+    {item.paymentSummary && <UiCard className="p1832-requesterPayment"><UiCardBody><div><UiTypography as="span" variant="metadata">PAYMENT SUMMARY</UiTypography><UiTypography as="h3" variant="section">Paid</UiTypography><UiTypography as="p" variant="body">Finance has recorded the completed external payment in AIMS.</UiTypography></div><dl><div><dt>Payment date</dt><dd>{formatDate(item.paymentSummary.paymentDate)}</dd></div><div><dt>Amount</dt><dd>{item.paymentSummary.currency} {(Number(item.paymentSummary.amountMinor) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</dd></div><div><dt>Method</dt><dd>{item.paymentSummary.paymentMethod.replaceAll("_", " ")}</dd></div><div><dt>Status</dt><dd><UiStatusChip status="PAID"/></dd></div></dl></UiCardBody></UiCard>}
+  </div>;
 }
 
+type ValidationTone = "success" | "warning" | "danger" | "neutral" | "info" | "ai";
+function validationSourceBadge(source: string) {
+  const label = source === "AI_ASSISTED" ? "AI assisted" : source === "AI_UNAVAILABLE_FALLBACK" ? "AI unavailable" : "Manual";
+  const tone: ValidationTone = source === "AI_ASSISTED" ? "ai" : source === "AI_UNAVAILABLE_FALLBACK" ? "warning" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
+function validationRunStatusChip(status: string) {
+  if (status === "PENDING" || status === "PROCESSING" || status === "COMPLETED") return <UiStatusChip status={status} />;
+  const label = status === "AWAITING_HUMAN_REVIEW" ? "Awaiting human review" : status === "SUPERSEDED" ? "Superseded" : status;
+  const tone: ValidationTone = status === "AWAITING_HUMAN_REVIEW" ? "info" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
+function validationOutcomeBadge(value: string) {
+  if (value === "PASS") return <UiStatusChip status="PASS" />;
+  if (value === "CLARIFICATION_REQUIRED") return <UiBadge tone="warning">Clarification required</UiBadge>;
+  if (value === "NOT STARTED") return <UiBadge tone="neutral">Not started</UiBadge>;
+  return validationRunStatusChip(value);
+}
+function validationCheckStatusBadge(status: string) {
+  if (status === "PASS") return <UiStatusChip status="PASS" />;
+  const label = status === "FAIL" ? "Fail" : status === "WARNING" ? "Warning" : "Unknown";
+  const tone: ValidationTone = status === "FAIL" ? "danger" : status === "WARNING" ? "warning" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
+function validationSeverityBadge(severity: string) {
+  const tone: ValidationTone = severity === "HIGH" ? "danger" : severity === "MEDIUM" ? "warning" : "neutral";
+  return <UiBadge tone={tone}>{severity.charAt(0) + severity.slice(1).toLowerCase()}</UiBadge>;
+}
 function ValidationPanel({
   item,
   user,
@@ -1689,9 +1742,11 @@ function ValidationPanel({
     }>;
   };
   const [data, setData] = useState<ValidationView>({});
+  const [loading, setLoading] = useState(true);
   const [remarks, setRemarks] = useState(""),
     [response, setResponse] = useState(""),
-    [notice, setNotice] = useState("");
+    [notice, setNotice] = useState(""),
+    [busy, setBusy] = useState(false);
   const load = useCallback(
     async () =>
       setData(
@@ -1705,21 +1760,29 @@ function ValidationPanel({
     let active = true;
     void api(`/payment-requests/${item.id}/validation`)
       .then((value) => {
-        if (active) setData(value as ValidationView);
+        if (active) {
+          setData(value as ValidationView);
+          setLoading(false);
+        }
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
   }, [api, item.id]);
   async function run(work: () => Promise<void>) {
     setNotice("");
+    setBusy(true);
     try {
       await work();
       await load();
       await changed();
     } catch (error) {
       setNotice(msg(error));
+    } finally {
+      setBusy(false);
     }
   }
   const open = data.clarifications?.find((value) => value.status === "OPEN");
@@ -1747,117 +1810,163 @@ function ValidationPanel({
       });
     });
   return (
-    <section className="validationPanel">
-      <header>
-        <div>
-          <small>03 · VALIDATION</small>
-          <h3>Document & request validation</h3>
-        </div>
-        <span>
-          {data.current?.overall_result ??
-            data.current?.status ??
-            "NOT STARTED"}
-        </span>
-      </header>
-      {notice && <p className="notice">{notice}</p>}
-      {user === "demo.finance" && item.status === "SUBMITTED" && (
-        <button
-          className="primary"
-          onClick={() =>
-            run(async () => {
-              await api(`/payment-requests/${item.id}/validation`, {
-                method: "POST",
-                body: "{}",
-              });
-            })
-          }
-        >
-          Start validation
-        </button>
-      )}
-      {data.current && (
-        <div className="validationMeta">
-          <b>{data.current.source}</b>
-          <span>{data.current.status}</span>
-          {data.current.confidence && (
-            <span>
-              Confidence {Math.round(Number(data.current.confidence) * 100)}%
-            </span>
+    <UiProvider className="p1833-validation">
+      <UiCard>
+        <UiCardHeader>
+          <div className="p1833-sectionHeading">
+            <UiTypography as="span" variant="metadata">03 · VALIDATION</UiTypography>
+            <UiSectionHeader title="Document & request validation" />
+          </div>
+          {validationOutcomeBadge(data.current?.overall_result ?? data.current?.status ?? "NOT STARTED")}
+        </UiCardHeader>
+        <UiCardBody>
+          {notice && <UiAlert tone="danger">{notice}</UiAlert>}
+          {loading && <UiSpinner label="Loading validation…" />}
+          {!loading && user === "demo.finance" && item.status === "SUBMITTED" && (
+            <UiButton
+              variant="primary"
+              disabled={busy}
+              busy={busy}
+              onClick={() =>
+                run(async () => {
+                  await api(`/payment-requests/${item.id}/validation`, {
+                    method: "POST",
+                    body: "{}",
+                  });
+                })
+              }
+            >
+              Start validation
+            </UiButton>
           )}
-          {data.current.failure_code && (
-            <span>AI unavailable · manual fallback ready</span>
+          {data.current && (
+            <div className="p1833-validationMeta">
+              {validationSourceBadge(data.current.source)}
+              {validationRunStatusChip(data.current.status)}
+              {data.current.confidence && (
+                <UiTypography as="span" variant="metadata">
+                  Confidence {Math.round(Number(data.current.confidence) * 100)}%
+                </UiTypography>
+              )}
+              {data.current.failure_code && (
+                <UiAlert tone="warning">AI unavailable · manual fallback ready</UiAlert>
+              )}
+            </div>
           )}
-        </div>
-      )}
+        </UiCardBody>
+      </UiCard>
       {data.extractions?.map((value) => (
-        <section className="extractedFacts" key={value.id} aria-label="Extracted document information">
-          <small>EXTRACTED INFORMATION</small>
-          <dl>{Object.entries(value.extraction).slice(0,8).map(([key,fact])=><div key={key}><dt>{key.replaceAll("_"," ")}</dt><dd>{fact===null||fact===undefined?"Not found":typeof fact==="object"?"Structured evidence available":String(fact)}</dd></div>)}</dl>
-        </section>
+        <UiCard className="p1833-extractedFacts" key={value.id} aria-label="Extracted document information">
+          <UiCardBody>
+            <UiTypography as="span" variant="metadata">EXTRACTED INFORMATION</UiTypography>
+            <dl>{Object.entries(value.extraction).slice(0,8).map(([key,fact])=><div key={key}><dt>{key.replaceAll("_"," ")}</dt><dd>{fact===null||fact===undefined?"Not found":typeof fact==="object"?"Structured evidence available":String(fact)}</dd></div>)}</dl>
+          </UiCardBody>
+        </UiCard>
       ))}
-      {data.findings?.map((value) => (
-        <article key={value.id}>
-          <b>{value.code}</b>
-          <i>
-            {value.check_status} · {value.severity}
-          </i>
-          <p>{value.explanation}</p>
-          <small>{value.evidence.length} evidence reference(s)</small>
-        </article>
-      ))}
+      {!!data.findings?.length && (
+        <UiCard className="p1833-findings">
+          <UiCardBody>
+            <UiTypography as="h3" variant="section">Validation findings</UiTypography>
+            {data.findings.map((value) => (
+              <article key={value.id}>
+                <div>
+                  <UiTypography as="span" variant="label">{value.code}</UiTypography>
+                  {validationCheckStatusBadge(value.check_status)}
+                  {validationSeverityBadge(value.severity)}
+                </div>
+                <UiTypography as="p" variant="body">{value.explanation}</UiTypography>
+                <UiTypography as="span" variant="metadata">{value.evidence.length} evidence reference(s)</UiTypography>
+              </article>
+            ))}
+          </UiCardBody>
+        </UiCard>
+      )}
       {user === "demo.finance" &&
         item.status === "VALIDATING" &&
         data.current?.status !== "COMPLETED" && (
-          <div className="manualReview">
-            <textarea
-              placeholder="Validator remarks and evidence summary"
-              value={remarks}
-              onChange={(event) => setRemarks(event.target.value)}
-            />
-            <button onClick={() => finalize("PASS")}>Confirm PASS</button>
-            <button onClick={() => finalize("CLARIFICATION_REQUIRED")}>
-              Request clarification
-            </button>
-          </div>
+          <UiCard className="p1833-manualReview">
+            <UiCardBody>
+              <UiTypography as="h3" variant="section">Validation actions</UiTypography>
+              <UiTextarea
+                id="validation-remarks"
+                label="Validator remarks"
+                helper="Summarize the evidence supporting your decision."
+                value={remarks}
+                onChange={(event) => setRemarks(event.target.value)}
+              />
+              <div className="p1833-actions">
+                <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => finalize("PASS")}>Confirm PASS</UiButton>
+                <UiButton variant="secondary" disabled={busy} busy={busy} onClick={() => finalize("CLARIFICATION_REQUIRED")}>
+                  Request clarification
+                </UiButton>
+              </div>
+            </UiCardBody>
+          </UiCard>
         )}
       {user === "demo.requester" &&
         item.status === "NEEDS_CLARIFICATION" &&
         open && (
-          <div className="manualReview">
-            <p>
-              <b>Clarification required</b>
-              <br />
-              {open.reason}
-              <br />
-              <small>{open.required_response}</small>
-            </p>
-            <textarea
-              placeholder="Your response"
-              value={response}
-              onChange={(event) => setResponse(event.target.value)}
-            />
-            <button
-              onClick={() =>
-                run(async () => {
-                  await api(
-                    `/payment-requests/${item.id}/clarifications/${open.id}/respond`,
-                    { method: "POST", body: JSON.stringify({ response }) },
-                  );
-                })
-              }
-            >
-              Respond and resubmit
-            </button>
-          </div>
+          <UiCard className="p1833-clarification" aria-labelledby="validation-clarification-title">
+            <UiCardBody>
+              <UiTypography as="span" variant="label">Clarification required</UiTypography>
+              <UiTypography id="validation-clarification-title" as="p" variant="body">{open.reason}</UiTypography>
+              {open.required_response && (
+                <UiTypography as="span" variant="metadata">{open.required_response}</UiTypography>
+              )}
+              <UiTextarea
+                id="validation-response"
+                label="Your response"
+                value={response}
+                onChange={(event) => setResponse(event.target.value)}
+              />
+              <UiButton
+                variant="primary"
+                disabled={busy}
+                busy={busy}
+                onClick={() =>
+                  run(async () => {
+                    await api(
+                      `/payment-requests/${item.id}/clarifications/${open.id}/respond`,
+                      { method: "POST", body: JSON.stringify({ response }) },
+                    );
+                  })
+                }
+              >
+                Respond and resubmit
+              </UiButton>
+            </UiCardBody>
+          </UiCard>
         )}
       {data.current?.overall_result === "PASS" && (
-        <p className="readyMarker">
+        <UiAlert tone="success">
           Validation complete · Ready for Day 3 Finance Context. No automatic
           transition was performed.
-        </p>
+        </UiAlert>
       )}
-    </section>
+    </UiProvider>
   );
+}
+type FinanceContextTone = "success" | "warning" | "danger" | "neutral" | "info" | "ai";
+function financeContextStatusChip(status: string) {
+  if (status === "COMPLETED") return <UiStatusChip status="COMPLETED" />;
+  const label = status === "EXCEPTION" ? "Exception" : status === "SUPERSEDED" ? "Superseded" : status;
+  const tone: FinanceContextTone = status === "EXCEPTION" ? "warning" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
+function financeExceptionBadge(code: string) {
+  const labels: Record<string, string> = {
+    MISSING_APPLICABLE_BUDGET: "No applicable budget",
+    INACTIVE_BUDGET: "Budget inactive",
+    AMBIGUOUS_BUDGET_MAPPING: "Ambiguous budget mapping",
+    CURRENCY_CONTEXT_UNSUPPORTED: "Currency not supported",
+    STALE_VALIDATION: "Stale validation",
+    INVALID_REQUEST_AMOUNT: "Invalid request amount",
+    INCONSISTENT_BUDGET_DATA: "Inconsistent budget data",
+  };
+  return <UiBadge tone="warning">{labels[code] ?? code.replaceAll("_", " ")}</UiBadge>;
+}
+function currencyLabel(code?: string) {
+  return code ?? "MYR";
 }
 function FinanceContextPanel({
   item,
@@ -1887,6 +1996,7 @@ function FinanceContextPanel({
     readyForFinancialRiskAnalysis: boolean;
   };
   const [data, setData] = useState<View | null>(null),
+    [loading, setLoading] = useState(true),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -1895,7 +2005,10 @@ function FinanceContextPanel({
       .then((value) => {
         if (active) setData(value as View);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
@@ -1916,68 +2029,76 @@ function FinanceContextPanel({
       setBusy(false);
     }
   }
+  async function recalculate() {
+    setBusy(true);
+    setNotice("");
+    try {
+      setData(
+        (await api(`/payment-requests/${item.id}/finance-context/recalculate`, {
+          method: "POST",
+          body: "{}",
+        })) as View,
+      );
+    } catch (error) {
+      setNotice(msg(error));
+    } finally {
+      setBusy(false);
+    }
+  }
   const amount = (money?: Money) =>
-    money ? `${data?.requestCurrency ?? "MYR"} ${money.decimal}` : "—";
+    money ? `${currencyLabel(data?.requestCurrency)} ${money.decimal}` : "—";
   return (
-    <section className="financeContextPanel">
-      <header>
-        <div>
-          <small>04 · FINANCE CONTEXT</small>
-          <h3>Authoritative financial context</h3>
-        </div>
-        <span>SYSTEM CALCULATED</span>
-      </header>
-      {notice && <p className="notice">{notice}</p>}
-      {!data && user === "demo.finance" && (
-        <button className="primary" disabled={busy} onClick={calculate}>
-          {busy ? "Calculating…" : "Calculate Finance Context"}
-        </button>
-      )}
-      {!data && user !== "demo.finance" && (
-        <p className="muted">Finance Context has not been calculated.</p>
-      )}
+    <UiProvider className="p1836-financeContext">
+      <UiCard>
+        <UiCardHeader>
+          <div className="p1836-sectionHeading">
+            <UiTypography as="span" variant="metadata">04 · FINANCE CONTEXT</UiTypography>
+            <UiSectionHeader title="Authoritative financial context" />
+          </div>
+          <UiBadge tone="info">SYSTEM CALCULATED</UiBadge>
+        </UiCardHeader>
+        <UiCardBody>
+          {notice && <UiAlert tone="danger">{notice}</UiAlert>}
+          {loading && <UiSpinner label="Loading Finance Context…" />}
+          {!loading && !data && user === "demo.finance" && (
+            <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => void calculate()}>
+              Calculate Finance Context
+            </UiButton>
+          )}
+          {!loading && !data && user !== "demo.finance" && (
+            <UiEmptyState title="Finance Context has not been calculated">
+              <span>Finance will calculate the authoritative financial context for this request.</span>
+            </UiEmptyState>
+          )}
+          {data && (
+            <div className="p1836-contextMeta">
+              {financeContextStatusChip(data.status)}
+              <UiTypography as="span" variant="metadata">Fiscal year {data.fiscalYear ?? "—"}</UiTypography>
+              <UiTypography as="span" variant="metadata">{data.category}</UiTypography>
+            </div>
+          )}
+        </UiCardBody>
+      </UiCard>
       {data && (
         <>
-          <div className="financeStatus">
-            <b>{data.status}</b>
-            <span>Fiscal year {data.fiscalYear ?? "—"}</span>
-            <span>{data.category}</span>
-          </div>
           {data.exceptionCode ? (
-            <>
-              <p className="financeException">
-                <b>Finance Context exception</b>
-                <br />
-                {data.exceptionCode.replaceAll("_", " ")} · Finance attention is
-                required before Stage 5.
-              </p>
-              {user === "demo.finance" && (
-                <button
-                  disabled={busy}
-                  onClick={async () => {
-                    setBusy(true);
-                    try {
-                      setData(
-                        (await api(
-                          `/payment-requests/${item.id}/finance-context/recalculate`,
-                          { method: "POST", body: "{}" },
-                        )) as View,
-                      );
-                    } catch (error) {
-                      setNotice(msg(error));
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                >
-                  Recalculate after correction
-                </button>
-              )}
-            </>
+            <UiCard>
+              <UiCardBody>
+                <UiAlert tone="warning" title="Finance Context exception">
+                  {financeExceptionBadge(data.exceptionCode)}{" "}
+                  <UiTypography as="span" variant="body">Finance attention is required before Stage 5.</UiTypography>
+                </UiAlert>
+                {user === "demo.finance" && (
+                  <UiButton variant="secondary" disabled={busy} busy={busy} onClick={() => void recalculate()}>
+                    Recalculate after correction
+                  </UiButton>
+                )}
+              </UiCardBody>
+            </UiCard>
           ) : (
-            <>
-              <div className="financeGrid">
-              {[
+            <UiCard>
+              <UiCardBody className="p1836-budgetGrid">
+                {[
                   ["Original budget", amount(data.originalBudget)],
                   ["Revised budget", amount(data.revisedBudget)],
                   ["Actual spending", amount(data.actual)],
@@ -1986,27 +2107,51 @@ function FinanceContextPanel({
                   ["Current request", amount(data.requestAmount)],
                   ["Projected available", amount(data.projectedAvailable)],
                 ].map(([label, value]) => (
-                  <article key={label}>
-                    <small>{label}</small>
-                    <b>{value}</b>
-                  </article>
+                  <div key={label}>
+                    <UiTypography as="span" variant="metadata">{label}</UiTypography>
+                    <UiTypography as="span" variant="label">{value}</UiTypography>
+                  </div>
                 ))}
-              </div>
-              <p className="financeFormula">
-                AVAILABLE = REVISED − ACTUAL − ACTIVE COMMITMENTS
-              </p>
-            </>
+              </UiCardBody>
+              <UiCardBody>
+                <UiTypography as="p" variant="metadata">
+                  AVAILABLE = REVISED − ACTUAL − ACTIVE COMMITMENTS
+                </UiTypography>
+              </UiCardBody>
+            </UiCard>
           )}
           {data.readyForFinancialRiskAnalysis && (
-            <p className="readyMarker">
+            <UiAlert tone="success">
               Finance Context complete · Ready for Day 4 Financial Risk
               Analysis. No automatic transition was performed.
-            </p>
+            </UiAlert>
           )}
         </>
       )}
-    </section>
+    </UiProvider>
   );
+}
+type FinancialAnalysisTone = "success" | "warning" | "danger" | "neutral" | "info" | "ai";
+function financialAnalysisStatusChip(status: string) {
+  if (status === "PROCESSING") return <UiStatusChip status="PROCESSING" />;
+  const label =
+    status === "AWAITING_HUMAN_REVIEW" ? "Awaiting human review" :
+    status === "FINALIZED" ? "Finalized" :
+    status === "SUPERSEDED" ? "Superseded" :
+    status === "NOT STARTED" ? "Not started" : status;
+  const tone: FinancialAnalysisTone = status === "AWAITING_HUMAN_REVIEW" ? "info" : status === "FINALIZED" ? "success" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
+function agentStatusChip(status: string) {
+  return <UiStatusChip status={status === "FAILED" ? "FAILED" : "COMPLETED"} />;
+}
+function riskLevelBadge(value: string) {
+  const tone: FinancialAnalysisTone = value === "CRITICAL" || value === "HIGH" ? "danger" : value === "MEDIUM" ? "warning" : "neutral";
+  return <UiBadge tone={tone}>{value.charAt(0) + value.slice(1).toLowerCase()}</UiBadge>;
+}
+function priorityBadge(value: string) {
+  const tone: FinancialAnalysisTone = value === "URGENT" ? "danger" : value === "HIGH" ? "warning" : "neutral";
+  return <UiBadge tone={tone}>{value.charAt(0) + value.slice(1).toLowerCase()}</UiBadge>;
 }
 function FinancialAnalysisPanel({
   item,
@@ -2048,21 +2193,27 @@ function FinancialAnalysisPanel({
     readyForPolicyEvaluation: boolean;
   };
   const [data, setData] = useState<View | null>(null),
+    [loading, setLoading] = useState(true),
     [notice, setNotice] = useState(""),
     [risk, setRisk] = useState("MEDIUM"),
-    [priority, setPriority] = useState("NORMAL");
+    [priority, setPriority] = useState("NORMAL"),
+    [busy, setBusy] = useState(false);
   useEffect(() => {
     let active = true;
     void api(`/payment-requests/${item.id}/financial-analysis`)
       .then((v) => {
         if (active) setData(v as View);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
   }, [api, item.id]);
   async function start() {
+    setBusy(true);
     try {
       const value = (await api(
         `/payment-requests/${item.id}/financial-analysis`,
@@ -2077,9 +2228,12 @@ function FinancialAnalysisPanel({
         );
     } catch (e) {
       setNotice(msg(e));
+    } finally {
+      setBusy(false);
     }
   }
   async function manual() {
+    setBusy(true);
     try {
       setData(
         (await api(`/payment-requests/${item.id}/financial-analysis/manual`, {
@@ -2105,89 +2259,108 @@ function FinancialAnalysisPanel({
       );
     } catch (e) {
       setNotice(msg(e));
+    } finally {
+      setBusy(false);
     }
   }
   return (
-    <section className="financialAnalysisPanel">
-      <header>
-        <div>
-          <small>05 · FINANCIAL RISK ANALYSIS</small>
-          <h3>Evidence-backed financial intelligence</h3>
-        </div>
-        <span>{data?.status ?? "NOT STARTED"}</span>
-      </header>
-      {notice && <p className="notice">{notice}</p>}
-      {!data && user === "demo.finance" && (
-        <div className="analysisActions">
-          <button onClick={start}>Start AI-assisted analysis</button>
-          <select aria-label="Manual final risk" value={risk} onChange={(e) => setRisk(e.target.value)}>
-            <option>LOW</option>
-            <option>MEDIUM</option>
-            <option>HIGH</option>
-            <option>CRITICAL</option>
-          </select>
-          <select
-            aria-label="Manual final priority"
-            value={priority}
-            onChange={(e) => setPriority(e.target.value)}
-          >
-            <option>LOW</option>
-            <option>NORMAL</option>
-            <option>HIGH</option>
-            <option>URGENT</option>
-          </select>
-          <button onClick={manual}>Complete manually</button>
-        </div>
-      )}
+    <UiProvider className="p1837-financialAnalysis">
+      <UiCard>
+        <UiCardHeader>
+          <div className="p1837-sectionHeading">
+            <UiTypography as="span" variant="metadata">05 · FINANCIAL RISK ANALYSIS</UiTypography>
+            <UiSectionHeader title="Evidence-backed financial intelligence" />
+          </div>
+          {financialAnalysisStatusChip(data?.status ?? "NOT STARTED")}
+        </UiCardHeader>
+        <UiCardBody>
+          {notice && <UiAlert tone="danger">{notice}</UiAlert>}
+          {loading && <UiSpinner label="Loading Financial Risk Analysis…" />}
+          {!loading && !data && user === "demo.finance" && (
+            <div className="p1837-actions">
+              <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => void start()}>
+                Start AI-assisted analysis
+              </UiButton>
+              <UiSelect label="Manual final risk" value={risk} onChange={(e) => setRisk(e.target.value)}>
+                <option>LOW</option>
+                <option>MEDIUM</option>
+                <option>HIGH</option>
+                <option>CRITICAL</option>
+              </UiSelect>
+              <UiSelect label="Manual final priority" value={priority} onChange={(e) => setPriority(e.target.value)}>
+                <option>LOW</option>
+                <option>NORMAL</option>
+                <option>HIGH</option>
+                <option>URGENT</option>
+              </UiSelect>
+              <UiButton variant="secondary" disabled={busy} busy={busy} onClick={() => void manual()}>
+                Complete manually
+              </UiButton>
+            </div>
+          )}
+          {!loading && !data && user !== "demo.finance" && (
+            <UiEmptyState title="Financial Risk Analysis has not started yet">
+              <span>Finance will start the AI-assisted or manual assessment for this request.</span>
+            </UiEmptyState>
+          )}
+        </UiCardBody>
+      </UiCard>
       {data && (
         <>
-          <div className="agentGrid">
-            {data.agents.map((a) => (
-              <article key={a.agent}>
-                <small>{a.agent.replaceAll("_", " ")}</small>
-                <b>{a.status}</b>
-                <p>
-                  {a.result?.summary ??
-                    (a.failure_code
-                      ? "AI assistance unavailable."
-                      : "No result")}
-                </p>
-                <em>
-                  {a.result?.findings?.length ?? 0} evidence-backed finding(s)
-                </em>
-              </article>
-            ))}
-          </div>
-          {data.ai_assessment && (
-            <div className="consolidated">
-              <small>AI RECOMMENDATION</small>
-              <h4>
-                {data.ai_assessment.riskLevel} RISK ·{" "}
-                {data.ai_assessment.priority} PRIORITY
-              </h4>
-              <p>{data.ai_assessment.summary}</p>
-              {data.ai_assessment.disagreements?.map((x) => (
-                <p key={x}>Disagreement: {x}</p>
+          <UiCard>
+            <UiCardBody className="p1837-agentGrid">
+              {data.agents.map((a) => (
+                <article key={a.agent}>
+                  <UiTypography as="span" variant="metadata">{a.agent.replaceAll("_", " ")}</UiTypography>
+                  {agentStatusChip(a.status)}
+                  <UiTypography as="p" variant="body">
+                    {a.result?.summary ??
+                      (a.failure_code
+                        ? "AI assistance unavailable."
+                        : "No result")}
+                  </UiTypography>
+                  <UiTypography as="span" variant="metadata">
+                    {a.result?.findings?.length ?? 0} evidence-backed finding(s)
+                  </UiTypography>
+                </article>
               ))}
-            </div>
+            </UiCardBody>
+          </UiCard>
+          {data.ai_assessment && (
+            <UiCard>
+              <UiCardBody className="p1837-recommendation">
+                <UiTypography as="span" variant="metadata">AI RECOMMENDATION</UiTypography>
+                <div className="p1837-sectionHeading">
+                  {data.ai_assessment.riskLevel && riskLevelBadge(data.ai_assessment.riskLevel)}
+                  {data.ai_assessment.priority && priorityBadge(data.ai_assessment.priority)}
+                </div>
+                <UiTypography as="p" variant="body">{data.ai_assessment.summary}</UiTypography>
+                {data.ai_assessment.disagreements?.map((x) => (
+                  <UiTypography as="p" variant="body" key={x}>Disagreement: {x}</UiTypography>
+                ))}
+              </UiCardBody>
+            </UiCard>
           )}
           {data.status === "FINALIZED" && (
-            <div className="humanFinal">
-              <small>HUMAN FINAL ASSESSMENT</small>
-              <h4>
-                {data.final_risk} RISK · {data.final_priority} PRIORITY
-              </h4>
-            </div>
+            <UiCard>
+              <UiCardBody className="p1837-humanReview">
+                <UiTypography as="span" variant="metadata">HUMAN FINAL ASSESSMENT</UiTypography>
+                <div className="p1837-sectionHeading">
+                  {data.final_risk && riskLevelBadge(data.final_risk)}
+                  {data.final_priority && priorityBadge(data.final_priority)}
+                </div>
+              </UiCardBody>
+            </UiCard>
           )}
           {data.readyForPolicyEvaluation && (
-            <p className="readyMarker">
+            <UiAlert tone="success">
               Financial Risk Analysis finalized · Ready for Day 5 Policy
               Evaluation. No automatic transition was performed.
-            </p>
+            </UiAlert>
           )}
         </>
       )}
-    </section>
+    </UiProvider>
   );
 }
 function FinancialHumanReview({ item, api }: { item: Item; api: Api }) {
@@ -2275,6 +2448,30 @@ function FinancialHumanReview({ item, api }: { item: Item; api: Api }) {
     </section>
   );
 }
+type PolicyTone = "success" | "warning" | "danger" | "neutral" | "info" | "ai";
+function policyResultBadge(value: string) {
+  if (value === "PASS") return <UiStatusChip status="PASS" />;
+  const label =
+    value === "JUSTIFICATION_REQUIRED" ? "Justification required" :
+    value === "NO_APPLICABLE_POLICY" ? "No applicable policy" :
+    value === "NOT EVALUATED" ? "Not evaluated" : value;
+  const tone: PolicyTone = value === "JUSTIFICATION_REQUIRED" ? "warning" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
+function policyFreshnessBadge(stale: boolean) {
+  return stale ? <UiBadge tone="warning">Stale</UiBadge> : <UiBadge tone="success">Current</UiBadge>;
+}
+function policyFlagBadge(value: boolean, trueLabel: string, falseLabel: string, trueTone: PolicyTone) {
+  return value ? <UiBadge tone={trueTone}>{trueLabel}</UiBadge> : <UiBadge tone="neutral">{falseLabel}</UiBadge>;
+}
+function policyExceptionStatusBadge(status: string) {
+  const label =
+    status === "OPEN" ? "Awaiting justification" :
+    status === "JUSTIFIED" ? "Justified" :
+    status === "SUPERSEDED" ? "Superseded" : status;
+  const tone: PolicyTone = status === "OPEN" ? "warning" : status === "JUSTIFIED" ? "success" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
 function PolicyDecisionPanel({
   item,
   user,
@@ -2313,8 +2510,10 @@ function PolicyDecisionPanel({
     exception_status?: string;
   };
   const [data, setData] = useState<View | null>(null),
+    [loading, setLoading] = useState(true),
     [notice, setNotice] = useState(""),
-    [justification, setJustification] = useState("");
+    [justification, setJustification] = useState(""),
+    [busy, setBusy] = useState(false);
   const load = useCallback(
     async () => {
       try {
@@ -2347,13 +2546,17 @@ function PolicyDecisionPanel({
       .then((v) => {
         if (active) setData(v);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
   }, [api, item.id, item.status]);
   async function evaluate() {
     setNotice("");
+    setBusy(true);
     try {
       await api(`/payment-requests/${item.id}/policy-evaluation`, {
         method: "POST",
@@ -2363,11 +2566,14 @@ function PolicyDecisionPanel({
       await completed();
     } catch (error) {
       setNotice(msg(error));
+    } finally {
+      setBusy(false);
     }
   }
   async function respond() {
     if (!data?.exception_id) return;
     setNotice("");
+    setBusy(true);
     try {
       await api(
         `/payment-requests/${item.id}/policy-clarifications/${data.exception_id}/respond`,
@@ -2377,105 +2583,184 @@ function PolicyDecisionPanel({
       await load();
     } catch (error) {
       setNotice(msg(error));
+    } finally {
+      setBusy(false);
     }
   }
   return (
-    <section className="policyPanel">
-      <header>
-        <div>
-          <small>06 · SYSTEM POLICY</small>
-          <h3>Policy &amp; Decision</h3>
-        </div>
-        <span>{data?.result ?? "NOT EVALUATED"}</span>
-      </header>
-      {notice && <p className="notice">{notice}</p>}
-      {!data && user === "demo.finance" && (
-        <button className="primary" onClick={evaluate}>
-          Evaluate active policy
-        </button>
-      )}
+    <UiProvider className="p1834-policy">
+      <UiCard>
+        <UiCardHeader>
+          <div className="p1834-sectionHeading">
+            <UiTypography as="span" variant="metadata">06 · SYSTEM POLICY</UiTypography>
+            <UiSectionHeader title="Policy & Decision" />
+          </div>
+          {policyResultBadge(data?.result ?? "NOT EVALUATED")}
+        </UiCardHeader>
+        <UiCardBody>
+          {notice && <UiAlert tone="danger">{notice}</UiAlert>}
+          {loading && <UiSpinner label="Loading policy evaluation…" />}
+          {!loading && !data && user === "demo.finance" && (
+            <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => void evaluate()}>
+              Evaluate active policy
+            </UiButton>
+          )}
+          {!loading && !data && user !== "demo.finance" && (
+            <UiEmptyState title="Policy has not been evaluated yet">
+              <span>Finance will evaluate the applicable policy for this request.</span>
+            </UiEmptyState>
+          )}
+          {data && (
+            <div className="p1834-policyMeta">
+              <UiTypography as="span" variant="label">
+                {data.policy_code ?? "No applicable policy"}
+                {data.policy_version ? ` · v${data.policy_version}` : ""}
+              </UiTypography>
+              {policyFreshnessBadge(data.stale)}
+              <UiTypography as="span" variant="metadata">
+                Matched rules: {data.matched_rule_ids?.length ?? 0}
+              </UiTypography>
+            </div>
+          )}
+        </UiCardBody>
+      </UiCard>
       {data && (
         <>
-          <div className="financeStatus">
-            <b>
-              {data.policy_code ?? "No applicable policy"}
-              {data.policy_version ? ` · v${data.policy_version}` : ""}
-            </b>
-            <span>{data.stale ? "STALE" : "CURRENT"}</span>
-            <span>Matched rules: {data.matched_rule_ids?.length ?? 0}</span>
-          </div>
-          <div className="financeGrid">
-            <article>
-              <small>Approval required</small>
-              <b>{data.approval_required ? "YES" : "NO"}</b>
-            </article>
-            <article>
-              <small>Auto-approval eligible</small>
-              <b>{data.auto_approval_eligible ? "YES" : "NO"}</b>
-            </article>
-            <article>
-              <small>Ready for Approval</small>
-              <b>{data.ready_for_approval ? "YES" : "NO"}</b>
-            </article>
-          </div>
+          <UiCard className="p1834-requirements">
+            <UiCardBody>
+              <div>
+                <UiTypography as="span" variant="metadata">Approval required</UiTypography>
+                {policyFlagBadge(data.approval_required, "Yes", "No", "info")}
+              </div>
+              <div>
+                <UiTypography as="span" variant="metadata">Auto-approval eligible</UiTypography>
+                {policyFlagBadge(data.auto_approval_eligible, "Yes", "No", "success")}
+              </div>
+              <div>
+                <UiTypography as="span" variant="metadata">Ready for Approval</UiTypography>
+                {policyFlagBadge(data.ready_for_approval, "Yes", "No", "success")}
+              </div>
+            </UiCardBody>
+          </UiCard>
           {data.approval_plan?.length > 0 && (
-            <div className="consolidated">
-              <small>APPROVAL PLAN · ROLE REQUIREMENTS ONLY</small>
-              {data.approval_plan.map((s) => (
-                <p key={`${s.sequence}-${s.requiredRole}`}>
-                  <b>
-                    {s.sequence}. {s.requiredRole}
-                  </b>{" "}
-                  · {s.authorityScope}
-                  <br />
-                  {s.reason}
-                </p>
-              ))}
-            </div>
+            <UiCard className="p1834-approvalPlan">
+              <UiCardBody>
+                <UiTypography as="span" variant="metadata">APPROVAL PLAN · ROLE REQUIREMENTS ONLY</UiTypography>
+                {data.approval_plan.map((s) => (
+                  <article key={`${s.sequence}-${s.requiredRole}`}>
+                    <UiTypography as="span" variant="label">
+                      {s.sequence}. {s.requiredRole} · {s.authorityScope}
+                    </UiTypography>
+                    <UiTypography as="p" variant="body">{s.reason}</UiTypography>
+                  </article>
+                ))}
+              </UiCardBody>
+            </UiCard>
           )}
-          {data.required_evidence?.length > 0 && (
-            <p>
-              <b>Required evidence:</b> {data.required_evidence.join(", ")}
-            </p>
-          )}
-          {data.escalation && (
-            <p>
-              <b>Escalation:</b> {data.escalation}
-            </p>
+          {(data.required_evidence?.length > 0 || data.escalation) && (
+            <UiCard>
+              <UiCardBody>
+                {data.required_evidence?.length > 0 && (
+                  <UiTypography as="p" variant="body">
+                    <UiTypography as="span" variant="label">Required evidence:</UiTypography> {data.required_evidence.join(", ")}
+                  </UiTypography>
+                )}
+                {data.escalation && (
+                  <UiTypography as="p" variant="body">
+                    <UiTypography as="span" variant="label">Escalation:</UiTypography> {data.escalation}
+                  </UiTypography>
+                )}
+              </UiCardBody>
+            </UiCard>
           )}
           {data.result === "JUSTIFICATION_REQUIRED" && (
-            <div className="financeException">
-              <b>{data.exception_code?.replaceAll("_", " ")}</b>
-              <p>{data.exception_reason}</p>
-              <small>
-                Required from {data.requested_role}:{" "}
-                {data.required_justification}
-              </small>
-              {data.exception_status === "OPEN" && (
-                <>
-                  <textarea
-                    value={justification}
-                    onChange={(e) => setJustification(e.target.value)}
-                    placeholder="Controlled policy justification"
-                  />
-                  <button onClick={respond}>Submit justification</button>
-                </>
-              )}
-            </div>
+            <UiCard className="p1834-exception">
+              <UiCardBody>
+                <div className="p1834-policyMeta">
+                  <UiTypography as="span" variant="label">{data.exception_code?.replaceAll("_", " ")}</UiTypography>
+                  {data.exception_status && policyExceptionStatusBadge(data.exception_status)}
+                </div>
+                <UiTypography as="p" variant="body">{data.exception_reason}</UiTypography>
+                <UiTypography as="span" variant="metadata">
+                  Required from {data.requested_role}: {data.required_justification}
+                </UiTypography>
+                {data.exception_status === "OPEN" && (
+                  <>
+                    <UiTextarea
+                      id="policy-justification"
+                      label="Your justification"
+                      value={justification}
+                      onChange={(e) => setJustification(e.target.value)}
+                      placeholder="Controlled policy justification"
+                    />
+                    <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => void respond()}>
+                      Submit justification
+                    </UiButton>
+                  </>
+                )}
+              </UiCardBody>
+            </UiCard>
           )}
           {data.exception_status === "JUSTIFIED" && user === "demo.finance" && (
-            <button onClick={evaluate}>Re-evaluate policy</button>
+            <UiButton variant="secondary" disabled={busy} busy={busy} onClick={() => void evaluate()}>
+              Re-evaluate policy
+            </UiButton>
           )}
           {data.ready_for_approval && (
-            <p className="readyMarker">
+            <UiAlert tone="success">
               System Policy complete · ready to create the controlled Approval
               case.
-            </p>
+            </UiAlert>
           )}
         </>
       )}
-    </section>
+    </UiProvider>
   );
+}
+type ApprovalTone = "success" | "warning" | "danger" | "neutral" | "info" | "ai";
+function approvalStatusChip(value: string) {
+  if (value === "PENDING" || value === "APPROVED" || value === "REJECTED") return <UiStatusChip status={value} />;
+  const label =
+    value === "CLARIFICATION" ? "Clarification requested" :
+    value === "SUPERSEDED" ? "Superseded" :
+    value === "NOT STARTED" ? "Not started" : value;
+  const tone: ApprovalTone = value === "CLARIFICATION" ? "warning" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
+function approvalStepBadge(status: string) {
+  if (status === "APPROVED") return <UiStatusChip status="APPROVED" />;
+  const label = status === "ACTIVE" ? "Active" : status === "WAITING" ? "Waiting" : status === "CLOSED" ? "Closed" : status;
+  const tone: ApprovalTone = status === "ACTIVE" ? "info" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
+function approvalCommitmentBadge(status: string) {
+  const label =
+    status === "NOT_CREATED" ? "Not created" :
+    status === "ACTIVE" ? "Active" :
+    status === "CONSUMED" ? "Consumed" :
+    status === "RELEASED" ? "Released" : status;
+  const tone: ApprovalTone = status === "ACTIVE" ? "info" : status === "CONSUMED" ? "success" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
+function approvalRiskBadge(risk: string) {
+  const tone: ApprovalTone = risk === "CRITICAL" || risk === "HIGH" ? "danger" : risk === "MEDIUM" ? "warning" : "neutral";
+  return <UiBadge tone={tone}>{risk.charAt(0) + risk.slice(1).toLowerCase()}</UiBadge>;
+}
+function approvalPriorityBadge(priority: string) {
+  const tone: ApprovalTone = priority === "URGENT" ? "danger" : priority === "HIGH" ? "warning" : "neutral";
+  return <UiBadge tone={tone}>{priority.charAt(0) + priority.slice(1).toLowerCase()}</UiBadge>;
+}
+function approvalSourceLabel(source: string) {
+  return source === "POLICY_AUTO_APPROVAL" ? "Policy auto-approval" : source === "HUMAN" ? "Human" : source;
+}
+function approvalActionLabel(action: string) {
+  return action === "APPROVE" ? "Approved" :
+    action === "REJECT" ? "Rejected" :
+    action === "REQUEST_CLARIFICATION" ? "Clarification requested" :
+    action === "POLICY_AUTO_APPROVE" ? "Policy auto-approved" : action;
+}
+function approvalChannelLabel(channel: string) {
+  return channel === "WEB" ? "Web" : channel === "TELEGRAM" ? "Telegram" : channel === "POLICY_AUTO" ? "Automatic" : channel;
 }
 function ApprovalPanel({
   item,
@@ -2513,8 +2798,10 @@ function ApprovalPanel({
   };
   const [policy,setPolicy]=useState<{ready_for_approval?:boolean;stale?:boolean}|null>(null);
   const [data, setData] = useState<View | null>(null),
+    [loading, setLoading] = useState(true),
     [notice, setNotice] = useState(""),
-    [reason, setReason] = useState("");
+    [reason, setReason] = useState(""),
+    [busy, setBusy] = useState(false);
   const load = useCallback(
     async () =>
       setData((await api(`/payment-requests/${item.id}/approval`)) as View),
@@ -2526,12 +2813,16 @@ function ApprovalPanel({
       .then(([v,p]) => {
         if (active){setData(v as View);setPolicy(p as typeof policy);}
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
   }, [api, item.id, item.status]);
   async function create() {
+    setBusy(true);
     try {
       await api(`/payment-requests/${item.id}/approval`, {
         method: "POST",
@@ -2541,12 +2832,15 @@ function ApprovalPanel({
       await changed();
     } catch (e) {
       setNotice(msg(e));
+    } finally {
+      setBusy(false);
     }
   }
   async function action(
     step: Step,
     kind: "APPROVE" | "REJECT" | "REQUEST_CLARIFICATION",
   ) {
+    setBusy(true);
     try {
       await api(
         `/payment-requests/${item.id}/approval/steps/${step.id}/actions`,
@@ -2568,120 +2862,155 @@ function ApprovalPanel({
       await changed();
     } catch (e) {
       setNotice(msg(e));
+    } finally {
+      setBusy(false);
     }
   }
   const active = data?.steps.find((s) => s.status === "ACTIVE");
   return (
-    <section className="policyPanel">
-      <header>
-        <div>
-          <small>07 · HUMAN ACCOUNTABILITY</small>
-          <h3>Approval</h3>
-        </div>
-        <span>{data?.case?.status ?? "NOT STARTED"}</span>
-      </header>
-      {notice && <p className="notice">{notice}</p>}
-      {policyReadyForApproval(policy,data?.case) && user === "demo.finance" && (
-        <button className="primary" onClick={create}>
-          Create Approval case
-        </button>
-      )}
+    <UiProvider className="p1835-approval">
+      <UiCard>
+        <UiCardHeader>
+          <div className="p1835-sectionHeading">
+            <UiTypography as="span" variant="metadata">07 · HUMAN ACCOUNTABILITY</UiTypography>
+            <UiSectionHeader title="Approval" />
+          </div>
+          {approvalStatusChip(data?.case?.status ?? "NOT STARTED")}
+        </UiCardHeader>
+        <UiCardBody>
+          {notice && <UiAlert tone="danger">{notice}</UiAlert>}
+          {loading && <UiSpinner label="Loading approval…" />}
+          {!loading && !data?.case && (
+            policyReadyForApproval(policy,data?.case) && user === "demo.finance" ? (
+              <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => void create()}>
+                Create Approval case
+              </UiButton>
+            ) : (
+              <UiEmptyState title="Approval has not started yet">
+                <span>Approval becomes available once System Policy is ready.</span>
+              </UiEmptyState>
+            )
+          )}
+        </UiCardBody>
+      </UiCard>
       {data?.case && (
         <>
-          <p>
-            <b>System Policy reference:</b> {data.case.policy_decision_run_id}
-          </p>
-          <p>
-            <b>Source:</b> {data.case.source}
-          </p>
-          <p>
-            <b>Commitment:</b> {data.commitmentStatus ?? "NOT AVAILABLE"}
-          </p>
+          <UiCard>
+            <UiCardBody>
+              <div className="p1835-caseMeta">
+                <UiTypography as="span" variant="label">System Policy reference:</UiTypography>
+                <UiTypography as="span" variant="body">{data.case.policy_decision_run_id}</UiTypography>
+              </div>
+              <div className="p1835-caseMeta">
+                <UiTypography as="span" variant="label">Source:</UiTypography>
+                <UiTypography as="span" variant="body">{approvalSourceLabel(data.case.source)}</UiTypography>
+              </div>
+              <div className="p1835-caseMeta">
+                <UiTypography as="span" variant="label">Commitment:</UiTypography>
+                {data.commitmentStatus ? approvalCommitmentBadge(data.commitmentStatus) : <UiBadge tone="neutral">Not available</UiBadge>}
+              </div>
+            </UiCardBody>
+          </UiCard>
           {data.detail && (
-            <div className="financeGrid">
-              <article>
-                <small>FINANCE CONTEXT · DETERMINISTIC</small>
-                <b>Available: {String(data.detail.available_amount_minor)}</b>
-                <span>
-                  Projected:{" "}
-                  {String(data.detail.projected_available_amount_minor)}
-                </span>
-              </article>
-              <article>
-                <small>AI ANALYSIS · ADVISORY</small>
-                <b>{data.detail.ai_assessment ? "Available" : "Not used"}</b>
-              </article>
-              <article>
-                <small>HUMAN FINAL ASSESSMENT · ACCOUNTABLE</small>
-                <b>{String(data.detail.final_risk)}</b>
-                <span>{String(data.detail.final_priority)}</span>
-              </article>
-              <article>
-                <small>SYSTEM POLICY · DETERMINISTIC</small>
-                <b>{String(data.detail.policy_result)}</b>
-              </article>
-            </div>
+            <UiCard>
+              <UiCardBody className="p1835-decisionContext">
+                <div>
+                  <UiTypography as="span" variant="metadata">FINANCE CONTEXT · DETERMINISTIC</UiTypography>
+                  <UiTypography as="span" variant="label">Available: {String(data.detail.available_amount_minor)}</UiTypography>
+                  <UiTypography as="span" variant="metadata">Projected: {String(data.detail.projected_available_amount_minor)}</UiTypography>
+                </div>
+                <div>
+                  <UiTypography as="span" variant="metadata">AI ANALYSIS · ADVISORY</UiTypography>
+                  <UiBadge tone={data.detail.ai_assessment ? "ai" : "neutral"}>{data.detail.ai_assessment ? "Available" : "Not used"}</UiBadge>
+                </div>
+                <div>
+                  <UiTypography as="span" variant="metadata">HUMAN FINAL ASSESSMENT · ACCOUNTABLE</UiTypography>
+                  {approvalRiskBadge(String(data.detail.final_risk))}
+                  {approvalPriorityBadge(String(data.detail.final_priority))}
+                </div>
+                <div>
+                  <UiTypography as="span" variant="metadata">SYSTEM POLICY · DETERMINISTIC</UiTypography>
+                  {policyResultBadge(String(data.detail.policy_result))}
+                </div>
+              </UiCardBody>
+            </UiCard>
           )}
-          <div className="consolidated">
-            <small>EVIDENCE</small>
-            {data.evidence?.map((e) => (
-              <p key={String(e.id)}>
-                {String(e.original_filename)} ·{" "}
-                {String(e.document_type ?? "UNCLASSIFIED")} · v
-                {String(e.version)}
-              </p>
-            ))}
-          </div>
-          <div className="consolidated">
-            <small>SEQUENTIAL APPROVAL ROUTE</small>
-            {data.steps.map((s) => (
-              <p key={s.id}>
-                <b>
-                  {s.sequence}. {s.required_role}
-                </b>{" "}
-                · {s.authority_scope} · {s.status}
-                <br />
-                {s.reason}
-              </p>
-            ))}
-          </div>
-          <div className="consolidated">
-            <small>APPROVAL HISTORY</small>
-            {data.history?.length ? (
-              data.history.map((h, i) => (
-                <p key={i}>
-                  {String(h.action)} · {String(h.channel)} ·{" "}
-                  {String(h.required_role ?? "Policy")}
-                </p>
-              ))
-            ) : (
-              <p>No completed actions.</p>
-            )}
-          </div>
+          <UiCard className="p1835-evidence">
+            <UiCardBody>
+              <UiTypography as="span" variant="metadata">EVIDENCE</UiTypography>
+              {data.evidence?.map((e) => (
+                <article key={String(e.id)}>
+                  <UiTypography as="p" variant="body">
+                    {String(e.original_filename)} · {String(e.document_type ?? "UNCLASSIFIED")} · v{String(e.version)}
+                  </UiTypography>
+                </article>
+              ))}
+            </UiCardBody>
+          </UiCard>
+          <UiCard className="p1835-steps">
+            <UiCardBody>
+              <UiTypography as="span" variant="metadata">SEQUENTIAL APPROVAL ROUTE</UiTypography>
+              {data.steps.map((s) => (
+                <article key={s.id}>
+                  <div className="p1835-caseMeta">
+                    <UiTypography as="span" variant="label">{s.sequence}. {s.required_role}</UiTypography>
+                    <UiTypography as="span" variant="metadata">{s.authority_scope}</UiTypography>
+                    {approvalStepBadge(s.status)}
+                  </div>
+                  <UiTypography as="p" variant="body">{s.reason}</UiTypography>
+                </article>
+              ))}
+            </UiCardBody>
+          </UiCard>
+          <UiCard className="p1835-history">
+            <UiCardBody>
+              <UiTypography as="span" variant="metadata">APPROVAL HISTORY</UiTypography>
+              {data.history?.length ? (
+                data.history.map((h, i) => (
+                  <article key={i}>
+                    <UiTypography as="p" variant="body">
+                      {approvalActionLabel(String(h.action))} · {approvalChannelLabel(String(h.channel))} · {String(h.required_role ?? "Policy")}
+                    </UiTypography>
+                  </article>
+                ))
+              ) : (
+                <UiEmptyState title="No completed actions">
+                  <span>Approval actions will appear here as approvers decide.</span>
+                </UiEmptyState>
+              )}
+            </UiCardBody>
+          </UiCard>
           {active && user === "demo.approver" && (
-            <div className="financeException">
-              <b>Current approval step</b>
-              <p>{active.required_role} · Human decision</p>
-              <textarea
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Reason required for reject or clarification"
-              />
-              <button onClick={() => action(active, "APPROVE")}>Approve</button>
-              <button onClick={() => action(active, "REQUEST_CLARIFICATION")}>
-                Request clarification
-              </button>
-              <button onClick={() => action(active, "REJECT")}>Reject</button>
-            </div>
+            <UiCard>
+              <UiCardBody className="p1835-currentStep">
+                <UiTypography as="h3" variant="section">Current approval step</UiTypography>
+                <UiTypography as="p" variant="body">{active.required_role} · Human decision</UiTypography>
+                <UiTextarea
+                  id="approval-reason"
+                  label="Reason"
+                  helper="Required for reject or clarification"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Reason required for reject or clarification"
+                />
+                <div className="p1835-actions">
+                  <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => void action(active, "APPROVE")}>Approve</UiButton>
+                  <UiButton variant="secondary" disabled={busy} busy={busy} onClick={() => void action(active, "REQUEST_CLARIFICATION")}>
+                    Request clarification
+                  </UiButton>
+                  <UiButton variant="danger" disabled={busy} busy={busy} onClick={() => void action(active, "REJECT")}>Reject</UiButton>
+                </div>
+              </UiCardBody>
+            </UiCard>
           )}
           {data.readyForFinanceControl && (
-            <p className="readyMarker">
+            <UiAlert tone="success">
               Approval complete · ready for Final Finance Control.
-            </p>
+            </UiAlert>
           )}
         </>
       )}
-    </section>
+    </UiProvider>
   );
 }
 
@@ -3113,11 +3442,11 @@ function financeQueueItem(x: Record<string, unknown>): Item {
   };
 }
 function requesterListItem(x:Record<string,unknown>):Item{
-  return {id:String(x.id),ticketNumber:x.ticket_number?String(x.ticket_number):null,status:String(x.status) as Item["status"],payee:x.payee?String(x.payee):null,purpose:x.purpose?String(x.purpose):null,category:null,amount:x.amount?String(x.amount):null,currency:x.currency?String(x.currency):null,departmentId:"",dueDate:x.due_date?String(x.due_date).slice(0,10):null,paymentMethod:null,paymentDetails:null,remark:null,submittedAt:x.submitted_at?String(x.submitted_at):null,createdAt:x.created_at?String(x.created_at):null,updatedAt:x.updated_at?String(x.updated_at):null};
+  return {id:String(x.id),ticketNumber:x.ticket_number?String(x.ticket_number):null,status:String(x.status) as Item["status"],payee:x.payee?String(x.payee):null,purpose:x.purpose?String(x.purpose):null,category:null,amount:x.amount?String(x.amount):null,currency:x.currency?String(x.currency):null,departmentId:"",dueDate:x.due_date?String(x.due_date):null,paymentMethod:null,paymentDetails:null,remark:null,submittedAt:x.submitted_at?String(x.submitted_at):null,createdAt:x.created_at?String(x.created_at):null,updatedAt:x.updated_at?String(x.updated_at):null};
 }
 function requesterDetailItem(safe:{request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>;clarifications?:Array<Record<string,unknown>>;payment?:Record<string,unknown>|null}):Item{
   const x=safe.request;
-  return {...requesterListItem(x),category:x.category?String(x.category):null,departmentId:String(x.department_id),paymentMethod:x.payment_method?String(x.payment_method):null,paymentDetails:x.payment_details?String(x.payment_details):null,remark:x.remark?String(x.remark):null,documents:safe.documents.map(d=>({id:String(d.id),original_filename:String(d.original_filename),size_bytes:String(d.size_bytes),version:Number(d.version),document_type:d.document_type?String(d.document_type):undefined,uploaded_at:d.uploaded_at?String(d.uploaded_at):undefined,security_status:d.security_status?String(d.security_status) as "QUARANTINED"|"SCANNING"|"CLEAN"|"REJECTED"|"SCAN_FAILED":undefined})),audit:safe.activity.map(a=>({id:`${String(a.occurred_at)}-${String(a.action)}`,action:String(a.action),occurred_at:String(a.occurred_at)})),clarifications:(safe.clarifications??[]).map(c=>({id:String(c.id),type:String(c.clarification_type),question:String(c.question),status:String(c.status),requestedAt:String(c.requested_at),response:c.response?String(c.response):null,respondedAt:c.responded_at?String(c.responded_at):null})),paymentSummary:safe.payment?{paymentDate:String(safe.payment.payment_date).slice(0,10),status:String(safe.payment.status),amountMinor:String(safe.payment.amount_minor),currency:String(safe.payment.currency),paymentMethod:String(safe.payment.payment_method),recordedAt:String(safe.payment.recorded_at)}:null};
+  return {...requesterListItem(x),category:x.category?String(x.category):null,departmentId:String(x.department_id),paymentMethod:x.payment_method?String(x.payment_method):null,paymentDetails:x.payment_details?String(x.payment_details):null,remark:x.remark?String(x.remark):null,documents:safe.documents.map(d=>({id:String(d.id),original_filename:String(d.original_filename),size_bytes:String(d.size_bytes),version:Number(d.version),document_type:d.document_type?String(d.document_type):undefined,uploaded_at:d.uploaded_at?String(d.uploaded_at):undefined,security_status:d.security_status?String(d.security_status) as "QUARANTINED"|"SCANNING"|"CLEAN"|"REJECTED"|"SCAN_FAILED":undefined})),audit:safe.activity.map(a=>({id:`${String(a.occurred_at)}-${String(a.action)}`,action:String(a.action),occurred_at:String(a.occurred_at)})),clarifications:(safe.clarifications??[]).map(c=>({id:String(c.id),type:String(c.clarification_type),question:String(c.question),status:String(c.status),requestedAt:String(c.requested_at),response:c.response?String(c.response):null,respondedAt:c.responded_at?String(c.responded_at):null})),paymentSummary:safe.payment?{paymentDate:String(safe.payment.payment_date),status:String(safe.payment.status),amountMinor:String(safe.payment.amount_minor),currency:String(safe.payment.currency),paymentMethod:String(safe.payment.payment_method),recordedAt:String(safe.payment.recorded_at)}:null};
 }
 
 function paymentQueueItem(x: Record<string, unknown>): Item {

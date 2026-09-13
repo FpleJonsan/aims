@@ -1,0 +1,11 @@
+/* Policy-only composition. All primitive styling comes from the frozen library. */
+.p1834-policy { display:grid; gap:var(--aims-space-24); min-width:0; }
+.p1834-policy .aims-card-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--aims-space-16); }
+.p1834-policy .aims-card-body { display:grid; gap:var(--aims-space-16); min-width:0; }
+.p1834-sectionHeading { display:grid; gap:var(--aims-space-8); }
+.p1834-policyMeta { display:flex; flex-wrap:wrap; align-items:center; gap:var(--aims-space-8); }
+.p1834-requirements { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--aims-space-16); }
+.p1834-requirements > div { display:grid; gap:var(--aims-space-4); }
+.p1834-approvalPlan article { display:grid; gap:var(--aims-space-4); }
+.p1834-exception { display:grid; gap:var(--aims-space-8); }
+@media(max-width:600px) { .p1834-requirements { grid-template-columns:1fr; } }

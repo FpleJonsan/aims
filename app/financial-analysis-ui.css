@@ -1,0 +1,11 @@
+/* Financial Analysis-only composition. All primitive styling comes from the frozen library. */
+.p1837-financialAnalysis { display:grid; gap:var(--aims-space-24); min-width:0; }
+.p1837-financialAnalysis .aims-card-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--aims-space-16); }
+.p1837-financialAnalysis .aims-card-body { display:grid; gap:var(--aims-space-16); min-width:0; }
+.p1837-sectionHeading { display:grid; gap:var(--aims-space-8); }
+.p1837-actions { display:flex; flex-wrap:wrap; align-items:end; gap:var(--aims-space-12); }
+.p1837-agentGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--aims-space-16); }
+.p1837-agentGrid > article { display:grid; gap:var(--aims-space-8); align-content:start; }
+.p1837-recommendation,.p1837-humanReview { display:grid; gap:var(--aims-space-8); }
+@media(max-width:900px) { .p1837-agentGrid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .p1837-agentGrid { grid-template-columns:1fr; } }

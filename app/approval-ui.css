@@ -1,0 +1,13 @@
+/* Approval-only composition. All primitive styling comes from the frozen library. */
+.p1835-approval { display:grid; gap:var(--aims-space-24); min-width:0; }
+.p1835-approval .aims-card-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--aims-space-16); }
+.p1835-approval .aims-card-body { display:grid; gap:var(--aims-space-16); min-width:0; }
+.p1835-sectionHeading { display:grid; gap:var(--aims-space-8); }
+.p1835-caseMeta { display:flex; flex-wrap:wrap; align-items:center; gap:var(--aims-space-8); }
+.p1835-decisionContext { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--aims-space-16); }
+.p1835-decisionContext > div { display:grid; gap:var(--aims-space-4); }
+.p1835-evidence article,.p1835-steps article,.p1835-history article { display:grid; gap:var(--aims-space-4); }
+.p1835-currentStep { display:grid; gap:var(--aims-space-8); }
+.p1835-actions { display:flex; flex-wrap:wrap; gap:var(--aims-space-12); }
+@media(max-width:900px) { .p1835-decisionContext { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .p1835-decisionContext { grid-template-columns:1fr; } }
