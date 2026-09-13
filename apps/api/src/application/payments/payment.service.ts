@@ -181,26 +181,12 @@ export class PaymentService {
 
   async list(actor: Principal, input: PaymentListDto) {
     const values: unknown[] = [
-      actor.id,
-      input.search ?? null,
-      input.departmentId ?? null,
-      input.category ?? null,
-      input.dateFrom ?? null,
-      input.dateTo ?? null,
-      input.payee ?? null,
+      ...this.paymentFilterValues(actor, input),
       Math.min(input.pageSize, 100),
       (input.page - 1) * Math.min(input.pageSize, 100),
     ];
     const q = await this.db.pool.query(
-      `WITH filtered AS (
-       SELECT p.*,d.name department_name,u.display_name recorded_by_name,
-       EXISTS(SELECT 1 FROM payment_authorities pa JOIN users au ON au.id=pa.user_id AND au.active
-         WHERE pa.user_id=$1 AND pa.active AND(pa.scope='ORGANIZATION' OR pa.department_id=p.department_id)) finance_access
-      FROM payments p JOIN departments d ON d.id=p.department_id JOIN users u ON u.id=p.recorded_by JOIN payment_requests pr ON pr.id=p.payment_request_id
-      WHERE (pr.created_by=$1 OR EXISTS(SELECT 1 FROM payment_authorities pa JOIN users au ON au.id=pa.user_id AND au.active WHERE pa.user_id=$1 AND pa.active AND(pa.scope='ORGANIZATION' OR pa.department_id=p.department_id)))
-      AND($2::text IS NULL OR p.ticket_number ILIKE '%'||$2||'%' OR p.payee ILIKE '%'||$2||'%' OR(EXISTS(SELECT 1 FROM payment_authorities pa WHERE pa.user_id=$1 AND pa.active AND(pa.scope='ORGANIZATION' OR pa.department_id=p.department_id)) AND p.bank_reference ILIKE '%'||$2||'%'))
-      AND($3::uuid IS NULL OR p.department_id=$3)AND($4::text IS NULL OR p.category=$4)AND($5::date IS NULL OR p.payment_date>=$5)AND($6::date IS NULL OR p.payment_date<=$6)AND($7::text IS NULL OR p.payee ILIKE '%'||$7||'%')
-      ), page_rows AS (
+      `${this.paymentFilterQuery()}, page_rows AS (
         SELECT * FROM filtered ORDER BY payment_date DESC,id DESC LIMIT $8 OFFSET $9
       )
       SELECT page_rows.*,totals.total FROM (SELECT count(*) total FROM filtered) totals
@@ -266,18 +252,17 @@ export class PaymentService {
     const exportLimit = Number.isSafeInteger(configuredLimit) && configuredLimit > 0
       ? Math.min(configuredLimit, 50_000)
       : 10_000;
-    const first = await this.list(actor, { ...input, page: 1, pageSize: 100 });
-    if (first.total > exportLimit) {
+    const q = await this.db.pool.query(
+      `${this.paymentFilterQuery()}
+      SELECT * FROM filtered ORDER BY payment_date DESC,id DESC LIMIT $8`,
+      [...this.paymentFilterValues(actor, input), exportLimit + 1],
+    );
+    if (q.rows.length > exportLimit) {
       throw new BadRequestException(
-        `Payment export contains ${first.total} rows; narrow the filters below the ${exportLimit}-row operational limit`,
+        `Payment export contains more than ${exportLimit} rows; narrow the filters below the ${exportLimit}-row operational limit`,
       );
     }
-    const items = [...first.items];
-    for (let page = 2; items.length < first.total; page += 1) {
-      const next = await this.list(actor, { ...input, page, pageSize: 100 });
-      items.push(...next.items);
-      if (next.items.length === 0) break;
-    }
+    const items = q.rows.map((row: any) => this.present(row, row.finance_access));
     const headers = [
       "Ticket Number",
       "Payment Date",
@@ -313,6 +298,30 @@ export class PaymentService {
     ]
       .map((row) => row.map(csv).join(","))
       .join("\r\n");
+  }
+
+  private paymentFilterValues(actor: Principal, input: PaymentListDto) {
+    return [
+      actor.id,
+      input.search ?? null,
+      input.departmentId ?? null,
+      input.category ?? null,
+      input.dateFrom ?? null,
+      input.dateTo ?? null,
+      input.payee ?? null,
+    ];
+  }
+
+  private paymentFilterQuery() {
+    return `WITH filtered AS (
+       SELECT p.*,d.name department_name,u.display_name recorded_by_name,
+       EXISTS(SELECT 1 FROM payment_authorities pa JOIN users au ON au.id=pa.user_id AND au.active
+         WHERE pa.user_id=$1 AND pa.active AND(pa.scope='ORGANIZATION' OR pa.department_id=p.department_id)) finance_access
+      FROM payments p JOIN departments d ON d.id=p.department_id JOIN users u ON u.id=p.recorded_by JOIN payment_requests pr ON pr.id=p.payment_request_id
+      WHERE (pr.created_by=$1 OR EXISTS(SELECT 1 FROM payment_authorities pa JOIN users au ON au.id=pa.user_id AND au.active WHERE pa.user_id=$1 AND pa.active AND(pa.scope='ORGANIZATION' OR pa.department_id=p.department_id)))
+      AND($2::text IS NULL OR p.ticket_number ILIKE '%'||$2||'%' OR p.payee ILIKE '%'||$2||'%' OR(EXISTS(SELECT 1 FROM payment_authorities pa WHERE pa.user_id=$1 AND pa.active AND(pa.scope='ORGANIZATION' OR pa.department_id=p.department_id)) AND p.bank_reference ILIKE '%'||$2||'%'))
+      AND($3::uuid IS NULL OR p.department_id=$3)AND($4::text IS NULL OR p.category=$4)AND($5::date IS NULL OR p.payment_date>=$5)AND($6::date IS NULL OR p.payment_date<=$6)AND($7::text IS NULL OR p.payee ILIKE '%'||$7||'%')
+      )`;
   }
 
   private async isPaymentOperator(actor: Principal) {

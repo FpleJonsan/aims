@@ -126,7 +126,7 @@
   border: 1px solid #d9d5ca;
   background: #fff;
 }
-.stageRail > div {
+.stageRail > button {
   min-width: 145px;
   padding: 14px;
   border-right: 1px solid #e4e0d6;
@@ -744,15 +744,16 @@ button:focus-visible:not(:where(.p183-dashboard, .p183-dashboard *, .p1832-reque
 .secondary { border: 1px solid var(--border) !important; background: var(--surface) !important; color: var(--text-primary) !important; padding: 11px 15px !important; border-radius: var(--radius-small); font-weight: 700; }
 
 .stageRail { border: 1px solid var(--border); border-radius:var(--radius-medium); background: var(--surface); box-shadow:var(--shadow-small); margin: 10px 0 24px; gap: 3px; padding: 14px 16px 12px; scrollbar-width: thin; }
-.stageRail > div { min-width: 126px; border: 0; padding: 8px 8px 8px 0; position: relative; }
-.stageRail > div::after { content:""; position:absolute; height:1px; background:var(--border); top:20px; left:34px; right:3px; }
-.stageRail > div:last-child::after { display:none; }
+.stageRail > button { min-width: 126px; border: 0; padding: 8px 8px 8px 0; position: relative; background:none; color:inherit; text-align:left; }
+.stageRail > button::after { content:""; position:absolute; height:1px; background:var(--border); top:20px; left:34px; right:3px; }
+.stageRail > button:last-child::after { display:none; }
 .stageRail span { width: 27px; height: 27px; border-radius: 50%; display:grid; place-items:center; background:#e6ebe6; color:#5c6960; font-size:8px; position:relative; z-index:1; }
 .stageRail b { font-size: 9px; margin: 7px 0 3px; line-height: 1.25; max-width: 110px; }
 .stageRail small { font-size: 8px; }
 .stageRail .available { border:0; }
 .stageRail .current span { background:var(--primary); color:white; box-shadow:0 0 0 4px #dce8df; }
 .stageRail .current small { color:var(--primary); font-weight:800; }
+.stageRail .selected { outline:2px solid var(--primary); outline-offset:2px; }
 .stageRail .completed span { background:var(--success); color:white; }
 .stageRail .completed::after { background:var(--success); }
 .stageRail .future { opacity:.5; }

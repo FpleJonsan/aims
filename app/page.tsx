@@ -103,6 +103,16 @@ const statusStage: Record<Item["status"], number> = {
   READY_FOR_PAYMENT: 8, PAID: 9, REJECTED: 6, CANCELLED:1,
 };
 
+function availableWorkflowStages(item:Item,user:string){
+  const available:number[]=[];
+  if(item.status!=="DRAFT")available.push(2);
+  if(["VALIDATING","APPROVED","FINANCE_CHECK","FINANCE_HOLD","READY_FOR_PAYMENT","PAID"].includes(item.status))available.push(3,4,5);
+  if(["VALIDATING","PENDING_APPROVAL","APPROVED","FINANCE_CHECK","FINANCE_HOLD","READY_FOR_PAYMENT","PAID","REJECTED","NEEDS_CLARIFICATION"].includes(item.status))available.push(6);
+  if(["APPROVED","FINANCE_CHECK","FINANCE_HOLD","READY_FOR_PAYMENT","PAID"].includes(item.status)&&user==="demo.finance")available.push(7);
+  if(["READY_FOR_PAYMENT","PAID"].includes(item.status)&&user==="demo.finance")available.push(item.status==="PAID"?9:8);
+  return available;
+}
+
 function StatusChip({ status }: { status: string }) {
   const meta=requesterStatusPresentation[status as RequesterStatus];
   const label=meta?.label??status.replaceAll("_", " ");
@@ -160,11 +170,12 @@ export default function Home() {
     [financeControlPagination, setFinanceControlPagination] = useState<Pagination|null>(null),
     [routeQuery,setRouteQuery]=useState(""),
     [dashboardDrill, setDashboardDrill] = useState<DashboardDrill|null>(null),
-    [mobileNavOpen,setMobileNavOpen]=useState(false);
+    [mobileNavOpen,setMobileNavOpen]=useState(false),
+    [workflowStage,setWorkflowStage]=useState<number|null>(null);
   const authorizationRefresh=useRef(false);
   const clearProtectedState=useCallback(()=>{
     setItems([]);setSelected(null);setApprovalPagination(null);setWorkQueuePagination(null);setFinanceControlPagination(null);setDashboardDrill(null);
-    setShowDashboard(false);setShowPaymentHistory(false);
+    setShowDashboard(false);setShowPaymentHistory(false);setWorkflowStage(null);
   },[]);
   const api = useCallback(
     async (path: string, init?: RequestInit): Promise<unknown> => {
@@ -198,7 +209,7 @@ export default function Home() {
     const preferred=stored==="requester"||stored==="finance"?stored:null;
     const destination=routeForSession(next,requestedPath,preferred);
     setWorkspace(destination.workspace);
-    setSelected(null);
+    setSelected(null);setWorkflowStage(null);
     const search=new URL(destination.path,"http://aims.local").search;
     setRouteQuery(search);
     const filters=navigationFilters("dashboard",search);
@@ -230,10 +241,8 @@ export default function Home() {
   },[api,applySession,clearProtectedState]);
   const refresh = useCallback(async () => {
     if (!session || !workspace) return;
-    if (workspace === "requester") {
-      const rows=(await api("/requester/requests?pageSize=50")) as {items:Array<Record<string,unknown>>};
-      setItems(rows.items.map(requesterListItem));
-    } else if (financeView === "approvals") {
+    if (workspace === "requester") return;
+    if (financeView === "approvals") {
       const rows = (
         (await api(`/approvals?page=${approvalPage}&pageSize=25`)) as { items: Array<Record<string, unknown>> } & Pagination
       );
@@ -352,7 +361,7 @@ export default function Home() {
         method: "POST",
         body: "{}",
       })) as Item;
-      setSelected(item);
+      setSelected(item);setWorkflowStage(null);
       window.history.pushState({},"","/requester/requests/new");
       await refresh();
     } catch (e) {
@@ -363,9 +372,9 @@ export default function Home() {
     try {
       if(workspace==="requester"){
         const safe=await api(`/requester/requests/${id}`) as {request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>;clarifications:Array<Record<string,unknown>>;payment:Record<string,unknown>|null};
-        setSelected(requesterDetailItem(safe));
+        setSelected(requesterDetailItem(safe));setWorkflowStage(null);
         window.history.pushState({},"",`/requester/requests/${id}`);
-      } else setSelected((await api(`/payment-requests/${id}`)) as Item);
+      } else {setSelected((await api(`/payment-requests/${id}`)) as Item);setWorkflowStage(null);}
     } catch (e) {
       setNotice(msg(e));
     }
@@ -406,6 +415,8 @@ export default function Home() {
   const financeDescriptions:Record<FinanceView,string>={"work-queue":"General Finance review within your authorized scope.",approvals:"Requests on which you have actionable Approval authority.","finance-control":"The mandatory final controlled gate before payment readiness.","payment-queue":"Only requests you are authorized to record as externally paid.","payment-history":"Immutable historical payment records within your authorized scope.",dashboard:"Authoritative financial position and operational attention.",ai:"Read-only interpretation grounded in authorized finance evidence."};
   const pageTitle = workspace==="requester"?(requesterHome?"Requester Dashboard":requesterPaymentOnly?"Payment Status":"My Requests"):financeTitles[financeView];
   const currentStage = selected ? statusStage[selected.status] : -1;
+  const selectableWorkflowStages=selected?availableWorkflowStages(selected,session.user.subject):[];
+  const activeWorkflowStage=workflowStage!==null&&selectableWorkflowStages.includes(workflowStage)?workflowStage:selectableWorkflowStages.includes(currentStage)?currentStage:(selectableWorkflowStages.at(-1)??currentStage);
   const profile = {initials:session.user.displayName.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase(),name:session.user.displayName,department:session.user.department};
   const goRequester=(home:boolean,paymentOnly=false)=>{setMobileNavOpen(false);setNotice("");setSelected(null);setRequesterHome(home);setRequesterPaymentOnly(paymentOnly);window.history.pushState({},"",home?"/requester":paymentOnly?"/requester/payment-status":"/requester/requests")};
   const goFinance=(view:FinanceView,filters:Record<string,string>={})=>{
@@ -499,11 +510,11 @@ export default function Home() {
         </header>)}
         {workspace==="finance"&&selected&&<nav className="stageRail" aria-label="12-stage AIMS workflow">
           {stages.map((s, i) => (
-            <div className={currentStage < 0 ? "available" : i < currentStage ? "completed" : i === currentStage ? "current" : "future"} aria-current={i===currentStage?"step":undefined} key={s}>
+            <button type="button" disabled={!selectableWorkflowStages.includes(i)} onClick={()=>setWorkflowStage(i)} className={`${currentStage < 0 ? "available" : i < currentStage ? "completed" : i === currentStage ? "current" : "future"}${i===activeWorkflowStage?" selected":""}`} aria-current={i===activeWorkflowStage?"step":undefined} key={s}>
               <span>{String(i + 1).padStart(2, "0")}</span>
               <b>{s}</b>
-              <small>{currentStage < 0 ? "Available" : i < currentStage ? "Completed" : i === currentStage ? "Current" : "Locked"}</small>
-            </div>
+              <small>{currentStage < 0 ? "Available" : i < currentStage ? "Completed" : i === currentStage ? "Current" : selectableWorkflowStages.includes(i)?"Available":"Locked"}</small>
+            </button>
           ))}
         </nav>}
         {notice && <p className="notice" role="status" aria-live="polite">{notice}</p>}
@@ -523,21 +534,23 @@ export default function Home() {
             item={selected}
             user={session.user.subject}
             requesterView={workspace==="requester"}
+            activeWorkflowStage={activeWorkflowStage}
             api={api}
             changed={async (signal?:AbortSignal) => {
               if(signal){
                 const value=await api(workspace==="requester"?`/requester/requests/${selected.id}`:`/payment-requests/${selected.id}`,{signal});
                 if(signal.aborted)return;
                 const next=workspace==="requester"?requesterDetailItem(value as Parameters<typeof requesterDetailItem>[0]):value as Item;
+                if(next.status!==selected.status)setWorkflowStage(null);
                 setSelected(current=>current?.id===selected.id?next:current);
                 return;
               }
               if(workspace==="requester")await open(selected.id);
-              else setSelected((await api(`/payment-requests/${selected.id}`)) as Item);
+              else {const next=(await api(`/payment-requests/${selected.id}`)) as Item;if(next.status!==selected.status)setWorkflowStage(null);setSelected(next);}
               await refresh();
             }}
             back={() => {
-              setSelected(null);
+              setSelected(null);setWorkflowStage(null);
               void refresh();
             }}
           />
@@ -1275,7 +1288,11 @@ function List({
 }) {
   const [requesterFilters,setRequesterFilters]=useState({search:"",status:"",dateFrom:"",dateTo:""});
   const [requesterRows,setRequesterRows]=useState(items);
-  useEffect(()=>{if(!requesterView||!api)return;let active=true;const base={pageSize:"100",...Object.fromEntries(Object.entries(requesterFilters).filter(([,value])=>value))};const paymentStatuses=requesterFilters.status?[requesterFilters.status]:["READY_FOR_PAYMENT","PAID"],work=paymentOnly?Promise.all(paymentStatuses.map(status=>api(`/requester/requests?${new URLSearchParams({...base,status}).toString()}`))).then(results=>results.flatMap(result=>(result as {items:Array<Record<string,unknown>>}).items)):api(`/requester/requests?${new URLSearchParams(base).toString()}`).then(result=>(result as {items:Array<Record<string,unknown>>}).items);void work.then(rows=>{if(active)setRequesterRows(rows.map(requesterListItem))}).catch(()=>undefined);return()=>{active=false}},[api,paymentOnly,requesterFilters,requesterView]);
+  const {search:requesterFilterSearch,status:requesterFilterStatus,dateFrom:requesterFilterDateFrom,dateTo:requesterFilterDateTo}=requesterFilters;
+  const [debouncedRequesterSearch,setDebouncedRequesterSearch]=useState(requesterFilterSearch);
+  const requesterSearch=useRef(requesterFilterSearch);
+  useEffect(()=>{const timer=window.setTimeout(()=>setDebouncedRequesterSearch(requesterFilterSearch),300);return()=>window.clearTimeout(timer)},[requesterFilterSearch]);
+  useEffect(()=>{if(!requesterView||!api)return;let active=true;const base={pageSize:"100",...Object.fromEntries(Object.entries({search:debouncedRequesterSearch,status:requesterFilterStatus,dateFrom:requesterFilterDateFrom,dateTo:requesterFilterDateTo}).filter(([,value])=>value))};const paymentStatuses=requesterFilterStatus?[requesterFilterStatus]:["READY_FOR_PAYMENT","PAID"],work=paymentOnly?Promise.all(paymentStatuses.map(status=>api(`/requester/requests?${new URLSearchParams({...base,status}).toString()}`))).then(results=>results.flatMap(result=>(result as {items:Array<Record<string,unknown>>}).items)):api(`/requester/requests?${new URLSearchParams(base).toString()}`).then(result=>(result as {items:Array<Record<string,unknown>>}).items);void work.then(rows=>{if(active&&requesterSearch.current===debouncedRequesterSearch)setRequesterRows(rows.map(requesterListItem))}).catch(()=>undefined);return()=>{active=false}},[api,paymentOnly,requesterFilterStatus,requesterFilterDateFrom,requesterFilterDateTo,debouncedRequesterSearch,requesterView]);
   const visibleItems=requesterView?(paymentOnly?requesterRows.filter(item=>item.status==="READY_FOR_PAYMENT"||item.status==="PAID"):requesterRows):items;
   const financeCopy=financeView?{
     "work-queue":{eyebrow:"PRE-APPROVAL OPERATIONS",title:"Work Queue",description:"Finance work that still needs processing before Approval.",empty:"No Finance work pending"},
@@ -1296,7 +1313,7 @@ function List({
         </div>
         <span>{visibleItems.length} records</span>
       </header>
-      {requesterView&&<div className="requesterFilters" aria-label="Filter my requests"><label>Search<input value={requesterFilters.search} onChange={event=>setRequesterFilters(value=>({...value,search:event.target.value}))} placeholder="Ticket, payee or purpose"/></label><label>Status<select value={requesterFilters.status} onChange={event=>setRequesterFilters(value=>({...value,status:event.target.value}))}><option value="">All statuses</option>{Object.entries(requesterStatusPresentation).filter(([status])=>!paymentOnly||status==="READY_FOR_PAYMENT"||status==="PAID").map(([status,meta])=><option key={status} value={status}>{meta.label}</option>)}</select></label><label>From<input type="date" value={requesterFilters.dateFrom} onChange={event=>setRequesterFilters(value=>({...value,dateFrom:event.target.value}))}/></label><label>To<input type="date" value={requesterFilters.dateTo} onChange={event=>setRequesterFilters(value=>({...value,dateTo:event.target.value}))}/></label><button className="secondary" onClick={()=>setRequesterFilters({search:"",status:"",dateFrom:"",dateTo:""})}>Clear</button></div>}
+      {requesterView&&<div className="requesterFilters" aria-label="Filter my requests"><label>Search<input value={requesterFilters.search} onChange={event=>{requesterSearch.current=event.target.value;setRequesterFilters(value=>({...value,search:event.target.value}))}} placeholder="Ticket, payee or purpose"/></label><label>Status<select value={requesterFilters.status} onChange={event=>setRequesterFilters(value=>({...value,status:event.target.value}))}><option value="">All statuses</option>{Object.entries(requesterStatusPresentation).filter(([status])=>!paymentOnly||status==="READY_FOR_PAYMENT"||status==="PAID").map(([status,meta])=><option key={status} value={status}>{meta.label}</option>)}</select></label><label>From<input type="date" value={requesterFilters.dateFrom} onChange={event=>setRequesterFilters(value=>({...value,dateFrom:event.target.value}))}/></label><label>To<input type="date" value={requesterFilters.dateTo} onChange={event=>setRequesterFilters(value=>({...value,dateTo:event.target.value}))}/></label><button className="secondary" onClick={()=>{requesterSearch.current="";setRequesterFilters({search:"",status:"",dateFrom:"",dateTo:""})}}>Clear</button></div>}
       {visibleItems.length ? (
         <div className={`table ${requesterView?"requesterRequestList":"financeQueueList"}`} role="table" aria-label={`${requesterView?(paymentOnly?"Payment status":"My requests"):(financeCopy?.title??"Current requests")} results`}>
           <div role="row" className="visuallyHidden">{(requesterView?["Ticket","Payee","Amount","Status","Updated","Action"]:["Ticket","Payee","Amount","Risk","Status","Action"]).map(label=><span role="columnheader" key={label}>{label}</span>)}</div>
@@ -1338,6 +1355,7 @@ function Editor({
   item,
   user,
   requesterView,
+  activeWorkflowStage,
   api,
   changed,
   back,
@@ -1345,6 +1363,7 @@ function Editor({
   item: Item;
   user: string;
   requesterView:boolean;
+  activeWorkflowStage:number;
   api: Api;
   changed: (signal?:AbortSignal) => Promise<void>;
   back: () => void;
@@ -1487,10 +1506,10 @@ function Editor({
         <div><AuthorityBadge>HUMAN DECISION</AuthorityBadge><b>Final Risk Assessment</b><span>{item.humanFinalRisk?`${item.humanFinalRisk} authoritative risk`:"Accountable human assessment"}</span></div>
         <div><AuthorityBadge>POLICY DECISION</AuthorityBadge><b>Deterministic Policy</b><span>Rules and approval route remain system-controlled</span></div>
       </section>
-      {!requesterView&&item.status !== "DRAFT" && (
+      {!requesterView&&activeWorkflowStage===2&&item.status !== "DRAFT" && (
         <ValidationPanel item={item} user={user} api={api} changed={changed} />
       )}
-      {!requesterView&&[
+      {!requesterView&&activeWorkflowStage===3&&[
         "VALIDATING",
         "APPROVED",
         "FINANCE_CHECK",
@@ -1500,7 +1519,7 @@ function Editor({
       ].includes(item.status) && (
         <FinanceContextPanel item={item} user={user} api={api} />
       )}
-      {!requesterView&&[
+      {!requesterView&&activeWorkflowStage===4&&[
         "VALIDATING",
         "APPROVED",
         "FINANCE_CHECK",
@@ -1510,10 +1529,10 @@ function Editor({
       ].includes(item.status) && (
         <FinancialAnalysisPanel item={item} user={user} api={api} />
       )}
-      {!requesterView&&item.status === "VALIDATING" && user === "demo.finance" && (
+      {!requesterView&&activeWorkflowStage===4&&item.status === "VALIDATING" && user === "demo.finance" && (
         <FinancialHumanReview item={item} api={api} />
       )}
-      {!requesterView&&[
+      {!requesterView&&activeWorkflowStage===5&&[
         "VALIDATING",
         "APPROVED",
         "FINANCE_CHECK",
@@ -1523,7 +1542,7 @@ function Editor({
       ].includes(item.status) && (
         <PolicyDecisionPanel item={item} user={user} api={api} completed={async()=>{await changed();setPolicyRevision(value=>value+1)}} />
       )}
-      {!requesterView&&[
+      {!requesterView&&activeWorkflowStage===6&&[
         "VALIDATING",
         "PENDING_APPROVAL",
         "APPROVED",
@@ -1536,7 +1555,7 @@ function Editor({
       ].includes(item.status) && (
         <ApprovalPanel key={`${item.id}-${policyRevision}`} item={item} user={user} api={api} changed={changed} />
       )}
-      {!requesterView&&[
+      {!requesterView&&activeWorkflowStage===7&&[
         "APPROVED",
         "FINANCE_CHECK",
         "FINANCE_HOLD",
@@ -1546,7 +1565,7 @@ function Editor({
         user === "demo.finance" && (
           <FinanceControlPanel item={item} api={api} changed={changed} />
         )}
-      {!requesterView&&["READY_FOR_PAYMENT", "PAID"].includes(item.status) &&
+      {!requesterView&&(activeWorkflowStage===8||activeWorkflowStage===9)&&["READY_FOR_PAYMENT", "PAID"].includes(item.status) &&
         user === "demo.finance" && (
           <PaymentPanel item={item} api={api} changed={changed} />
         )}
