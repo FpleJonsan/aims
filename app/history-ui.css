@@ -1,0 +1,11 @@
+/* Payment History / Audit-only composition. All primitive styling comes from the frozen library. */
+.p18310-history { display:grid; gap:var(--aims-space-24); min-width:0; }
+.p18310-history .aims-card-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--aims-space-16); }
+.p18310-history .aims-card-body { display:grid; gap:var(--aims-space-16); min-width:0; }
+.p18310-sectionHeading { display:grid; gap:var(--aims-space-8); }
+.p18310-filters { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:var(--aims-space-12); }
+.p18310-rows { display:grid; gap:var(--aims-space-4); }
+.p18310-rows > button { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--aims-space-12); width:100%; text-align:left; }
+.p18310-detail { display:grid; gap:var(--aims-space-8); }
+@media(max-width:900px) { .p18310-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .p18310-filters { grid-template-columns:1fr; } }

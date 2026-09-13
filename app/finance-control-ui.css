@@ -1,0 +1,10 @@
+/* Finance Control-only composition. All primitive styling comes from the frozen library. */
+.p1838-financeControl { display:grid; gap:var(--aims-space-24); min-width:0; }
+.p1838-financeControl .aims-card-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--aims-space-16); }
+.p1838-financeControl .aims-card-body { display:grid; gap:var(--aims-space-16); min-width:0; }
+.p1838-sectionHeading { display:grid; gap:var(--aims-space-8); }
+.p1838-statusMeta { display:flex; flex-wrap:wrap; align-items:center; gap:var(--aims-space-8); }
+.p1838-caseMeta { display:flex; flex-wrap:wrap; align-items:center; gap:var(--aims-space-8); }
+.p1838-evidence article,.p1838-history article { display:grid; gap:var(--aims-space-4); }
+.p1838-exception { display:grid; gap:var(--aims-space-8); }
+.p1838-confirmations { display:grid; gap:var(--aims-space-8); }

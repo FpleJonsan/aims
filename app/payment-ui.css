@@ -1,0 +1,9 @@
+/* Payment-only composition. All primitive styling comes from the frozen library. */
+.p1839-payment { display:grid; gap:var(--aims-space-24); min-width:0; }
+.p1839-payment .aims-card-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--aims-space-16); }
+.p1839-payment .aims-card-body { display:grid; gap:var(--aims-space-16); min-width:0; }
+.p1839-sectionHeading { display:grid; gap:var(--aims-space-8); }
+.p1839-summary { display:flex; flex-wrap:wrap; align-items:center; gap:var(--aims-space-8); }
+.p1839-scan { display:flex; flex-wrap:wrap; align-items:center; gap:var(--aims-space-8); }
+.p1839-upload { display:flex; flex-wrap:wrap; align-items:end; gap:var(--aims-space-12); }
+.p1839-recording { display:flex; flex-wrap:wrap; align-items:end; gap:var(--aims-space-12); }

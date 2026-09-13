@@ -10,7 +10,10 @@ import "./policy-ui.css";
 import "./approval-ui.css";
 import "./finance-context-ui.css";
 import "./financial-analysis-ui.css";
-import {UIProvider as UiProvider, Button as UiButton, Card as UiCard, CardHeader as UiCardHeader, CardBody as UiCardBody, Badge as UiBadge, Typography as UiTypography, Input as UiInput, Select as UiSelect, Alert as UiAlert, EmptyState as UiEmptyState, LoadingSpinner as UiSpinner, PageHeader as UiPageHeader, SectionHeader as UiSectionHeader, Textarea as UiTextarea, StatusChip as UiStatusChip} from "./components/ui";
+import "./finance-control-ui.css";
+import "./payment-ui.css";
+import "./history-ui.css";
+import {UIProvider as UiProvider, Button as UiButton, Card as UiCard, CardHeader as UiCardHeader, CardBody as UiCardBody, Badge as UiBadge, Typography as UiTypography, Input as UiInput, Select as UiSelect, Alert as UiAlert, EmptyState as UiEmptyState, LoadingSpinner as UiSpinner, PageHeader as UiPageHeader, SectionHeader as UiSectionHeader, Textarea as UiTextarea, StatusChip as UiStatusChip, TableContainer as UiTableContainer, Pagination as UiPagination} from "./components/ui";
 import {policyReadyForApproval} from "./lib/policy-ready";
 import {dashboardDestination, financePath, navigationFilters} from "./lib/dashboard-navigation";
 import {pollDocuments, type ScanDocument} from "./lib/document-polling";
@@ -868,6 +871,28 @@ type PaymentRow = {
   ledgerEntryId?: string;
 };
 
+type HistoryTone = "success" | "warning" | "danger" | "neutral" | "info" | "ai";
+function historyStatusChip(status: string) {
+  if (status === "PAID") return <UiStatusChip status="PAID" />;
+  return <UiBadge tone="neutral">{status}</UiBadge>;
+}
+function historyControlStatusBadge(status?: string) {
+  if (!status) return <UiBadge tone="neutral">Not available</UiBadge>;
+  if (status === "HOLD") return <UiStatusChip status="HOLD" />;
+  const label = status === "PASSED" ? "Passed" : status === "CHECKING" ? "Checking" : status === "SUPERSEDED" ? "Superseded" : status;
+  const tone: HistoryTone = status === "PASSED" ? "success" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
+function historyCommitmentBadge(status?: string) {
+  if (!status) return <UiBadge tone="neutral">Not available</UiBadge>;
+  const label =
+    status === "NOT_CREATED" ? "Not created" :
+    status === "ACTIVE" ? "Active" :
+    status === "CONSUMED" ? "Consumed" :
+    status === "RELEASED" ? "Released" : status;
+  const tone: HistoryTone = status === "ACTIVE" ? "info" : status === "CONSUMED" ? "success" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
 function PaymentHistory({ api, initialFilters = {} }: { api: Api; initialFilters?: Record<string,string> }) {
   const [filters, setFilters] = useState({
     search: "",
@@ -931,151 +956,189 @@ function PaymentHistory({ api, initialFilters = {} }: { api: Api; initialFilters
     }));
   if (detail)
     return (
-      <section className="card paymentHistory">
-        <button className="back" onClick={() => setDetail(null)}>
-          ← Payment History
-        </button>
-        <header>
-          <div>
-            <small>10 · PAYMENT RECORD / HISTORY</small>
-            <h2>{detail.ticketNumber}</h2>
-          </div>
-          <i className="paid">PAID</i>
-        </header>
-        <div className="paymentDetail">
-          <h3>Payment</h3>
-          <p>
-            {detail.paymentDate?.slice(0, 10)} · {detail.currency}{" "}
-            {detail.amount} · {detail.paymentMethod}
-          </p>
-          <p>Bank reference · {detail.bankReference}</p>
-          <a
-            href={`${API}/payments/${detail.id}/slip`}
-            onClick={(e) => {
-              e.preventDefault();
-              void fetch(`${API}/payments/${detail.id}/slip`, {
-                credentials:"include",
-              }).then(async (r) => {
-                if (!r.ok) throw Error("Slip access denied");
-                const u = URL.createObjectURL(await r.blob());
-                window.open(u, "_blank");
-              });
-            }}
-          >
-            Open secured payment slip
-          </a>
-          <h3>Request</h3>
-          <p>
-            {detail.payee} · {detail.departmentName} · {detail.category}
-          </p>
-          <p>{detail.purpose}</p>
-          <h3>Authorization & control</h3>
-          <p>Approval · {detail.approvalSource ?? "Approved"}</p>
-          <p>Final Finance Control · {detail.financeControlStatus}</p>
-          <h3>Financial posting</h3>
-          <p>Commitment · {detail.commitmentStatus}</p>
-          <p>Actual ledger · {detail.ledgerEntryId}</p>
-          <h3>Audit</h3>
-          <p>
-            Recorded by {detail.recordedByName} at {detail.recordedAt}
-          </p>
-        </div>
-      </section>
+      <UiProvider className="p18310-history">
+        <UiCard>
+          <UiCardHeader>
+            <div className="p18310-sectionHeading">
+              <UiTypography as="span" variant="metadata">10 · PAYMENT RECORD / HISTORY</UiTypography>
+              <UiSectionHeader title={detail.ticketNumber} />
+            </div>
+            {historyStatusChip("PAID")}
+          </UiCardHeader>
+          <UiCardBody>
+            <UiButton variant="text" onClick={() => setDetail(null)}>
+              ← Payment History
+            </UiButton>
+          </UiCardBody>
+        </UiCard>
+        <UiCard>
+          <UiCardHeader><UiTypography as="span" variant="metadata">PAYMENT</UiTypography></UiCardHeader>
+          <UiCardBody className="p18310-detail">
+            <UiTypography as="p" variant="body">
+              {detail.paymentDate?.slice(0, 10)} · {detail.currency}{" "}
+              {detail.amount} · {detail.paymentMethod}
+            </UiTypography>
+            <UiTypography as="p" variant="body">Bank reference · {detail.bankReference}</UiTypography>
+            <UiButton
+              variant="secondary"
+              onClick={() => {
+                void fetch(`${API}/payments/${detail.id}/slip`, {
+                  credentials: "include",
+                }).then(async (r) => {
+                  if (!r.ok) throw Error("Slip access denied");
+                  const u = URL.createObjectURL(await r.blob());
+                  window.open(u, "_blank");
+                });
+              }}
+            >
+              Open secured payment slip
+            </UiButton>
+          </UiCardBody>
+        </UiCard>
+        <UiCard>
+          <UiCardHeader><UiTypography as="span" variant="metadata">REQUEST</UiTypography></UiCardHeader>
+          <UiCardBody className="p18310-detail">
+            <UiTypography as="p" variant="body">
+              {detail.payee} · {detail.departmentName} · {detail.category}
+            </UiTypography>
+            <UiTypography as="p" variant="body">{detail.purpose}</UiTypography>
+          </UiCardBody>
+        </UiCard>
+        <UiCard>
+          <UiCardHeader><UiTypography as="span" variant="metadata">AUTHORIZATION &amp; CONTROL</UiTypography></UiCardHeader>
+          <UiCardBody className="p18310-detail">
+            <UiTypography as="p" variant="body">Approval · {detail.approvalSource ?? "Approved"}</UiTypography>
+            <div>
+              <UiTypography as="span" variant="label">Final Finance Control:</UiTypography>{" "}
+              {historyControlStatusBadge(detail.financeControlStatus)}
+            </div>
+          </UiCardBody>
+        </UiCard>
+        <UiCard>
+          <UiCardHeader><UiTypography as="span" variant="metadata">FINANCIAL POSTING</UiTypography></UiCardHeader>
+          <UiCardBody className="p18310-detail">
+            <div>
+              <UiTypography as="span" variant="label">Commitment:</UiTypography>{" "}
+              {historyCommitmentBadge(detail.commitmentStatus)}
+            </div>
+            <UiTypography as="p" variant="body">Actual ledger · {detail.ledgerEntryId}</UiTypography>
+          </UiCardBody>
+        </UiCard>
+        <UiCard>
+          <UiCardHeader><UiTypography as="span" variant="metadata">AUDIT</UiTypography></UiCardHeader>
+          <UiCardBody className="p18310-detail">
+            <UiTypography as="p" variant="body">
+              Recorded by {detail.recordedByName} at {detail.recordedAt}
+            </UiTypography>
+          </UiCardBody>
+        </UiCard>
+      </UiProvider>
     );
   return (
-    <section className="card paymentHistory">
-      <header>
-        <div>
-          <small>10 · PAYMENT RECORD / HISTORY</small>
-          <h2>Payment History</h2>
-        </div>
-        <button className="primary" onClick={() => void exportCsv()}>
-          Export CSV
-        </button>
-      </header>
-      {notice && <p className="notice">{notice}</p>}
-      <div className="historyFilters">
-        <input
-          aria-label="Search ticket, payee or bank reference"
-          placeholder="Ticket, payee or bank reference"
-          value={filters.search}
-          onChange={(e) => field("search", e.target.value)}
-        />
-        <input
-          aria-label="Department ID"
-          placeholder="Department ID"
-          value={filters.departmentId}
-          onChange={(e) => field("departmentId", e.target.value)}
-        />
-        <input
-          aria-label="Category"
-          placeholder="Category"
-          value={filters.category}
-          onChange={(e) => field("category", e.target.value)}
-        />
-        <input
-          aria-label="From date"
-          type="date"
-          value={filters.dateFrom}
-          onChange={(e) => field("dateFrom", e.target.value)}
-        />
-        <input
-          aria-label="To date"
-          type="date"
-          value={filters.dateTo}
-          onChange={(e) => field("dateTo", e.target.value)}
-        />
-        <select
-          aria-label="Payment status"
-          value={filters.status}
-          onChange={(e) => field("status", e.target.value)}
-        >
-          <option value="PAID">PAID</option>
-        </select>
-      </div>
-      <div className="table">
-        {rows.map((row,index) => (
-          <button key={`${row.id}-${index}`} onClick={() => void open(row.id)}>
-            <span className="ticket">{row.ticketNumber}</span>
-            <span>
-              <b>{row.payee}</b>
-              <small>
-                {row.departmentName} · {row.category} · {row.purpose}
-              </small>
-            </span>
-            <span>
-              {row.currency} {row.amount}
-              <small>
-                {row.paymentDate?.slice(0, 10)} · {row.paymentMethod}
-              </small>
-            </span>
-            <span>
-              {row.recordedByName}
-              <small>{row.recordedAt}</small>
-            </span>
-            <i className="paid">{row.status}</i>
-            <strong>Detail →</strong>
-          </button>
-        ))}
-      </div>
-      <footer className="pagination">
-        <span>{total} records</span>
-        <button
-          disabled={filters.page === "1"}
-          onClick={() =>
-            field("page", String(Math.max(1, Number(filters.page) - 1)))
-          }
-        >
-          Previous
-        </button>
-        <button
-          disabled={Number(filters.page) * 25 >= total}
-          onClick={() => field("page", String(Number(filters.page) + 1))}
-        >
-          Next
-        </button>
-      </footer>
-    </section>
+    <UiProvider className="p18310-history">
+      <UiCard>
+        <UiCardHeader>
+          <div className="p18310-sectionHeading">
+            <UiTypography as="span" variant="metadata">10 · PAYMENT RECORD / HISTORY</UiTypography>
+            <UiSectionHeader title="Payment History" />
+          </div>
+          <UiButton variant="primary" onClick={() => void exportCsv()}>
+            Export CSV
+          </UiButton>
+        </UiCardHeader>
+        <UiCardBody>
+          {notice && <UiAlert tone="danger">{notice}</UiAlert>}
+          <div className="p18310-filters">
+            <UiInput
+              label="Search ticket, payee or bank reference"
+              placeholder="Ticket, payee or bank reference"
+              value={filters.search}
+              onChange={(e) => field("search", e.target.value)}
+            />
+            <UiInput
+              label="Department ID"
+              placeholder="Department ID"
+              value={filters.departmentId}
+              onChange={(e) => field("departmentId", e.target.value)}
+            />
+            <UiInput
+              label="Category"
+              placeholder="Category"
+              value={filters.category}
+              onChange={(e) => field("category", e.target.value)}
+            />
+            <UiInput
+              label="From date"
+              type="date"
+              value={filters.dateFrom}
+              onChange={(e) => field("dateFrom", e.target.value)}
+            />
+            <UiInput
+              label="To date"
+              type="date"
+              value={filters.dateTo}
+              onChange={(e) => field("dateTo", e.target.value)}
+            />
+            <UiSelect
+              label="Payment status"
+              value={filters.status}
+              onChange={(e) => field("status", e.target.value)}
+            >
+              <option value="PAID">PAID</option>
+            </UiSelect>
+          </div>
+        </UiCardBody>
+      </UiCard>
+      <UiCard>
+        <UiCardHeader><UiTypography as="span" variant="metadata">TIMELINE</UiTypography></UiCardHeader>
+        <UiCardBody>
+          {rows.length ? (
+            <UiTableContainer label="Payment history results">
+              <div className="p18310-rows">
+                {rows.map((row, index) => (
+                  <button key={`${row.id}-${index}`} onClick={() => void open(row.id)}>
+                    <span className="ticket">{row.ticketNumber}</span>
+                    <span>
+                      <b>{row.payee}</b>
+                      <small>
+                        {row.departmentName} · {row.category} · {row.purpose}
+                      </small>
+                    </span>
+                    <span>
+                      {row.currency} {row.amount}
+                      <small>
+                        {row.paymentDate?.slice(0, 10)} · {row.paymentMethod}
+                      </small>
+                    </span>
+                    <span>
+                      {row.recordedByName}
+                      <small>{row.recordedAt}</small>
+                    </span>
+                    {historyStatusChip(row.status)}
+                    <strong>Detail →</strong>
+                  </button>
+                ))}
+              </div>
+            </UiTableContainer>
+          ) : (
+            <UiEmptyState title="No payment records found">
+              <span>Adjust the filters above, or check back once a payment has been recorded.</span>
+            </UiEmptyState>
+          )}
+          <UiPagination
+            page={Number(filters.page)}
+            total={total}
+            hasPreviousPage={filters.page !== "1"}
+            hasNextPage={Number(filters.page) * 25 < total}
+            onPrevious={() =>
+              field("page", String(Math.max(1, Number(filters.page) - 1)))
+            }
+            onNext={() => field("page", String(Number(filters.page) + 1))}
+            label="Payment history pages"
+          />
+        </UiCardBody>
+      </UiCard>
+    </UiProvider>
   );
 }
 
@@ -3014,6 +3077,32 @@ function ApprovalPanel({
   );
 }
 
+type FinanceControlTone = "success" | "warning" | "danger" | "neutral" | "info" | "ai";
+function financeControlStatusLabel(status: string) {
+  return status === "CHECKING" ? "Checking" :
+    status === "PASSED" ? "Passed" :
+    status === "SUPERSEDED" ? "Superseded" :
+    status === "NOT STARTED" ? "Not started" : status;
+}
+function financeControlStatusChip(status: string) {
+  if (status === "HOLD") return <UiStatusChip status="HOLD" />;
+  const tone: FinanceControlTone = status === "PASSED" ? "success" : status === "CHECKING" ? "info" : "neutral";
+  return <UiBadge tone={tone}>{financeControlStatusLabel(status)}</UiBadge>;
+}
+function financeControlCheckResultBadge(result: string) {
+  if (result === "PASS") return <UiStatusChip status="PASS" />;
+  const label = result === "FAIL" ? "Fail" : result === "REVIEW_REQUIRED" ? "Review required" : result;
+  const tone: FinanceControlTone = result === "FAIL" ? "danger" : result === "REVIEW_REQUIRED" ? "warning" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
+function financeControlDuplicateBadge(status: string) {
+  const label =
+    status === "NO_DUPLICATE" ? "No duplicate" :
+    status === "POSSIBLE_DUPLICATE" ? "Possible duplicate" :
+    status === "CONFIRMED_DUPLICATE" ? "Confirmed duplicate" : status;
+  const tone: FinanceControlTone = status === "CONFIRMED_DUPLICATE" ? "danger" : status === "POSSIBLE_DUPLICATE" ? "warning" : "neutral";
+  return <UiBadge tone={tone}>{label}</UiBadge>;
+}
 function FinanceControlPanel({
   item,
   api,
@@ -3114,133 +3203,177 @@ function FinanceControlPanel({
     data?.confirmations.filter((x) => x.confirmed).map((x) => x.code),
   );
   return (
-    <section className="financeControlPanel">
-      <header>
-        <div>
-          <small>08 · FINAL FINANCE CONTROL</small>
-          <h3>Independent pre-payment verification</h3>
-        </div>
-        <span>{data?.run?.status ?? "NOT STARTED"}</span>
-      </header>
-      {notice && <p className="notice">{notice}</p>}
-      {!data?.run && item.status === "APPROVED" && (
-        <button
-          className="primary"
-          disabled={busy}
-          onClick={() =>
-            run(async () => {
-              await api(`/payment-requests/${item.id}/finance-control`, {
-                method: "POST",
-                body: "{}",
-              });
-            })
-          }
-        >
-          Start Final Finance Control
-        </button>
-      )}
+    <UiProvider className="p1838-financeControl">
+      <UiCard>
+        <UiCardHeader>
+          <div className="p1838-sectionHeading">
+            <UiTypography as="span" variant="metadata">08 · FINAL FINANCE CONTROL</UiTypography>
+            <UiSectionHeader title="Independent pre-payment verification" />
+          </div>
+          {financeControlStatusChip(data?.run?.status ?? "NOT STARTED")}
+        </UiCardHeader>
+        <UiCardBody>
+          {notice && <UiAlert tone="danger">{notice}</UiAlert>}
+          {!data?.run && item.status === "APPROVED" && (
+            <UiButton
+              variant="primary"
+              disabled={busy}
+              busy={busy}
+              onClick={() =>
+                run(async () => {
+                  await api(`/payment-requests/${item.id}/finance-control`, {
+                    method: "POST",
+                    body: "{}",
+                  });
+                })
+              }
+            >
+              Start Final Finance Control
+            </UiButton>
+          )}
+          {!data?.run && item.status !== "APPROVED" && (
+            <UiEmptyState title="Final Finance Control has not started yet">
+              <span>Finance Control becomes available once the request is Approved.</span>
+            </UiEmptyState>
+          )}
+        </UiCardBody>
+      </UiCard>
       {data?.run && (
         <>
-          <div className="financeStatus">
-            <b>Run v{data.run.run_version}</b>
-            <span>
-              Duplicate: {data.run.duplicate_status.replaceAll("_", " ")}
-            </span>
-            <span>Evidence: {data.run.evidence_fingerprint.slice(0, 12)}…</span>
-          </div>
-          {data.run.status === "CHECKING" && (
-            <div className="controlConfirmations">
-              {confirmations.map(([code, label]) => (
-                <button
-                  key={code}
-                  disabled={busy || confirmed.has(code)}
+          <UiCard>
+            <UiCardBody className="p1838-statusMeta">
+              <UiTypography as="span" variant="label">Run v{data.run.run_version}</UiTypography>
+              <div className="p1838-caseMeta">
+                <UiTypography as="span" variant="label">Duplicate:</UiTypography>
+                {financeControlDuplicateBadge(data.run.duplicate_status)}
+              </div>
+              <UiTypography as="span" variant="metadata">Evidence: {data.run.evidence_fingerprint.slice(0, 12)}…</UiTypography>
+            </UiCardBody>
+          </UiCard>
+          {data.checks.length > 0 && (
+            <UiCard className="p1838-evidence">
+              <UiCardBody>
+                <UiTypography as="span" variant="metadata">FINANCIAL EVIDENCE</UiTypography>
+                {data.checks.map((check) => (
+                  <article key={check.code}>
+                    <div className="p1838-caseMeta">
+                      {financeControlCheckResultBadge(check.result)}
+                      <UiTypography as="span" variant="label">{check.code.replaceAll("_", " ")}</UiTypography>
+                    </div>
+                    <UiTypography as="span" variant="metadata">{check.source}</UiTypography>
+                  </article>
+                ))}
+              </UiCardBody>
+            </UiCard>
+          )}
+          {data.run.status === "HOLD" && (
+            <UiCard>
+              <UiCardBody className="p1838-exception">
+                <UiAlert tone="warning" title="Finance Hold">
+                  {data.exception?.reason}
+                </UiAlert>
+                {!!data.exception?.failed_check_codes?.length && (
+                  <UiTypography as="span" variant="metadata">
+                    {data.exception.failed_check_codes.map((code) => code.replaceAll("_", " ")).join(", ")}
+                  </UiTypography>
+                )}
+                <UiTextarea
+                  id="finance-control-note"
+                  label="Resolution note"
+                  helper="Resolution note required"
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  placeholder="Resolution note required"
+                />
+                <UiButton
+                  variant="primary"
+                  disabled={busy || !note.trim()}
+                  busy={busy}
                   onClick={() =>
                     run(async () => {
-                      await api(`/finance-control/${data.run!.id}/checks`, {
+                      await api(`/finance-control/${data.run!.id}/hold/resolve`, {
                         method: "POST",
-                        body: JSON.stringify({ code, confirmed: true }),
+                        body: JSON.stringify({ resolution: "RECHECK", note }),
+                      });
+                      setNote("");
+                    })
+                  }
+                >
+                  Resolve and recheck
+                </UiButton>
+              </UiCardBody>
+            </UiCard>
+          )}
+          {data.run.status === "CHECKING" && (
+            <UiCard>
+              <UiCardBody>
+                <UiTypography as="span" variant="metadata">REQUIRED ACTIONS</UiTypography>
+                <div className="p1838-confirmations">
+                  {confirmations.map(([code, label]) => (
+                    <UiButton
+                      key={code}
+                      variant="secondary"
+                      disabled={busy || confirmed.has(code)}
+                      busy={busy}
+                      onClick={() =>
+                        run(async () => {
+                          await api(`/finance-control/${data.run!.id}/checks`, {
+                            method: "POST",
+                            body: JSON.stringify({ code, confirmed: true }),
+                          });
+                        })
+                      }
+                    >
+                      {confirmed.has(code) ? "✓" : "○"} {label}
+                    </UiButton>
+                  ))}
+                </div>
+                <UiButton
+                  variant="primary"
+                  disabled={busy}
+                  busy={busy}
+                  onClick={() =>
+                    run(async () => {
+                      await api(`/finance-control/${data.run!.id}/finalize`, {
+                        method: "POST",
+                        body: JSON.stringify({ commandKey: crypto.randomUUID() }),
                       });
                     })
                   }
                 >
-                  <b>{confirmed.has(code) ? "✓" : "○"}</b> {label}
-                </button>
-              ))}
-              <button
-                className="primary"
-                disabled={busy}
-                onClick={() =>
-                  run(async () => {
-                    await api(`/finance-control/${data.run!.id}/finalize`, {
-                      method: "POST",
-                      body: JSON.stringify({ commandKey: crypto.randomUUID() }),
-                    });
-                  })
-                }
-              >
-                Run deterministic controls
-              </button>
-            </div>
-          )}
-          {data.checks.length > 0 && (
-            <div className="controlChecks">
-              {data.checks.map((check) => (
-                <p key={check.code}>
-                  <b>{check.result}</b>
-                  <span>{check.code.replaceAll("_", " ")}</span>
-                  <small>{check.source}</small>
-                </p>
-              ))}
-            </div>
-          )}
-          {data.run.status === "HOLD" && (
-            <div className="financeException">
-              <b>Finance Hold</b>
-              <p>{data.exception?.reason}</p>
-              <small>{data.exception?.failed_check_codes?.join(", ")}</small>
-              <textarea
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                placeholder="Resolution note required"
-              />
-              <button
-                disabled={busy || !note.trim()}
-                onClick={() =>
-                  run(async () => {
-                    await api(`/finance-control/${data.run!.id}/hold/resolve`, {
-                      method: "POST",
-                      body: JSON.stringify({ resolution: "RECHECK", note }),
-                    });
-                    setNote("");
-                  })
-                }
-              >
-                Resolve and recheck
-              </button>
-            </div>
+                  Run deterministic controls
+                </UiButton>
+              </UiCardBody>
+            </UiCard>
           )}
           {data.readyForPayment && (
-            <p className="readyMarker">
+            <UiAlert tone="success">
               Final Finance Control passed · READY FOR PAYMENT. Payment
               Processing is not implemented in Day 7.
-            </p>
+            </UiAlert>
           )}
         </>
       )}
-      <div className="controlHistory">
-        <small>CONTROL HISTORY</small>
-        {history.length ? (
-          history.map((run) => (
-            <p key={run.id}>
-              v{run.run_version} · {run.status}
-              {run.is_current ? " · CURRENT" : ""}
-            </p>
-          ))
-        ) : (
-          <p>No completed control runs.</p>
-        )}
-      </div>
-    </section>
+      <UiCard className="p1838-history">
+        <UiCardBody>
+          <UiTypography as="span" variant="metadata">CONTROL HISTORY</UiTypography>
+          {history.length ? (
+            history.map((run) => (
+              <article key={run.id}>
+                <UiTypography as="p" variant="body">
+                  v{run.run_version} · {financeControlStatusLabel(run.status)}
+                  {run.is_current ? " · CURRENT" : ""}
+                </UiTypography>
+              </article>
+            ))
+          ) : (
+            <UiEmptyState title="No completed control runs">
+              <span>Finance Control history will appear here once a run completes.</span>
+            </UiEmptyState>
+          )}
+        </UiCardBody>
+      </UiCard>
+    </UiProvider>
   );
 }
 
@@ -3262,6 +3395,14 @@ function useScanPolling(api:Api,path:string,onUpdate:(documents:ScanDocument[],s
  return {state,retry,cancel:()=>controller.current?.abort()};
 }
 
+function paymentStatusChip(status: string) {
+  if (status === "READY_FOR_PAYMENT" || status === "PAID") return <UiStatusChip status={status} />;
+  return <UiBadge tone="neutral">{status}</UiBadge>;
+}
+function paymentScanStatusChip(status: string) {
+  if (status === "QUARANTINED" || status === "SCANNING" || status === "CLEAN" || status === "REJECTED" || status === "SCAN_FAILED") return <UiStatusChip status={status} />;
+  return <UiBadge tone="neutral">{status}</UiBadge>;
+}
 function PaymentPanel({
   item,
   api,
@@ -3278,7 +3419,8 @@ function PaymentPanel({
     ),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
-    [record, setRecord] = useState<Record<string, unknown> | null>(null);
+    [record, setRecord] = useState<Record<string, unknown> | null>(null),
+    [scanStatus, setScanStatus] = useState("");
   useEffect(() => {
     if (item.status === "PAID")
       void api(
@@ -3295,6 +3437,7 @@ function PaymentPanel({
   const scans=useScanPolling(api,`/payment-requests/${item.id}`,documents=>{
    const slip=uploadedSlip.current?documents.find(d=>d.id===uploadedSlip.current):documents.find(d=>d.document_type==='PAYMENT_SLIP'&&d.security_status==='CLEAN');
    setSlipId(slip?.security_status==='CLEAN'?slip.id:'');
+   setScanStatus(slip?.security_status??'');
    if(slip?.security_status==='CLEAN')setNotice('Payment slip ready. Worker security check completed.');
    else if(slip&&['REJECTED','SCAN_FAILED'].includes(slip.security_status??''))setNotice('Payment slip rejected or scan failed. Upload a replacement.');
   });
@@ -3337,89 +3480,114 @@ function PaymentPanel({
     }
   }
   return (
-    <section className="paymentPanel">
-      {scans.state&&<p role="status">{scans.state}</p>}
-      <button type="button" className="secondary" onClick={scans.retry}>Retry slip status check</button>
-      <header>
-        <div>
-          <small>09 · PAYMENT PROCESSING</small>
-          <h3>
-            {item.status === "PAID"
-              ? "Authoritative payment record"
-              : "Record external payment"}
-          </h3>
-        </div>
-        <span>{item.status}</span>
-      </header>
-      {notice && <p className="notice">{notice}</p>}
-      {item.status === "PAID" ? (
-        <div className="paymentSummary">
-          <b>
-            {String(record?.currency ?? item.currency)}{" "}
-            {String(record?.amount ?? item.amount)}
-          </b>
-          <span>
-            Bank reference · {String(record?.bankReference ?? "Protected")}
-          </span>
-          <span>
-            Recorded by · {String(record?.recordedByName ?? "Finance")}
-          </span>
-          <span>
-            Payment date · {String(record?.paymentDate ?? "—").slice(0, 10)}
-          </span>
-        </div>
-      ) : (
-        <>
-          <div className="paymentSummary">
-            <b>
-              {item.currency} {item.amount}
-            </b>
-            <span>{item.payee}</span>
-            <span>Finance Control · PASSED</span>
-            <span>
-              AIMS records an external payment; it does not transfer funds.
-            </span>
+    <UiProvider className="p1839-payment">
+      <UiCard>
+        <UiCardHeader>
+          <div className="p1839-sectionHeading">
+            <UiTypography as="span" variant="metadata">09 · PAYMENT PROCESSING</UiTypography>
+            <UiSectionHeader
+              title={
+                item.status === "PAID"
+                  ? "Authoritative payment record"
+                  : "Record external payment"
+              }
+            />
           </div>
-          <form className="paymentForm" onSubmit={upload}>
-            <label>
-              Payment slip
-              <input
-                name="file"
-                type="file"
-                accept="application/pdf,image/jpeg,image/png"
-                required
-              />
-            </label>
-            <button disabled={busy}>{busy?"Checking slip…":"Upload and check slip"}</button>
-          </form>
-          <div className="paymentForm">
-            <label>
-              Payment date
-              <input
+          {paymentStatusChip(item.status)}
+        </UiCardHeader>
+        <UiCardBody>
+          <UiTypography as="p" variant="metadata">
+            AIMS DOES NOT EXECUTE BANK TRANSFER · EXTERNAL PAYMENT IS RECORDED
+          </UiTypography>
+          {notice && <UiAlert tone="warning">{notice}</UiAlert>}
+          {item.status === "PAID" ? (
+            <div className="p1839-summary">
+              <UiTypography as="span" variant="label">
+                {String(record?.currency ?? item.currency)}{" "}
+                {String(record?.amount ?? item.amount)}
+              </UiTypography>
+              <UiTypography as="span" variant="metadata">
+                Bank reference · {String(record?.bankReference ?? "Protected")}
+              </UiTypography>
+              <UiTypography as="span" variant="metadata">
+                Recorded by · {String(record?.recordedByName ?? "Finance")}
+              </UiTypography>
+              <UiTypography as="span" variant="metadata">
+                Payment date · {String(record?.paymentDate ?? "—").slice(0, 10)}
+              </UiTypography>
+            </div>
+          ) : (
+            <div className="p1839-summary">
+              <UiTypography as="span" variant="label">
+                {item.currency} {item.amount}
+              </UiTypography>
+              <UiTypography as="span" variant="metadata">{item.payee}</UiTypography>
+              <UiBadge tone="success">Finance Control · PASSED</UiBadge>
+              <UiTypography as="span" variant="metadata">
+                AIMS records an external payment; it does not transfer funds.
+              </UiTypography>
+            </div>
+          )}
+        </UiCardBody>
+      </UiCard>
+      <UiCard>
+        <UiCardBody className="p1839-scan">
+          <UiTypography as="span" variant="metadata">SCAN RESULT</UiTypography>
+          {scanStatus && paymentScanStatusChip(scanStatus)}
+          {scans.state && <UiAlert tone="info">{scans.state}</UiAlert>}
+          <UiButton type="button" variant="secondary" onClick={scans.retry}>
+            Retry slip status check
+          </UiButton>
+        </UiCardBody>
+      </UiCard>
+      {item.status !== "PAID" && (
+        <>
+          <UiCard>
+            <UiCardBody>
+              <UiTypography as="span" variant="metadata">PAYMENT SLIP</UiTypography>
+              <form className="p1839-upload" onSubmit={upload}>
+                <UiInput
+                  name="file"
+                  type="file"
+                  accept="application/pdf,image/jpeg,image/png"
+                  required
+                  label="Payment slip"
+                />
+                <UiButton type="submit" variant="secondary" disabled={busy} busy={busy}>
+                  {busy ? "Checking slip…" : "Upload and check slip"}
+                </UiButton>
+              </form>
+            </UiCardBody>
+          </UiCard>
+          <UiCard>
+            <UiCardBody className="p1839-recording">
+              <UiTypography as="span" variant="metadata">RECORDING</UiTypography>
+              <UiInput
                 type="date"
+                label="Payment date"
                 value={paymentDate}
                 onChange={(e) => setPaymentDate(e.target.value)}
               />
-            </label>
-            <label>
-              Bank reference
-              <input
+              <UiInput
+                label="Bank reference"
                 value={bankReference}
                 onChange={(e) => setBankReference(e.target.value)}
                 maxLength={200}
               />
-            </label>
-            <button
-              className="primary"
-              disabled={busy || !slipId || !bankReference.trim()}
-              onClick={pay}
-            >
-              Record payment
-            </button>
-          </div>
+              <UiButton
+                type="button"
+                variant="primary"
+                disabled={busy || !slipId || !bankReference.trim()}
+                busy={busy}
+                onClick={pay}
+              >
+                Record payment
+              </UiButton>
+            </UiCardBody>
+          </UiCard>
         </>
       )}
-    </section>
+    </UiProvider>
   );
 }
 
