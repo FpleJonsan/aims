@@ -1515,7 +1515,7 @@ function Editor({
           <PaymentPanel item={item} api={api} changed={changed} />
         )}
       <div className="editorGrid">
-        <form className="capture" onSubmit={save}>
+        <form className="capture" onSubmit={save} noValidate>
           <div className="formTitle">
             <span>02</span>
             <p>
@@ -1527,36 +1527,46 @@ function Editor({
           </div>
           <div className="fields">
             <Field
+              id="capture-payee"
               label="Payee"
               value={form.payee}
               set={(v) => field("payee", v)}
               disabled={!draft}
+              required
             />
             <Field
+              id="capture-category"
               label="Category"
               value={form.category}
               set={(v) => field("category", v)}
               disabled={!draft}
+              required
             />
             <Field
+              id="capture-purpose"
               label="Purpose"
               value={form.purpose}
               set={(v) => field("purpose", v)}
               disabled={!draft}
               wide
+              required
             />
             <Field
+              id="capture-amount"
               label="Amount"
               value={form.amount}
               set={(v) => field("amount", v)}
               disabled={!draft}
+              required
             />
-            <label>
-              Currency
+            <label htmlFor="capture-currency">
+              Currency <b>Required</b>
               <select
+                id="capture-currency"
                 value={form.currency ?? ""}
                 onChange={(e) => field("currency", e.target.value)}
                 disabled={!draft}
+                required
               >
                 <option value="">Select</option>
                 {["MYR", "USD", "SGD", "EUR", "GBP"].map((x) => (
@@ -1564,21 +1574,25 @@ function Editor({
                 ))}
               </select>
             </label>
-            <label>
-              Due date
+            <label htmlFor="capture-dueDate">
+              Due date <b>Required</b>
               <input
+                id="capture-dueDate"
                 type="date"
                 value={form.dueDate ?? ""}
                 onChange={(e) => field("dueDate", e.target.value)}
                 disabled={!draft}
+                required
               />
             </label>
-            <label>
-              Payment method
+            <label htmlFor="capture-paymentMethod">
+              Payment method <b>Required</b>
               <select
+                id="capture-paymentMethod"
                 value={form.paymentMethod ?? ""}
                 onChange={(e) => field("paymentMethod", e.target.value)}
                 disabled={!draft}
+                required
               >
                 <option value="">Select</option>
                 <option value="BANK_TRANSFER">Bank transfer</option>
@@ -1587,13 +1601,16 @@ function Editor({
               </select>
             </label>
             <Field
+              id="capture-paymentDetails"
               label="Payment details"
               value={form.paymentDetails}
               set={(v) => field("paymentDetails", v)}
               disabled={!draft}
               wide
+              required
             />
             <Field
+              id="capture-remark"
               label="Remark"
               value={form.remark}
               set={(v) => field("remark", v)}
@@ -3287,11 +3304,13 @@ function FinanceControlPanel({
                   value={note}
                   onChange={(event) => setNote(event.target.value)}
                   placeholder="Resolution note required"
+                  required
                 />
                 <UiButton
                   variant="primary"
                   disabled={busy || !note.trim()}
                   busy={busy}
+                  aria-describedby={!note.trim() ? "finance-control-note-helper" : undefined}
                   onClick={() =>
                     run(async () => {
                       await api(`/finance-control/${data.run!.id}/hold/resolve`, {
@@ -3310,27 +3329,31 @@ function FinanceControlPanel({
           {data.run.status === "CHECKING" && (
             <UiCard>
               <UiCardBody>
-                <UiTypography as="span" variant="metadata">REQUIRED ACTIONS</UiTypography>
-                <div className="p1838-confirmations">
-                  {confirmations.map(([code, label]) => (
-                    <UiButton
-                      key={code}
-                      variant="secondary"
-                      disabled={busy || confirmed.has(code)}
-                      busy={busy}
-                      onClick={() =>
-                        run(async () => {
-                          await api(`/finance-control/${data.run!.id}/checks`, {
-                            method: "POST",
-                            body: JSON.stringify({ code, confirmed: true }),
-                          });
-                        })
-                      }
-                    >
-                      {confirmed.has(code) ? "✓" : "○"} {label}
-                    </UiButton>
-                  ))}
-                </div>
+                <fieldset className="p1838-confirmationsGroup">
+                  <legend><UiTypography as="span" variant="metadata">REQUIRED ACTIONS</UiTypography></legend>
+                  <div className="p1838-confirmations">
+                    {confirmations.map(([code, label]) => (
+                      <UiButton
+                        key={code}
+                        variant="secondary"
+                        role="checkbox"
+                        aria-checked={confirmed.has(code)}
+                        disabled={busy || confirmed.has(code)}
+                        busy={busy}
+                        onClick={() =>
+                          run(async () => {
+                            await api(`/finance-control/${data.run!.id}/checks`, {
+                              method: "POST",
+                              body: JSON.stringify({ code, confirmed: true }),
+                            });
+                          })
+                        }
+                      >
+                        <span aria-hidden="true">{confirmed.has(code) ? "✓" : "○"}</span> {label}
+                      </UiButton>
+                    ))}
+                  </div>
+                </fieldset>
                 <UiButton
                   variant="primary"
                   disabled={busy}
@@ -3572,10 +3595,12 @@ function PaymentPanel({
                 onChange={(e) => setPaymentDate(e.target.value)}
               />
               <UiInput
+                id="payment-bankReference"
                 label="Bank reference"
                 value={bankReference}
                 onChange={(e) => setBankReference(e.target.value)}
                 maxLength={200}
+                required
               />
               <UiButton
                 type="button"

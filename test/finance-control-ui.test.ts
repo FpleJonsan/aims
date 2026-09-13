@@ -67,9 +67,12 @@ test('while CHECKING, every confirmation renders with its checkmark state, and c
  const data={run,checks:[],confirmations:[{code:'PAYEE_VERIFIED',confirmed:true}],exception:null,readyForPayment:false};
  const tree=view(states({data}),{item,api,changed:async()=>{}});
  const html=render(tree);
- assert.match(html,/✓ Payee identity verified/);
- assert.match(html,/○ Payment method verified/);
+ assert.match(html,/aria-hidden="true">✓<\/span> Payee identity verified/);
+ assert.match(html,/aria-hidden="true">○<\/span> Payment method verified/);
  assert.doesNotMatch(html,/Possible duplicate reviewed/);
+ assert.match(html,/<fieldset class="p1838-confirmationsGroup"><legend>/);
+ assert.match(html,/role="checkbox" aria-checked="true"/);
+ assert.match(html,/role="checkbox" aria-checked="false"/);
  const button=nodes(tree).find(n=>typeof n.props?.onClick==='function'&&text(n).includes('Payment method verified'));assert.ok(button);
  button!.props!.onClick!();
  assert.equal(calls[0][0],'/finance-control/run-1/checks');
