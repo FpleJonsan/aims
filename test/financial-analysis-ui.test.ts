@@ -8,7 +8,7 @@ import {build} from 'esbuild';
 import ts from 'typescript';
 import postcss from 'postcss';
 const source=await readFile('app/page.tsx','utf8'),ast=ts.createSourceFile('page.tsx',source,99,true,ts.ScriptKind.TSX);
-const names=['FinancialAnalysisPanel','financialAnalysisStatusChip','agentStatusChip','riskLevelBadge','priorityBadge','msg'];
+const names=['FinancialAnalysisPanel','FinancialHumanReview','financialAnalysisStatusChip','agentStatusChip','riskLevelBadge','priorityBadge','msg'];
 const declarations=ast.statements.filter(n=>ts.isFunctionDeclaration(n)&&names.includes(n.name?.text??'')).map(n=>n.getText(ast));
 assert.equal(declarations.length,names.length,'expected every named declaration to be found in app/page.tsx');
 const imports=source.split('\n').find(line=>line.includes('UIProvider as UiProvider'))!.replace('"./components/ui"','"./app/components/ui/components"');
@@ -20,8 +20,9 @@ let snapshot:unknown[]=[],cursor=0;
 const useState=(initial:unknown)=>[cursor in snapshot?snapshot[cursor++]:(cursor++,initial),()=>{}];
 const useEffect=()=>{};
 ${declarations.join('\n')}
-export function view(states:unknown[],props:Record<string,unknown>){snapshot=states;cursor=0;return FinancialAnalysisPanel(props as never);}`,resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,format:'esm',platform:'node',jsx:'automatic',plugins:[{name:'react-instance',setup(b){b.onResolve({filter:/^react(\/.*)?$/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
-const {view}=await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString('base64')}`);
+export function view(states:unknown[],props:Record<string,unknown>){snapshot=states;cursor=0;return FinancialAnalysisPanel(props as never);}
+export function humanView(states:unknown[],props:Record<string,unknown>){snapshot=states;cursor=0;return FinancialHumanReview(props as never);}`,resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,format:'esm',platform:'node',jsx:'automatic',plugins:[{name:'react-instance',setup(b){b.onResolve({filter:/^react(\/.*)?$/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
+const {view,humanView}=await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString('base64')}`);
 const item={id:'req-1',status:'VALIDATING'};
 type Node={props?:{children?:unknown;onClick?:()=>void;id?:string}};
 function nodes(tree:unknown):Node[]{if(Array.isArray(tree))return tree.flatMap(nodes);if(!tree||typeof tree!=='object')return [];const node=tree as Node;return [node,...nodes(node.props?.children)];}
@@ -67,6 +68,19 @@ test('Complete manually posts the exact same fixed assessment payload with the s
  assert.equal(body.complianceRemarks,'Current Validation and evidence reviewed.');
  assert.deepEqual(body.evidenceReferences,[{source:'FINANCE_CONTEXT',reference:'current Finance Context snapshot',field:'projected_available_amount_minor'}]);
  assert.equal(body.remarks,'Manual financial assessment');
+});
+test('Human Review consumes the shared analysis and refreshes through its owner without loading it independently',async()=>{
+ const calls:Array<[string,unknown]>=[];let reloads=0;
+ const data={id:'run-shared',status:'AWAITING_HUMAN_REVIEW',ai_assessment:{riskLevel:'MEDIUM',priority:'NORMAL'}};
+ const tree=humanView([],{item,data,api:(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})},reload:async()=>{reloads+=1}});
+ assert.match(render(tree),/HUMAN REVIEW · ACCOUNTABLE FINAL ASSESSMENT/);
+ assert.equal(calls.length,0);
+ const button=nodes(tree).find(n=>text(n)==='Finalize assessment');assert.ok(button);
+ button!.props!.onClick!();
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(calls.length,1);
+ assert.equal(calls[0][0],'/payment-requests/req-1/financial-analysis/run-shared/finalize');
+ assert.equal(reloads,1);
 });
 test('each AI agent result is preserved verbatim with a standardized status and evidence count',()=>{
  const data={

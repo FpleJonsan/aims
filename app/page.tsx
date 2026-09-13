@@ -1529,9 +1529,6 @@ function Editor({
       ].includes(item.status) && (
         <FinancialAnalysisPanel item={item} user={user} api={api} />
       )}
-      {!requesterView&&activeWorkflowStage===4&&item.status === "VALIDATING" && user === "demo.finance" && (
-        <FinancialHumanReview item={item} api={api} />
-      )}
       {!requesterView&&activeWorkflowStage===5&&[
         "VALIDATING",
         "APPROVED",
@@ -2402,8 +2399,14 @@ function FinancialAnalysisPanel({
       setBusy(false);
     }
   }
+  async function reload() {
+    setData(
+      (await api(`/payment-requests/${item.id}/financial-analysis`)) as View,
+    );
+  }
   return (
-    <UiProvider className="p1837-financialAnalysis">
+    <>
+      <UiProvider className="p1837-financialAnalysis">
       <UiCard>
         <UiCardHeader>
           <div className="p1837-sectionHeading">
@@ -2499,31 +2502,23 @@ function FinancialAnalysisPanel({
           )}
         </>
       )}
-    </UiProvider>
+      </UiProvider>
+      {item.status === "VALIDATING" && user === "demo.finance" && data && (
+        <FinancialHumanReview item={item} api={api} data={data} reload={reload} />
+      )}
+    </>
   );
 }
-function FinancialHumanReview({ item, api }: { item: Item; api: Api }) {
-  type View = {
-    id: string;
-    status: string;
-    ai_assessment?: { riskLevel?: string; priority?: string };
-  };
-  const [data, setData] = useState<View | null>(null),
-    [risk, setRisk] = useState("MEDIUM"),
+function FinancialHumanReview({ item, api, data, reload }: {
+  item: Item;
+  api: Api;
+  data: {id:string;status:string;ai_assessment?:{riskLevel?:string;priority?:string}};
+  reload:()=>Promise<void>;
+}) {
+  const [risk, setRisk] = useState("MEDIUM"),
     [priority, setPriority] = useState("NORMAL"),
     [notice, setNotice] = useState("");
-  useEffect(() => {
-    let active = true;
-    void api(`/payment-requests/${item.id}/financial-analysis`)
-      .then((value) => {
-        if (active) setData(value as View);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, [api, item.id]);
-  if (data?.status !== "AWAITING_HUMAN_REVIEW") return null;
+  if (data.status !== "AWAITING_HUMAN_REVIEW") return null;
   async function finalize() {
     if (!data) return;
     try {
@@ -2556,9 +2551,7 @@ function FinancialHumanReview({ item, api }: { item: Item; api: Api }) {
           }),
         },
       );
-      setData(
-        (await api(`/payment-requests/${item.id}/financial-analysis`)) as View,
-      );
+      await reload();
     } catch (error) {
       setNotice(msg(error));
     }
