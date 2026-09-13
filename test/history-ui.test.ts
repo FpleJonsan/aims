@@ -14,7 +14,7 @@ assert.equal(declarations.length,names.length,'expected every named declaration 
 const imports=source.split('\n').find(line=>line.includes('UIProvider as UiProvider'))!.replace('"./components/ui"','"./app/components/ui/components"');
 const apiConst=source.split('\n').find(line=>line.startsWith('const API ='))!;
 const require=createRequire(import.meta.url);
-// Snapshot-driven useState (order: filters, rows, total, detail, notice) mirroring the prior migration test
+// Snapshot-driven useState (order: filters, rows, total, detail, notice, debounced text filters) mirroring the prior migration test
 // harnesses; useEffect is inert for static markup. exportCsv() and the "Open secured payment slip" handler
 // both rely on browser-only DOM APIs (document.createElement, URL.createObjectURL) with no equivalent in this
 // server-side render harness, so their onClick bodies are exercised for presence/label only, not invoked.
@@ -85,6 +85,16 @@ test('pagination preserves the exact page-size math and posts no request itself'
  assert.match(lastPageHtml,/Page 3/);
  assert.doesNotMatch(buttonTag(lastPageHtml,'Previous page'),/disabled=""/);
  assert.match(buttonTag(lastPageHtml,'Next page'),/disabled=""/);
+});
+test('text-entry request filters share one debounce while dates, status, and pagination remain immediate',()=>{
+ const implementation=declarations.find(value=>value.startsWith('function PaymentHistory'))!;
+ assert.match(implementation,/setTimeout\(\(\)=>\{setDebouncedTextFilters\(/);
+ assert.match(implementation,/\},300\)/);
+ assert.match(implementation,/\.\.\.filters,\.\.\.debouncedTextFilters/);
+ assert.match(implementation,/api\(`\/payments\?\$\{requestQuery\}`\)/);
+ assert.match(implementation,/\[filters\.search,filters\.departmentId,filters\.category\]/);
+ assert.match(implementation,/textEntry \? x\.page : "1"/);
+ assert.match(implementation,/return\(\)=>window\.clearTimeout\(timer\)/);
 });
 test('the detail view preserves every field: payment, request, authorization, financial posting and audit',()=>{
  const detail={id:'p1',ticketNumber:'TCK-9',paymentDate:'2026-09-05T00:00:00Z',payee:'Acme Supplies',departmentName:'Operations',category:'Travel',purpose:'Flight booking',amount:'2500.00',currency:'MYR',paymentMethod:'BANK_TRANSFER',bankReference:'BR-1',status:'PAID',recordedByName:'Jamie Finance',recordedAt:'2026-09-05T08:00:00Z',approvalSource:'HUMAN',financeControlStatus:'PASSED',commitmentStatus:'CONSUMED',ledgerEntryId:'ledger-42'};

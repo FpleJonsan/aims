@@ -959,12 +959,21 @@ function PaymentHistory({ api, initialFilters = {} }: { api: Api; initialFilters
     [total, setTotal] = useState(0);
   const [detail, setDetail] = useState<PaymentRow | null>(null),
     [notice, setNotice] = useState("");
+  const [debouncedTextFilters,setDebouncedTextFilters]=useState({
+    search:initialFilters.search??"",
+    departmentId:initialFilters.departmentId??"",
+    category:initialFilters.category??"",
+  });
   const query = new URLSearchParams(
     Object.entries(filters).filter(([, value]) => value),
   ).toString();
+  const requestQuery = new URLSearchParams(
+    Object.entries({...filters,...debouncedTextFilters}).filter(([, value]) => value),
+  ).toString();
+  useEffect(()=>{const timer=window.setTimeout(()=>{setDebouncedTextFilters({search:filters.search,departmentId:filters.departmentId,category:filters.category});setFilters(value=>({...value,page:"1"}))},300);return()=>window.clearTimeout(timer)},[filters.search,filters.departmentId,filters.category]);
   useEffect(() => {
     let active = true;
-    void api(`/payments?${query}`)
+    void api(`/payments?${requestQuery}`)
       .then((value) => {
         if (!active) return;
         const result = value as { items: PaymentRow[]; total: number };
@@ -977,7 +986,7 @@ function PaymentHistory({ api, initialFilters = {} }: { api: Api; initialFilters
     return () => {
       active = false;
     };
-  }, [api, query]);
+  }, [api, requestQuery]);
   async function open(id: string) {
     try {
       setDetail((await api(`/payments/${id}`)) as PaymentRow);
@@ -1000,12 +1009,14 @@ function PaymentHistory({ api, initialFilters = {} }: { api: Api; initialFilters
     anchor.click();
     URL.revokeObjectURL(url);
   }
-  const field = (name: keyof typeof filters, value: string) =>
+  const field = (name: keyof typeof filters, value: string) => {
+    const textEntry=name==="search"||name==="departmentId"||name==="category";
     setFilters((x) => ({
       ...x,
       [name]: value,
-      page: name === "page" ? value : "1",
+      page: name === "page" ? value : textEntry ? x.page : "1",
     }));
+  };
   if (detail)
     return (
       <UiProvider className="p18310-history">
