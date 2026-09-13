@@ -32,7 +32,16 @@ test('all typography, button and badge variants render',()=>{
   assert.match(render(h(ui.Badge,{tone},tone)),new RegExp(`aims-tone-${tone}`));
   assert.match(render(h(ui.Alert,{tone},tone)),new RegExp(`role="${tone==='danger'?'alert':'status'}"`));
  }
- for(const status of ['DRAFT','SUBMITTED','VALIDATING','NEEDS_CLARIFICATION','PENDING_APPROVAL','APPROVED','FINANCE_CHECK','FINANCE_HOLD','READY_FOR_PAYMENT','PAID','REJECTED','CANCELLED','QUARANTINED','SCANNING','CLEAN','SCAN_FAILED','HISTORICAL','PENDING','PROCESSING','COMPLETED','PASS','HOLD','FAILED'])assert.ok(render(h(ui.StatusChip,{status})));
+ for(const status of ['DRAFT','SUBMITTED','VALIDATING','NEEDS_CLARIFICATION','PENDING_APPROVAL','APPROVED','FINANCE_CHECK','FINANCE_HOLD','READY_FOR_PAYMENT','PAID','REJECTED','CANCELLED','QUARANTINED','SCANNING','CLEAN','SCAN_FAILED','HISTORICAL','PENDING','PROCESSING','COMPLETED','PASS','HOLD','FAILED']){
+  const html=render(h(ui.StatusChip,{status}));
+  assert.match(html,/role="status"/,status);assert.match(html,new RegExp(`aria-label="Status: `),status);
+ }
+});
+test('an unmapped status humanizes to a readable label at a neutral tone instead of throwing or leaking a raw enum',()=>{
+ const html=render(h(ui.StatusChip,{status:'SOME_NEW_STATUS'}));
+ assert.match(html,/aims-tone-neutral/);
+ assert.match(html,/>Some New Status</);
+ assert.match(html,/aria-label="Status: Some New Status"/);
 });
 test('fields associate labels, helpers and validation; preserve native states',()=>{
  for(const name of ['Input','Textarea','Select']){
@@ -45,10 +54,18 @@ test('fields associate labels, helpers and validation; preserve native states',(
  const pair=render(h('div',null,h(ui.Input,{label:'One'}),h(ui.Input,{label:'Two'})));
  const ids=[...pair.matchAll(/<input[^>]* id="([^"]+)"/g)].map(m=>m[1]);assert.equal(new Set(ids).size,2);
 });
-test('busy buttons retain identical label and reserved indicator markup',()=>{
+test('busy buttons retain identical label and reserved indicator markup when no busyLabel is given',()=>{
  const normal=render(h(ui.Button,null,'Record payment'));const busy=render(h(ui.Button,{busy:true},'Record payment'));
  for(const html of [normal,busy]){assert.match(html,/aims-button-label">Record payment/);assert.match(html,/aims-button-indicator/)}
  assert.match(busy,/disabled=""/);assert.match(busy,/aria-busy="true"/);
+});
+test('an opt-in busyLabel swaps the visible label only while busy, and never on its own',()=>{
+ const normal=render(h(ui.Button,{busyLabel:'Recording…'},'Record payment'));
+ assert.match(normal,/aims-button-label">Record payment/);
+ assert.doesNotMatch(normal,/Recording…/);
+ const busy=render(h(ui.Button,{busy:true,busyLabel:'Recording…'},'Record payment'));
+ assert.match(busy,/aims-button-label">Recording…/);
+ assert.doesNotMatch(busy,/aims-button-label">Record payment/);
 });
 test('pagination respects supplied boundaries, busy state and unknown totals',()=>{
  const props={page:1,hasPreviousPage:false,hasNextPage:true,onPrevious:()=>{},onNext:()=>{}};

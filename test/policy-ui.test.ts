@@ -105,11 +105,13 @@ test('a justified exception hides the response form and offers re-evaluation to 
  const requesterHtml=render(view(states({data}),{item,user:'demo.requester',api,completed:async()=>{}}));
  assert.doesNotMatch(requesterHtml,/Re-evaluate policy/);
 });
-test('busy state disables the pending action without changing its label',()=>{
+test('busy state disables the pending action and swaps to an accessible busy label via the shared Button pattern',()=>{
+ const normalHtml=render(view(states(),{item,user:'demo.finance',api:()=>Promise.resolve({}),completed:async()=>{}}));
+ assert.match(normalHtml,/aims-button-label">Evaluate active policy/);
  const busyHtml=render(view(states({busy:true}),{item,user:'demo.finance',api:()=>Promise.resolve({}),completed:async()=>{}}));
  assert.match(busyHtml,/aria-busy="true"/);
  assert.match(busyHtml,/disabled=""/);
- assert.match(busyHtml,/Evaluate active policy/);
+ assert.match(busyHtml,/aims-button-label">Evaluating…/);
 });
 test('an in-flight failure surfaces as an announced error without silently discarding it',()=>{
  const html=render(view(states({notice:'Something went wrong'}),{item,user:'demo.finance',api:()=>Promise.resolve({}),completed:async()=>{}}));

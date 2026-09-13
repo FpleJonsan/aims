@@ -104,7 +104,8 @@ const statusStage: Record<Item["status"], number> = {
 
 function StatusChip({ status }: { status: string }) {
   const meta=requesterStatusPresentation[status as RequesterStatus];
-  return <span className={`statusChip status-${meta?.tone??"neutral"}`}>{meta?.label??status.replaceAll("_", " ")}</span>;
+  const label=meta?.label??status.replaceAll("_", " ");
+  return <span className={`statusChip status-${meta?.tone??"neutral"}`} role="status" aria-label={`Status: ${label}`}>{label}</span>;
 }
 
 function AuthorityBadge({ children, ai = false }: { children: ReactNode; ai?: boolean }) {
@@ -548,7 +549,7 @@ export default function Home() {
 function RequesterDashboard({api,open,newRequest,viewAll}:{api:Api;open:(id:string)=>Promise<void>;newRequest:()=>void;viewAll:()=>void}){
   const [summary,setSummary]=useState<{myRequests:number;drafts:number;awaitingReview:number;needsClarification:number;pendingApproval:number;approvedReady:number;readyForPayment:number;inProgress:number;paid:number}|null>(null),[recent,setRecent]=useState<Item[]>([]),[attention,setAttention]=useState<Item[]>([]),[notice,setNotice]=useState("");
   useEffect(()=>{let active=true;void Promise.all([api("/requester/dashboard"),api("/requester/requests?pageSize=5"),api("/requester/requests?pageSize=5&status=NEEDS_CLARIFICATION"),api("/requester/requests?pageSize=5&status=DRAFT")]).then(([s,r,clarifications,drafts])=>{if(active){setSummary(s as typeof summary);setRecent((r as {items:Array<Record<string,unknown>>}).items.map(requesterListItem));setAttention([...(clarifications as {items:Array<Record<string,unknown>>}).items,...(drafts as {items:Array<Record<string,unknown>>}).items].map(requesterListItem))}}).catch(e=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api]);
-  if(!summary)return <section className="card"><p>{notice||"Loading your requests…"}</p></section>;
+  if(!summary)return <section className="card"><p role="status" aria-live="polite">{notice||"Loading your requests…"}</p></section>;
   return <section className="requesterDashboard">
     <section className="attentionSection" aria-labelledby="attention-title"><div className="sectionHeading"><div><small>ACTION REQUIRED</small><h3 id="attention-title">Needs My Attention</h3></div><span>{summary.needsClarification+summary.drafts} open</span></div>{attention.length?<div className="attentionList">{attention.map(item=>{const clarification=item.status==="NEEDS_CLARIFICATION";return <article key={item.id}><span className="attentionIcon">!</span><div><StatusChip status={item.status}/><h4>{item.ticketNumber||"Draft request"} · {item.payee||"Payee not added"}</h4><p>{clarification?"Finance needs additional information before this request can continue.":"This draft has not been submitted to Finance."}</p><small>{clarification?"Open the request to review what Finance needs.":`Last updated ${formatDate(item.updatedAt)}`}</small></div><button className="primary" onClick={()=>void open(item.id)}>{clarification?"Respond":"Continue Request"}</button></article>})}</div>:<div className="quietEmpty"><b>You’re all caught up.</b><span>No requests currently need your action.</span></div>}</section>
     <section aria-label="Request summary"><div className="sectionHeading"><div><small>REQUEST SUMMARY</small><h3>Your requests at a glance</h3></div></div><div className="requesterMetrics">
@@ -874,25 +875,24 @@ type PaymentRow = {
 
 type HistoryTone = "success" | "warning" | "danger" | "neutral" | "info" | "ai";
 function historyStatusChip(status: string) {
-  if (status === "PAID") return <UiStatusChip status="PAID" />;
-  return <UiBadge tone="neutral">{status}</UiBadge>;
+  return <UiStatusChip status={status} />;
 }
 function historyControlStatusBadge(status?: string) {
-  if (!status) return <UiBadge tone="neutral">Not available</UiBadge>;
+  if (!status) return <UiBadge tone="neutral" role="status" aria-label="Status: Not available">Not available</UiBadge>;
   if (status === "HOLD") return <UiStatusChip status="HOLD" />;
-  const label = status === "PASSED" ? "Passed" : status === "CHECKING" ? "Checking" : status === "SUPERSEDED" ? "Superseded" : status;
+  const label = status === "PASSED" ? "Passed" : status === "CHECKING" ? "Checking" : status === "SUPERSEDED" ? "Superseded" : status.replaceAll("_", " ");
   const tone: HistoryTone = status === "PASSED" ? "success" : "neutral";
-  return <UiBadge tone={tone}>{label}</UiBadge>;
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function historyCommitmentBadge(status?: string) {
-  if (!status) return <UiBadge tone="neutral">Not available</UiBadge>;
+  if (!status) return <UiBadge tone="neutral" role="status" aria-label="Status: Not available">Not available</UiBadge>;
   const label =
     status === "NOT_CREATED" ? "Not created" :
     status === "ACTIVE" ? "Active" :
     status === "CONSUMED" ? "Consumed" :
-    status === "RELEASED" ? "Released" : status;
+    status === "RELEASED" ? "Released" : status.replaceAll("_", " ");
   const tone: HistoryTone = status === "ACTIVE" ? "info" : status === "CONSUMED" ? "success" : "neutral";
-  return <UiBadge tone={tone}>{label}</UiBadge>;
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function PaymentHistory({ api, initialFilters = {} }: { api: Api; initialFilters?: Record<string,string> }) {
   const [filters, setFilters] = useState({
@@ -1769,9 +1769,9 @@ function validationSourceBadge(source: string) {
 }
 function validationRunStatusChip(status: string) {
   if (status === "PENDING" || status === "PROCESSING" || status === "COMPLETED") return <UiStatusChip status={status} />;
-  const label = status === "AWAITING_HUMAN_REVIEW" ? "Awaiting human review" : status === "SUPERSEDED" ? "Superseded" : status;
+  const label = status === "AWAITING_HUMAN_REVIEW" ? "Awaiting human review" : status === "SUPERSEDED" ? "Superseded" : status.replaceAll("_", " ");
   const tone: ValidationTone = status === "AWAITING_HUMAN_REVIEW" ? "info" : "neutral";
-  return <UiBadge tone={tone}>{label}</UiBadge>;
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function validationOutcomeBadge(value: string) {
   if (value === "PASS") return <UiStatusChip status="PASS" />;
@@ -1783,7 +1783,7 @@ function validationCheckStatusBadge(status: string) {
   if (status === "PASS") return <UiStatusChip status="PASS" />;
   const label = status === "FAIL" ? "Fail" : status === "WARNING" ? "Warning" : "Unknown";
   const tone: ValidationTone = status === "FAIL" ? "danger" : status === "WARNING" ? "warning" : "neutral";
-  return <UiBadge tone={tone}>{label}</UiBadge>;
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function validationSeverityBadge(severity: string) {
   const tone: ValidationTone = severity === "HIGH" ? "danger" : severity === "MEDIUM" ? "warning" : "neutral";
@@ -1910,6 +1910,7 @@ function ValidationPanel({
               variant="primary"
               disabled={busy}
               busy={busy}
+              busyLabel="Starting validation…"
               onClick={() =>
                 run(async () => {
                   await api(`/payment-requests/${item.id}/validation`, {
@@ -2032,9 +2033,9 @@ function ValidationPanel({
 type FinanceContextTone = "success" | "warning" | "danger" | "neutral" | "info" | "ai";
 function financeContextStatusChip(status: string) {
   if (status === "COMPLETED") return <UiStatusChip status="COMPLETED" />;
-  const label = status === "EXCEPTION" ? "Exception" : status === "SUPERSEDED" ? "Superseded" : status;
+  const label = status === "EXCEPTION" ? "Exception" : status === "SUPERSEDED" ? "Superseded" : status.replaceAll("_", " ");
   const tone: FinanceContextTone = status === "EXCEPTION" ? "warning" : "neutral";
-  return <UiBadge tone={tone}>{label}</UiBadge>;
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function financeExceptionBadge(code: string) {
   const labels: Record<string, string> = {
@@ -2144,7 +2145,7 @@ function FinanceContextPanel({
           {notice && <UiAlert tone="danger">{notice}</UiAlert>}
           {loading && <UiSpinner label="Loading Finance Context…" />}
           {!loading && !data && user === "demo.finance" && (
-            <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => void calculate()}>
+            <UiButton variant="primary" disabled={busy} busy={busy} busyLabel="Calculating…" onClick={() => void calculate()}>
               Calculate Finance Context
             </UiButton>
           )}
@@ -2172,7 +2173,7 @@ function FinanceContextPanel({
                   <UiTypography as="span" variant="body">Finance attention is required before Stage 5.</UiTypography>
                 </UiAlert>
                 {user === "demo.finance" && (
-                  <UiButton variant="secondary" disabled={busy} busy={busy} onClick={() => void recalculate()}>
+                  <UiButton variant="secondary" disabled={busy} busy={busy} busyLabel="Recalculating…" onClick={() => void recalculate()}>
                     Recalculate after correction
                   </UiButton>
                 )}
@@ -2221,9 +2222,9 @@ function financialAnalysisStatusChip(status: string) {
     status === "AWAITING_HUMAN_REVIEW" ? "Awaiting human review" :
     status === "FINALIZED" ? "Finalized" :
     status === "SUPERSEDED" ? "Superseded" :
-    status === "NOT STARTED" ? "Not started" : status;
+    status === "NOT STARTED" ? "Not started" : status.replaceAll("_", " ");
   const tone: FinancialAnalysisTone = status === "AWAITING_HUMAN_REVIEW" ? "info" : status === "FINALIZED" ? "success" : "neutral";
-  return <UiBadge tone={tone}>{label}</UiBadge>;
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function agentStatusChip(status: string) {
   return <UiStatusChip status={status === "FAILED" ? "FAILED" : "COMPLETED"} />;
@@ -2551,9 +2552,9 @@ function policyExceptionStatusBadge(status: string) {
   const label =
     status === "OPEN" ? "Awaiting justification" :
     status === "JUSTIFIED" ? "Justified" :
-    status === "SUPERSEDED" ? "Superseded" : status;
+    status === "SUPERSEDED" ? "Superseded" : status.replaceAll("_", " ");
   const tone: PolicyTone = status === "OPEN" ? "warning" : status === "JUSTIFIED" ? "success" : "neutral";
-  return <UiBadge tone={tone}>{label}</UiBadge>;
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function PolicyDecisionPanel({
   item,
@@ -2684,7 +2685,7 @@ function PolicyDecisionPanel({
           {notice && <UiAlert tone="danger">{notice}</UiAlert>}
           {loading && <UiSpinner label="Loading policy evaluation…" />}
           {!loading && !data && user === "demo.finance" && (
-            <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => void evaluate()}>
+            <UiButton variant="primary" disabled={busy} busy={busy} busyLabel="Evaluating…" onClick={() => void evaluate()}>
               Evaluate active policy
             </UiButton>
           )}
@@ -2776,7 +2777,7 @@ function PolicyDecisionPanel({
                       onChange={(e) => setJustification(e.target.value)}
                       placeholder="Controlled policy justification"
                     />
-                    <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => void respond()}>
+                    <UiButton variant="primary" disabled={busy} busy={busy} busyLabel="Submitting…" onClick={() => void respond()}>
                       Submit justification
                     </UiButton>
                   </>
@@ -2785,7 +2786,7 @@ function PolicyDecisionPanel({
             </UiCard>
           )}
           {data.exception_status === "JUSTIFIED" && user === "demo.finance" && (
-            <UiButton variant="secondary" disabled={busy} busy={busy} onClick={() => void evaluate()}>
+            <UiButton variant="secondary" disabled={busy} busy={busy} busyLabel="Re-evaluating…" onClick={() => void evaluate()}>
               Re-evaluate policy
             </UiButton>
           )}
@@ -2806,24 +2807,24 @@ function approvalStatusChip(value: string) {
   const label =
     value === "CLARIFICATION" ? "Clarification requested" :
     value === "SUPERSEDED" ? "Superseded" :
-    value === "NOT STARTED" ? "Not started" : value;
+    value === "NOT STARTED" ? "Not started" : value.replaceAll("_", " ");
   const tone: ApprovalTone = value === "CLARIFICATION" ? "warning" : "neutral";
-  return <UiBadge tone={tone}>{label}</UiBadge>;
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function approvalStepBadge(status: string) {
   if (status === "APPROVED") return <UiStatusChip status="APPROVED" />;
-  const label = status === "ACTIVE" ? "Active" : status === "WAITING" ? "Waiting" : status === "CLOSED" ? "Closed" : status;
+  const label = status === "ACTIVE" ? "Active" : status === "WAITING" ? "Waiting" : status === "CLOSED" ? "Closed" : status.replaceAll("_", " ");
   const tone: ApprovalTone = status === "ACTIVE" ? "info" : "neutral";
-  return <UiBadge tone={tone}>{label}</UiBadge>;
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function approvalCommitmentBadge(status: string) {
   const label =
     status === "NOT_CREATED" ? "Not created" :
     status === "ACTIVE" ? "Active" :
     status === "CONSUMED" ? "Consumed" :
-    status === "RELEASED" ? "Released" : status;
+    status === "RELEASED" ? "Released" : status.replaceAll("_", " ");
   const tone: ApprovalTone = status === "ACTIVE" ? "info" : status === "CONSUMED" ? "success" : "neutral";
-  return <UiBadge tone={tone}>{label}</UiBadge>;
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function approvalRiskBadge(risk: string) {
   const tone: ApprovalTone = risk === "CRITICAL" || risk === "HIGH" ? "danger" : risk === "MEDIUM" ? "warning" : "neutral";
@@ -2965,7 +2966,7 @@ function ApprovalPanel({
           {loading && <UiSpinner label="Loading approval…" />}
           {!loading && !data?.case && (
             policyReadyForApproval(policy,data?.case) && user === "demo.finance" ? (
-              <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => void create()}>
+              <UiButton variant="primary" disabled={busy} busy={busy} busyLabel="Creating…" onClick={() => void create()}>
                 Create Approval case
               </UiButton>
             ) : (
@@ -3102,26 +3103,27 @@ function financeControlStatusLabel(status: string) {
   return status === "CHECKING" ? "Checking" :
     status === "PASSED" ? "Passed" :
     status === "SUPERSEDED" ? "Superseded" :
-    status === "NOT STARTED" ? "Not started" : status;
+    status === "NOT STARTED" ? "Not started" : status.replaceAll("_", " ");
 }
 function financeControlStatusChip(status: string) {
   if (status === "HOLD") return <UiStatusChip status="HOLD" />;
   const tone: FinanceControlTone = status === "PASSED" ? "success" : status === "CHECKING" ? "info" : "neutral";
-  return <UiBadge tone={tone}>{financeControlStatusLabel(status)}</UiBadge>;
+  const label = financeControlStatusLabel(status);
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function financeControlCheckResultBadge(result: string) {
   if (result === "PASS") return <UiStatusChip status="PASS" />;
-  const label = result === "FAIL" ? "Fail" : result === "REVIEW_REQUIRED" ? "Review required" : result;
+  const label = result === "FAIL" ? "Fail" : result === "REVIEW_REQUIRED" ? "Review required" : result.replaceAll("_", " ");
   const tone: FinanceControlTone = result === "FAIL" ? "danger" : result === "REVIEW_REQUIRED" ? "warning" : "neutral";
-  return <UiBadge tone={tone}>{label}</UiBadge>;
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function financeControlDuplicateBadge(status: string) {
   const label =
     status === "NO_DUPLICATE" ? "No duplicate" :
     status === "POSSIBLE_DUPLICATE" ? "Possible duplicate" :
-    status === "CONFIRMED_DUPLICATE" ? "Confirmed duplicate" : status;
+    status === "CONFIRMED_DUPLICATE" ? "Confirmed duplicate" : status.replaceAll("_", " ");
   const tone: FinanceControlTone = status === "CONFIRMED_DUPLICATE" ? "danger" : status === "POSSIBLE_DUPLICATE" ? "warning" : "neutral";
-  return <UiBadge tone={tone}>{label}</UiBadge>;
+  return <UiBadge tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</UiBadge>;
 }
 function FinanceControlPanel({
   item,
@@ -3239,6 +3241,7 @@ function FinanceControlPanel({
               variant="primary"
               disabled={busy}
               busy={busy}
+              busyLabel="Starting…"
               onClick={() =>
                 run(async () => {
                   await api(`/payment-requests/${item.id}/finance-control`, {
@@ -3310,6 +3313,7 @@ function FinanceControlPanel({
                   variant="primary"
                   disabled={busy || !note.trim()}
                   busy={busy}
+                  busyLabel="Resolving…"
                   aria-describedby={!note.trim() ? "finance-control-note-helper" : undefined}
                   onClick={() =>
                     run(async () => {
@@ -3422,12 +3426,10 @@ function useScanPolling(api:Api,path:string,onUpdate:(documents:ScanDocument[],s
 }
 
 function paymentStatusChip(status: string) {
-  if (status === "READY_FOR_PAYMENT" || status === "PAID") return <UiStatusChip status={status} />;
-  return <UiBadge tone="neutral">{status}</UiBadge>;
+  return <UiStatusChip status={status} />;
 }
 function paymentScanStatusChip(status: string) {
-  if (status === "QUARANTINED" || status === "SCANNING" || status === "CLEAN" || status === "REJECTED" || status === "SCAN_FAILED") return <UiStatusChip status={status} />;
-  return <UiBadge tone="neutral">{status}</UiBadge>;
+  return <UiStatusChip status={status} />;
 }
 function PaymentPanel({
   item,

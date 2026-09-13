@@ -147,11 +147,13 @@ test('an empty control history shows the frozen empty state instead of an invent
  const html=render(view(states({history:[]}),{item,api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(html,/No completed control runs/);
 });
-test('busy state disables the pending action without changing its label',()=>{
+test('busy state disables the pending action and swaps to an accessible busy label via the shared Button pattern',()=>{
+ const normalHtml=render(view(states(),{item,api:()=>Promise.resolve({}),changed:async()=>{}}));
+ assert.match(normalHtml,/aims-button-label">Start Final Finance Control/);
  const busyHtml=render(view(states({busy:true}),{item,api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(busyHtml,/aria-busy="true"/);
  assert.match(busyHtml,/disabled=""/);
- assert.match(busyHtml,/Start Final Finance Control/);
+ assert.match(busyHtml,/aims-button-label">Starting…/);
 });
 test('an in-flight failure surfaces as an announced error without silently discarding it',()=>{
  const html=render(view(states({notice:'Something went wrong'}),{item,api:()=>Promise.resolve({}),changed:async()=>{}}));

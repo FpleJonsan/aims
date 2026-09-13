@@ -130,11 +130,14 @@ test('readiness for Finance Control shows the exact ready marker text unchanged'
  assert.match(html,/Policy auto-approval/);
  assert.match(html,/Approval complete · ready for Final Finance Control\./);
 });
-test('busy state disables the pending action without changing its label',()=>{
+test('busy state disables the pending action and swaps to an accessible busy label via the shared Button pattern',()=>{
+ const normalHtml=render(view(states(),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ assert.match(normalHtml,/aims-button-label">Create Approval case/);
  const busyHtml=render(view(states({busy:true}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(busyHtml,/aria-busy="true"/);
  assert.match(busyHtml,/disabled=""/);
- assert.match(busyHtml,/Create Approval case/);
+ assert.match(busyHtml,/aims-button-label">Creating…/);
+ assert.match(busyHtml,/aims-button-indicator/);
 });
 test('an in-flight failure surfaces as an announced error without silently discarding it',()=>{
  const html=render(view(states({notice:'Something went wrong'}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));

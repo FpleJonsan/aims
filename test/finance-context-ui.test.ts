@@ -101,11 +101,13 @@ test('every documented exception code maps to a readable label instead of a raw 
   assert.doesNotMatch(html,new RegExp(code),code);
  }
 });
-test('busy state disables the pending action without changing its label',()=>{
+test('busy state disables the pending action and swaps to an accessible busy label via the shared Button pattern',()=>{
+ const normalHtml=render(view(states(),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
+ assert.match(normalHtml,/aims-button-label">Calculate Finance Context/);
  const busyHtml=render(view(states({busy:true}),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
  assert.match(busyHtml,/aria-busy="true"/);
  assert.match(busyHtml,/disabled=""/);
- assert.match(busyHtml,/Calculate Finance Context/);
+ assert.match(busyHtml,/aims-button-label">Calculating…/);
 });
 test('an in-flight failure surfaces as an announced error without silently discarding it',()=>{
  const html=render(view(states({notice:'Something went wrong'}),{item,user:'demo.finance',api:()=>Promise.resolve({})}));

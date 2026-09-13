@@ -21,10 +21,18 @@ export function LoadingSpinner({label='Loading', decorative=false}:{label?:strin
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 9 9"/></svg>
   </span>;
 }
-export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {variant?:'primary'|'secondary'|'danger'|'text';busy?:boolean};
-export function Button({variant='secondary',busy=false,disabled=false,type='button',className,children,...props}:ButtonProps){
+export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {variant?:'primary'|'secondary'|'danger'|'text';busy?:boolean;busyLabel?:ReactNode};
+/**
+ * `busyLabel` is optional and additive: omit it and a busy button behaves
+ * exactly as before (label unchanged, aria-busy + disabled + the reserved
+ * spinner indicator only). Pass it only where exactly one action can be
+ * in flight at a time — a `busy` flag shared by several simultaneously
+ * visible buttons must not swap every one of their labels, since only one
+ * of them is the action actually in progress.
+ */
+export function Button({variant='secondary',busy=false,busyLabel,disabled=false,type='button',className,children,...props}:ButtonProps){
   return <button {...props} type={type} disabled={disabled||busy} aria-busy={busy||undefined} className={cx('aims-button',`aims-button-${variant}`,className)}>
-    <span className="aims-button-label">{children}</span><span className="aims-button-indicator" aria-hidden="true" data-visible={busy}><LoadingSpinner decorative/></span>
+    <span className="aims-button-label">{busy&&busyLabel!==undefined?busyLabel:children}</span><span className="aims-button-indicator" aria-hidden="true" data-visible={busy}><LoadingSpinner decorative/></span>
   </button>;
 }
 export function BusyButton(props:ButtonProps){return <Button {...props}/>;}
@@ -42,8 +50,18 @@ const statuses = {
   HISTORICAL:['Historical','neutral'], PENDING:['Pending','info'], PROCESSING:['Processing','info'], COMPLETED:['Completed','success'], PASS:['Pass','success'], HOLD:['Hold','warning'], FAILED:['Failed','danger'],
 } as const;
 export type UIStatus=keyof typeof statuses;
-export function StatusChip({status,...props}:Omit<BadgeProps,'tone'|'children'>&{status:UIStatus}){
-  const [label,tone]=statuses[status];return <Badge {...props} tone={tone}>{label}</Badge>;
+function humanizeStatus(status:string){return status.replaceAll('_',' ').replace(/\w\S*/g,(word)=>word.charAt(0).toUpperCase()+word.slice(1).toLowerCase());}
+/**
+ * Renders through the shared `statuses` label/tone map whenever `status`
+ * is one of the known enum values; falls back to a humanized (never raw)
+ * label at a neutral tone for anything else, so an unexpected value from a
+ * loosely-typed source (e.g. a generic `string` API field) degrades
+ * gracefully instead of throwing or leaking a raw enum to the screen.
+ */
+export function StatusChip({status,...props}:Omit<BadgeProps,'tone'|'children'>&{status:UIStatus|(string&{})}){
+  const known=(statuses as Record<string,readonly [string,Tone]>)[status];
+  const [label,tone]=known??[humanizeStatus(status),'neutral'];
+  return <Badge {...props} tone={tone} role="status" aria-label={`Status: ${label}`}>{label}</Badge>;
 }
 export function Alert({tone='info',children,title,className,...props}:Box&{tone?:Tone;title?:string}){
   return <div {...props} role={tone==='danger'?'alert':'status'} className={cx('aims-alert',`aims-tone-${tone}`,className)}>{title&&<Typography variant="label">{title}</Typography>}{children}</div>;
