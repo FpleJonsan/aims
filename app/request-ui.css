@@ -11,7 +11,7 @@
 .p1832-upload { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:var(--aims-space-16); align-items:start; }
 .p1832-upload > .aims-type { grid-column:1 / -1; }
 .p1832-reviewSummary,.p1832-request dl { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--aims-space-16); margin:var(--aims-space-0); }
-.p1832-reviewSummary > p,.p1832-request dl > div { display:grid; gap:var(--aims-space-8); align-content:start; min-width:0; overflow-wrap:anywhere; }
+.p1832-reviewSummary > p,.p1832-request dl > div { display:grid; gap:var(--aims-space-8); align-content:start; min-width:0; overflow-wrap:normal; word-break:normal; }
 .p1832-request dt { font-size:var(--aims-font-size-12); line-height:var(--aims-line-height-12); color:var(--aims-color-text-secondary); }
 .p1832-request dd { margin:var(--aims-space-0); }
 .p1832-requesterDocumentList { display:grid; gap:var(--aims-space-16); }
@@ -21,7 +21,7 @@
 .p1832-submitConfirmation > .aims-card { width:min(100%,calc(var(--aims-space-64) * 9)); max-height:100%; overflow:auto; }
 .p1832-submitConfirmation .aims-card-body > div,.p1832-requesterSuccess .aims-card-body > div { display:flex; flex-wrap:wrap; gap:var(--aims-space-12); }
 .p1832-requesterSnapshot > .aims-card-body { grid-template-columns:repeat(4,minmax(0,1fr)); }
-.p1832-requesterSnapshot .aims-card-body > div { display:grid; align-content:start; justify-items:start; gap:var(--aims-space-8); min-width:0; overflow-wrap:anywhere; }
+.p1832-requesterSnapshot .aims-card-body > div { display:grid; align-content:start; justify-items:start; gap:var(--aims-space-8); min-width:0; overflow-wrap:normal; word-break:normal; }
 .p1832-journeySummary { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:var(--aims-space-8); }
 .p1832-journeySummary > div,.p1832-compactJourney > div { display:grid; justify-items:center; align-content:start; gap:var(--aims-space-8); text-align:center; }
 .p1832-journeySummary > div > span:first-child,.p1832-compactJourney > div > span:first-child { display:grid; place-items:center; width:var(--aims-space-24); height:var(--aims-space-24); border-radius:var(--aims-radius-pill); background:var(--aims-color-neutral-surface); }

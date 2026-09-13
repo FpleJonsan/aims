@@ -9,7 +9,7 @@
 .p183-operationsSummary { grid-template-columns:repeat(3,minmax(0,1fr)); }
 .p183-metric { width:100%; height:100%; text-align:start; }
 .p183-metric.aims-card-body,.p183-metric .aims-button-label { display:grid; grid-template-columns:auto minmax(0,1fr); gap:var(--aims-space-8); justify-items:start; }
-.p183-metric .aims-type-card { font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.p183-metric .aims-type-card { font-variant-numeric:tabular-nums; overflow-wrap:normal; word-break:normal; }
 .p183-dashboardGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--aims-space-16); }
 .p183-dashboardGrid > * { min-width:0; }
 .p183-utilizationBody { display:grid; grid-template-columns:auto minmax(0,1fr); gap:var(--aims-space-16); align-items:center; }
@@ -45,4 +45,4 @@
 .p183-actualDot { background:var(--aims-color-success); }
 .p183-commitDot { background:var(--aims-color-warning); }
 .p183-availableDot { background:var(--aims-color-neutral); }
-.p183-budgetDrill .aims-button-label > span { min-width:0; overflow-wrap:anywhere; }
+.p183-budgetDrill .aims-button-label > span { min-width:0; overflow-wrap:normal; word-break:normal; }
