@@ -638,9 +638,11 @@ function FinanceDashboard({ api, onDrill, initialFilters }: { api: Api; initialF
     [answer, setAnswer] = useState<any>(null),
     [watch, setWatch] = useState<any>(null),
     [scope, setScope] = useState<{departments:Array<{id:string;name:string}>}|null>(null),
-    [filters, setFilters] = useState<DashboardFilterState>({ dateFrom:"", dateTo:"", departmentId:"", category:"", ...initialFilters });
-  const query = new URLSearchParams(Object.entries(filters).filter(([,v])=>v)).toString();
+    [filters, setFilters] = useState<DashboardFilterState>({ dateFrom:"", dateTo:"", departmentId:"", category:"", ...initialFilters }),
+    [debouncedCategory,setDebouncedCategory]=useState(initialFilters.category??"");
+  const query = new URLSearchParams(Object.entries({...filters,category:debouncedCategory}).filter(([,v])=>v)).toString();
   useEffect(()=>{window.history.replaceState({},"",financePath("dashboard",filters))},[filters]);
+  useEffect(()=>{const timer=window.setTimeout(()=>setDebouncedCategory(filters.category),300);return()=>window.clearTimeout(timer)},[filters.category]);
   useEffect(() => {
     let active = true;
     void Promise.all([

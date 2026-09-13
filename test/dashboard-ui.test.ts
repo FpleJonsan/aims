@@ -54,6 +54,15 @@ test('populated financial positions preserve original currency values',()=>{
  for(const amount of ['121,000.00','20,000.00','5,000.00','96,000.00'])assert.ok(html.includes(`MYR ${amount}`));
  assert.match(html,/<h3[^>]*>MYR<\/h3>/);
 });
+test('category request refresh is debounced once while non-text filters remain direct',()=>{
+ const implementation=dashboard.getText(ast);
+ assert.match(implementation,/setTimeout\(\(\)=>setDebouncedCategory\(filters\.category\),300\)/);
+ assert.match(implementation,/\.\.\.filters,category:debouncedCategory/);
+ assert.match(implementation,/value=\{filters\.dateFrom\} onChange=\{\(e\) => setFilters/);
+ assert.match(implementation,/value=\{filters\.dateTo\} onChange=\{\(e\) => setFilters/);
+ assert.match(implementation,/value=\{filters\.departmentId\} onChange=\{\(e\) => setFilters/);
+ assert.match(implementation,/return\(\)=>window\.clearTimeout\(timer\)/);
+});
 test('new library usage is confined to approved Dashboard, Request, Validation, Policy, Approval, Finance Context, Financial Analysis, Finance Control, Payment, and History surfaces',()=>{
  let rest=source.replace(dashboard.getText(ast),'');
  for(const name of ['RequesterRequestExperience','RequesterDocuments','RequesterSubmittedDetail','RequesterDetailOverview','ValidationPanel','PolicyDecisionPanel','ApprovalPanel','FinanceContextPanel','FinancialAnalysisPanel','FinanceControlPanel','PaymentPanel','PaymentHistory']){const fn=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name)!;rest=rest.replace(fn.getText(ast),'');}
