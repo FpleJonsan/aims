@@ -6,7 +6,7 @@ const migration=await readFile(new URL("../../migrations/059_p12_recovery_genera
 
 test("migration 059 remains the sole recovery-generation migration in the immutable chain",async()=>{
  const names=(await readdir(new URL("../../migrations/",import.meta.url))).filter(name=>/^\d{3}_.*\.sql$/.test(name)).sort();
- assert.equal(names.at(-1),"061_p13_storage_object_version_binding.sql");assert.equal(names.length,61);
+ assert.equal(names.at(-1),"063_p20_5b_finance_master_users.sql");assert.equal(names.length,63);
  assert.match(migration,/requires schema version 58/);assert.match(migration,/SET version=59,migration_id='059_p12_recovery_generation_fencing'/);
 });
 

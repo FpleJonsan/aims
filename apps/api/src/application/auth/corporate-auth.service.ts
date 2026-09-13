@@ -41,7 +41,7 @@ export class CorporateAuthService {
     );
     const authorization = this.provider.buildAuthorizationRequest({ state, pkceChallenge: challenge, nonce });
     assertTrustedAuthorizationUrl(authorization.authorizationUrl,this.provider.authorizationEndpoint);
-    await this.audit("CORPORATE_LOGIN_INITIATED", request, null, null);
+    await this.audit("CORPORATE_LOGIN_INITIATED", request, null, null, undefined, null);
     metrics.counter("aims_domain_operations_total", { operation: "CORPORATE_LOGIN", outcome: "INITIATED", failure_category: "NONE", channel: "WEB" });
     return authorization;
   }
@@ -76,7 +76,8 @@ export class CorporateAuthService {
         WHERE x.provider=$1 AND x.issuer=$2 AND x.subject=$3`,[this.provider.adapterId,verified.issuer,verified.subject]);
       if(!identity.rowCount){denied="CORPORATE_IDENTITY_UNKNOWN_OR_INACTIVE";return}
       issued=await this.sessions.createCorporateSessionRecord(identity.rows,client);
-      await this.audit("CORPORATE_LOGIN_SUCCEEDED",request,identity.rows[0].user_id,identity.rows[0].identity_id,client);
+      await client.query(`UPDATE users SET last_login_at=now() WHERE id=$1`,[identity.rows[0].user_id]);
+      await this.audit("CORPORATE_LOGIN_SUCCEEDED",request,identity.rows[0].user_id,identity.rows[0].identity_id,client,identity.rows.flatMap(r=>r.role?[r.role]:[]));
     });
     if(denied)return this.deny(denied,request);
     this.sessions.setCorporateSessionCookies(response,issued!);
@@ -92,15 +93,15 @@ export class CorporateAuthService {
     return value && /^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(value) ? value : randomUUID();
   }
   private async deny(event: string, request: Request): Promise<never> {
-    await this.audit(event, request, null, null);
+    await this.audit(event, request, null, null, undefined, null);
     metrics.counter("aims_domain_operations_total", { operation: "CORPORATE_LOGIN", outcome: "FAILURE", failure_category: "AUTHENTICATION", channel: "WEB" });
     throw new UnauthorizedException("Corporate authentication failed");
   }
-  private async audit(eventType:string,request:Request,userId:string|null,identityId:string|null,client?:PoolClient):Promise<void>{
+  private async audit(eventType:string,request:Request,userId:string|null,identityId:string|null,client:PoolClient|undefined,roles:import("../../domain/payment-request.js").Role[]|null):Promise<void>{
     await (client??this.database.pool).query(`INSERT INTO authentication_audit_events
-      (id,user_id,external_identity_id,authentication_method,source_channel,event_type,correlation_id)
-      VALUES($1,$2,$3,'CORPORATE_PROVIDER','WEB',$4,$5)`,
-      [randomUUID(),userId,identityId,eventType,this.correlationId(request)]);
+      (id,user_id,external_identity_id,authentication_method,source_channel,event_type,correlation_id,source_ip,actor_role_snapshot)
+      VALUES($1,$2,$3,'CORPORATE_PROVIDER','WEB',$4,$5,$6,$7)`,
+      [randomUUID(),userId,identityId,eventType,this.correlationId(request),request.ip??null,roles]);
   }
 }
 

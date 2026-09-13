@@ -54,15 +54,17 @@ test("LOCAL protected requests never authenticate from x-aims-user",async()=>{
   }finally{if(previous===undefined)delete process.env.AIMS_ENVIRONMENT;else process.env.AIMS_ENVIRONMENT=previous;}
 });
 
-test("Production and staging reject local/header identity but accept only a verified corporate AIMS session",async()=>{
+test("Production and staging reject local/header identity but accept a verified corporate or password AIMS session",async()=>{
   for(const environment of ["production","staging"]){
     const previousNode=process.env.NODE_ENV,previousEnvironment=process.env.AIMS_ENVIRONMENT;
     process.env.NODE_ENV="production";process.env.AIMS_ENVIRONMENT=environment;
     try{
       const localGuard=new AuthGuard({pool:{query:async()=>{throw Error("identity lookup must not execute")}}} as never,{authenticate:async()=>({authenticationMethod:"LOCAL_ADAPTER",csrfTokenHash:hash("csrf"),sessionId:"s",principal:{id:"u",departmentId:"d",roles:[]}}),verifyCsrf:()=>undefined} as never);
-      await assert.rejects(()=>localGuard.canActivate({switchToHttp:()=>({getRequest:()=>request({cookie:`${SESSION_COOKIE}=local`,headerUser:"privileged"})})} as never),/Corporate authentication required/);
+      await assert.rejects(()=>localGuard.canActivate({switchToHttp:()=>({getRequest:()=>request({cookie:`${SESSION_COOKIE}=local`,headerUser:"privileged"})})} as never),/Corporate or password authentication required/);
       const corporateGuard=new AuthGuard({pool:{query:async()=>{throw Error("identity lookup must not execute")}}} as never,{authenticate:async()=>({authenticationMethod:"CORPORATE_PROVIDER",csrfTokenHash:hash("csrf"),sessionId:"s",principal:{id:"u",departmentId:"d",roles:[]}}),verifyCsrf:()=>undefined} as never);
       assert.equal(await corporateGuard.canActivate({switchToHttp:()=>({getRequest:()=>request({cookie:`${SESSION_COOKIE}=corporate`,headerUser:"privileged"})})} as never),true);
+      const passwordGuard=new AuthGuard({pool:{query:async()=>{throw Error("identity lookup must not execute")}}} as never,{authenticate:async()=>({authenticationMethod:"LOCAL_PASSWORD",csrfTokenHash:hash("csrf"),sessionId:"s",principal:{id:"u",departmentId:"d",roles:["REQUESTER"]}}),verifyCsrf:()=>undefined} as never);
+      assert.equal(await passwordGuard.canActivate({switchToHttp:()=>({getRequest:()=>request({cookie:`${SESSION_COOKIE}=password`,headerUser:"privileged"})})} as never),true);
     }finally{if(previousNode===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previousNode;if(previousEnvironment===undefined)delete process.env.AIMS_ENVIRONMENT;else process.env.AIMS_ENVIRONMENT=previousEnvironment;}
   }
 });

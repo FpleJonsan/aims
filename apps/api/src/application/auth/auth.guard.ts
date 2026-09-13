@@ -21,7 +21,7 @@ export class AuthGuard implements CanActivate {
     const environment=aimsEnvironment();
     if(environment!=="competition"){
       const authenticated=await this.sessions.authenticate(request);
-      if((environment==="production"||environment==="staging")&&authenticated.authenticationMethod!=="CORPORATE_PROVIDER")throw new UnauthorizedException("Corporate authentication required");
+      if((environment==="production"||environment==="staging")&&authenticated.authenticationMethod!=="CORPORATE_PROVIDER"&&authenticated.authenticationMethod!=="LOCAL_PASSWORD")throw new UnauthorizedException("Corporate or password authentication required");
       this.sessions.verifyCsrf(request,authenticated.csrfTokenHash);
       request.principal=authenticated.principal;request.aimsSessionId=authenticated.sessionId;
       return true;

@@ -13,7 +13,7 @@ export const REQUEST_STATUSES = [
   "CANCELLED",
 ] as const;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
-export type Role = "REQUESTER" | "FINANCE" | "ADMIN";
+export type Role = "REQUESTER" | "FINANCE" | "ADMIN" | "FINANCE_MASTER";
 
 export interface Principal {
   id: string;

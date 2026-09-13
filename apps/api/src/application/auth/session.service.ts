@@ -29,10 +29,11 @@ export class SessionService {
       LEFT JOIN user_roles ur ON ur.user_id=u.id
       WHERE x.provider='local' AND x.issuer='aims-local' AND x.subject=$1
     `,[subject]);
-    if(!identity.rowCount){metrics.counter("aims_domain_operations_total",{operation:"LOGIN",outcome:"FAILURE",failure_category:"AUTHENTICATION",channel:"WEB"});await this.audit("LOCAL_AUTHENTICATION_FAILURE",request,null,null);throw new UnauthorizedException("Unknown or inactive local identity");}
+    if(!identity.rowCount){metrics.counter("aims_domain_operations_total",{operation:"LOGIN",outcome:"FAILURE",failure_category:"AUTHENTICATION",channel:"WEB"});await this.audit("LOCAL_AUTHENTICATION_FAILURE",request,null,null,null);throw new UnauthorizedException("Unknown or inactive local identity");}
     const row=identity.rows[0];
     const principal=await this.createSession(identity.rows,"LOCAL_ADAPTER",request,response);
-    await this.audit("LOCAL_AUTHENTICATION_SUCCESS",request,row.user_id,row.identity_id);
+    await this.database.pool.query(`UPDATE users SET last_login_at=now() WHERE id=$1`,[row.user_id]);
+    await this.audit("LOCAL_AUTHENTICATION_SUCCESS",request,row.user_id,row.identity_id,principal.roles);
     metrics.counter("aims_domain_operations_total",{operation:"LOGIN",outcome:"SUCCESS",failure_category:"NONE",channel:"WEB"});
     return principal;
   }
@@ -43,6 +44,19 @@ export class SessionService {
   }
 
   setCorporateSessionCookies(response:Response,session:IssuedCorporateSession):void{this.setCookies(response,session.token,session.csrf,session.lifetime)}
+
+  async createPasswordSessionRecord(identity:SessionIdentity[],client:Pick<PoolClient,"query">,rememberMe:boolean):Promise<IssuedCorporateSession>{
+    if(!identity.length)throw new UnauthorizedException("Unknown or inactive local identity");
+    return this.insertSession(identity,"LOCAL_PASSWORD",client,rememberMe);
+  }
+
+  setPasswordSessionCookies(response:Response,session:IssuedCorporateSession):void{this.setCookies(response,session.token,session.csrf,session.lifetime)}
+
+  async revokeAllForUser(userId:string,request:Request):Promise<void>{
+    const revoked=await this.database.pool.query<{external_identity_id:string}>(
+      `UPDATE aims_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1 AND revoked_at IS NULL RETURNING external_identity_id`,[userId]);
+    if(revoked.rowCount)await this.audit("SESSIONS_REVOKED_FOR_PASSWORD_RESET",request,userId,revoked.rows[0].external_identity_id,null);
+  }
 
   async authenticate(request:Request):Promise<AuthenticatedSession> {
     const token=this.cookies(request)[SESSION_COOKIE];
@@ -58,7 +72,7 @@ export class SessionService {
       `,[this.hash(token)]);
     });
     if(!result.rowCount){metrics.counter("aims_domain_operations_total",{operation:"SESSION_AUTHENTICATE",outcome:"FAILURE",failure_category:"AUTHENTICATION",channel:"WEB"});throw new UnauthorizedException("Session is invalid or expired")}
-    if(!result.rows[0].active){await this.audit("INACTIVE_USER_REJECTED",request,result.rows[0].user_id,null);throw new UnauthorizedException("Unknown or inactive user");}
+    if(!result.rows[0].active){await this.audit("INACTIVE_USER_REJECTED",request,result.rows[0].user_id,null,null);throw new UnauthorizedException("Unknown or inactive user");}
     return {sessionId:result.rows[0].session_id,csrfTokenHash:result.rows[0].csrf_token_hash,authenticationMethod:result.rows[0].authentication_method,principal:{
       id:result.rows[0].user_id,departmentId:result.rows[0].department_id,
       roles:result.rows.flatMap(row=>row.role?[row.role]:[]),
@@ -84,7 +98,7 @@ export class SessionService {
       this.verifyCsrf(request,existing.rows[0].csrf_token_hash);
       const revoked=await this.database.pool.query<{user_id:string;external_identity_id:string}>(
         `UPDATE aims_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE token_hash=$1 RETURNING user_id,external_identity_id`,[this.hash(token)]);
-      if(revoked.rowCount)await this.audit("LOGOUT",request,revoked.rows[0].user_id,revoked.rows[0].external_identity_id);
+      if(revoked.rowCount)await this.audit("LOGOUT",request,revoked.rows[0].user_id,revoked.rows[0].external_identity_id,null);
     }
     this.clearCookies(response);
   }
@@ -92,13 +106,21 @@ export class SessionService {
   async revoke(sessionId:string,request:Request):Promise<void>{
     const revoked=await this.database.pool.query<{user_id:string;external_identity_id:string}>(
       `UPDATE aims_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE id=$1 RETURNING user_id,external_identity_id`,[sessionId]);
-    if(revoked.rowCount)await this.audit("SESSION_REVOKED",request,revoked.rows[0].user_id,revoked.rows[0].external_identity_id);
+    if(revoked.rowCount)await this.audit("SESSION_REVOKED",request,revoked.rows[0].user_id,revoked.rows[0].external_identity_id,null);
   }
 
   private localLifetimeSeconds():number{
     const configured=Number(process.env.LOCAL_SESSION_LIFETIME_SECONDS??28800);
     if(!Number.isInteger(configured)||configured<300||configured>604800)throw new Error("LOCAL_SESSION_LIFETIME_SECONDS must be between 300 and 604800");
     return configured;
+  }
+  private passwordLifetimeSeconds(rememberMe:boolean):number{
+    const configured=Number(process.env.LOCAL_PASSWORD_SESSION_LIFETIME_SECONDS??28800);
+    if(!Number.isInteger(configured)||configured<300||configured>604800)throw new Error("LOCAL_PASSWORD_SESSION_LIFETIME_SECONDS must be between 300 and 604800");
+    if(!rememberMe)return configured;
+    const remembered=Number(process.env.REMEMBER_ME_SESSION_LIFETIME_SECONDS??2592000);
+    if(!Number.isInteger(remembered)||remembered<configured||remembered>2592000)throw new Error("REMEMBER_ME_SESSION_LIFETIME_SECONDS must be between the base password lifetime and 2592000");
+    return remembered;
   }
   private corporateLifetimeSeconds():number{
     const raw=process.env.AIMS_SESSION_LIFETIME_SECONDS;
@@ -112,9 +134,9 @@ export class SessionService {
     this.setCookies(response,issued.token,issued.csrf,issued.lifetime);
     return issued.principal;
   }
-  private async insertSession(identity:SessionIdentity[],method:"LOCAL_ADAPTER"|"CORPORATE_PROVIDER",client:Pick<PoolClient,"query">):Promise<IssuedCorporateSession>{
+  private async insertSession(identity:SessionIdentity[],method:"LOCAL_ADAPTER"|"CORPORATE_PROVIDER"|"LOCAL_PASSWORD",client:Pick<PoolClient,"query">,rememberMe=false):Promise<IssuedCorporateSession>{
     const token=randomBytes(32).toString("base64url"),csrf=randomBytes(24).toString("base64url");
-    const lifetime=method==="CORPORATE_PROVIDER"?this.corporateLifetimeSeconds():this.localLifetimeSeconds(),sessionId=randomUUID(),row=identity[0];
+    const lifetime=method==="CORPORATE_PROVIDER"?this.corporateLifetimeSeconds():method==="LOCAL_PASSWORD"?this.passwordLifetimeSeconds(rememberMe):this.localLifetimeSeconds(),sessionId=randomUUID(),row=identity[0];
     await client.query(`INSERT INTO aims_sessions
       (id,token_hash,csrf_token_hash,user_id,external_identity_id,authentication_method,expires_at)
       VALUES($1,$2,$3,$4,$5,$6,now()+($7::text||' seconds')::interval)`,
@@ -130,10 +152,10 @@ export class SessionService {
   private cookies(request:Request):Record<string,string>{return Object.fromEntries((request.headers.cookie??"").split(";").map(value=>value.trim().split("=")).filter(parts=>parts.length===2).map(([key,value])=>[key,decodeURIComponent(value)]));}
   private hash(value:string){return createHash("sha256").update(value).digest("hex");}
   private equal(left:string,right:string){const a=Buffer.from(left),b=Buffer.from(right);return a.length===b.length&&timingSafeEqual(a,b);}
-  private requireAllowedOrigin(request:Request){const allowed=process.env.WEB_ORIGIN??"http://localhost:3000";const origin=request.header("origin");if(origin!==allowed){metrics.counter("aims_domain_operations_total",{operation:"CSRF_ORIGIN",outcome:"FAILURE",failure_category:"AUTHENTICATION",channel:"WEB"});throw new UnauthorizedException("Request origin is not allowed")}}
-  private async audit(eventType:string,request:Request,userId:string|null,identityId:string|null){
+  requireAllowedOrigin(request:Request){const allowed=process.env.WEB_ORIGIN??"http://localhost:3000";const origin=request.header("origin");if(origin!==allowed){metrics.counter("aims_domain_operations_total",{operation:"CSRF_ORIGIN",outcome:"FAILURE",failure_category:"AUTHENTICATION",channel:"WEB"});throw new UnauthorizedException("Request origin is not allowed")}}
+  private async audit(eventType:string,request:Request,userId:string|null,identityId:string|null,roles:readonly Role[]|null){
     await this.database.pool.query(`INSERT INTO authentication_audit_events
-      (id,user_id,external_identity_id,authentication_method,source_channel,event_type,correlation_id)
-      VALUES($1,$2,$3,'LOCAL_ADAPTER','WEB',$4,$5)`,[randomUUID(),userId,identityId,eventType,(request as Request&{correlationId?:string}).correlationId??"unavailable"]);
+      (id,user_id,external_identity_id,authentication_method,source_channel,event_type,correlation_id,source_ip,actor_role_snapshot)
+      VALUES($1,$2,$3,'LOCAL_ADAPTER','WEB',$4,$5,$6,$7)`,[randomUUID(),userId,identityId,eventType,(request as Request&{correlationId?:string}).correlationId??"unavailable",request.ip??null,roles]);
   }
 }

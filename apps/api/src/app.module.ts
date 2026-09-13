@@ -54,11 +54,19 @@ import { createDocumentScanner, createDocumentStorage } from "./infrastructure/c
 import { CorporateAuthController } from "./application/auth/corporate-auth.controller.js";
 import { CorporateAuthService } from "./application/auth/corporate-auth.service.js";
 import { CORPORATE_IDENTITY_PROVIDER, UnavailableCorporateIdentityProvider } from "./application/auth/corporate-identity.provider.js";
+import { PasswordAuthController } from "./application/auth/password-auth.controller.js";
+import { PasswordAuthService } from "./application/auth/password-auth.service.js";
+import { EMAIL_SENDER, createEmailSender } from "./infrastructure/email/email-sender.js";
+import { FinanceMasterGuard } from "./application/auth/finance-master.guard.js";
+import { UserManagementController } from "./application/user-management/user-management.controller.js";
+import { UserManagementService } from "./application/user-management/user-management.service.js";
 
 @Module({
   controllers: [
     LocalIdentityController,
     CorporateAuthController,
+    PasswordAuthController,
+    UserManagementController,
     PaymentRequestController,
     ValidationController,
     FinanceContextController,
@@ -80,6 +88,10 @@ import { CORPORATE_IDENTITY_PROVIDER, UnavailableCorporateIdentityProvider } fro
     SessionService,
     CorporateAuthService,
     { provide: CORPORATE_IDENTITY_PROVIDER, useFactory: () => new UnavailableCorporateIdentityProvider() },
+    PasswordAuthService,
+    { provide: EMAIL_SENDER, useFactory: () => createEmailSender(process.env) },
+    FinanceMasterGuard,
+    UserManagementService,
     PaymentRequestService,
     PaymentDocumentService,
     ValidationService,

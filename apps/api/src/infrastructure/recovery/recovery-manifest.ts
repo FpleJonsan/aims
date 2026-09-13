@@ -1,6 +1,6 @@
 export const RECOVERY_MANIFEST_VERSION = "1" as const;
-export const SUPPORTED_SCHEMA_VERSION = 61 as const;
-export const SUPPORTED_MIGRATION_ID = "061_p13_storage_object_version_binding" as const;
+export const SUPPORTED_SCHEMA_VERSION = 63 as const;
+export const SUPPORTED_MIGRATION_ID = "063_p20_5b_finance_master_users" as const;
 
 const MAX_TEXT = 256;
 const MAX_REFERENCE = 1024;

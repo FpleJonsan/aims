@@ -9,6 +9,8 @@ export const SERVER_SECRET_NAMES = [
   "TELEGRAM_BOT_TOKEN",
   "TELEGRAM_WEBHOOK_SECRET",
   "TELEGRAM_CALLBACK_SECRET",
+  "EMAIL_API_URL",
+  "EMAIL_API_KEY",
 ] as const;
 
 export type ServerSecretName = (typeof SERVER_SECRET_NAMES)[number];
