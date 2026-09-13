@@ -2,7 +2,7 @@
 .p183-dashboard { display:grid; gap:var(--aims-space-24); min-width:0; }
 .p183-pageHeader { margin-bottom:var(--aims-space-32); gap:var(--aims-space-8); }
 .p183-dashboardHero,.p183-dashboard .aims-card-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--aims-space-16); }
-.p183-dashboardFilters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)) auto; gap:var(--aims-space-16); align-items:end; }
+.p183-dashboardFilters { display:grid; grid-template-columns:minmax(120px,.8fr) minmax(120px,.8fr) minmax(210px,1.3fr) minmax(140px,.9fr) auto; gap:var(--aims-space-16); align-items:end; }
 .p183-sectionHeading { display:grid; gap:var(--aims-space-8); }
 .p183-currencyPosition { display:grid; gap:var(--aims-space-12); }
 .p183-kpiGrid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--aims-space-16); }
