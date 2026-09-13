@@ -568,7 +568,9 @@ function ReportingRequestDrill({api,drill,back}:{api:Api;drill:Extract<Dashboard
   const [data,setData]=useState<{items:Array<Record<string,unknown>>;total:number}|null>(null),[notice,setNotice]=useState("");
   const query=new URLSearchParams({view:drill.reportView,...Object.fromEntries(Object.entries(drill.filters).filter(([,v])=>v))}).toString();
   useEffect(()=>{let active=true;void api(`/dashboard/requests?${query}`).then((x)=>{if(active)setData(x as {items:Array<Record<string,unknown>>;total:number})}).catch((e)=>{if(active)setNotice(msg(e))});return()=>{active=false}},[api,query]);
-  return <section className="card reportingDrill"><button className="back" onClick={back}>← Finance Dashboard</button><header><div><small>REPORTING VIEW · READ ONLY</small><h2>{drill.reportView==="PENDING_APPROVAL"?"Pending Approval":"High / Critical Risk"}</h2></div></header>{notice&&<p className="notice">{notice}</p>}<p>{data?.total??0} authoritative records · reporting access does not grant Approval or Payment authority.</p><div className="table">{data?.items.map((x)=><div className="reportingRow" key={String(x.id)}><span className="ticket">{String(x.ticket_number)}</span><span><b>{String(x.payee)}</b><small>{String(x.department)} · {String(x.category)}</small></span><span>{String(x.currency)} {String(x.amount)}<small>{String(x.status)}</small></span><span><b>{String(x.final_risk??"—")}</b><small>{String(x.final_priority??"—")}</small></span></div>)}</div>{data&&!data.items.length&&<p>NO DATA IN SELECTED RANGE</p>}</section>;
+  const reportTitle=drill.reportView==="PENDING_APPROVAL"?"Pending Approval":"High / Critical Risk";
+  const tableLabel=`${reportTitle} reporting results`;
+  return <section className="card reportingDrill"><button className="back" onClick={back}>← Finance Dashboard</button><header><div><small>REPORTING VIEW · READ ONLY</small><h2>{reportTitle}</h2></div></header>{notice&&<p className="notice">{notice}</p>}<p>{data?.total??0} authoritative records · reporting access does not grant Approval or Payment authority.</p><UiTableContainer label={tableLabel} className="table"><div role="table" aria-label={tableLabel}><UiTableHeaderRow columns={["Ticket","Payee","Amount","Risk"]}/>{data?.items.map((x)=><div role="row" className="reportingRow" key={String(x.id)}><span className="ticket" role="cell">{String(x.ticket_number)}</span><span role="cell"><b>{String(x.payee)}</b><small>{String(x.department)} · {String(x.category)}</small></span><span role="cell">{String(x.currency)} {String(x.amount)}<small>{String(x.status)}</small></span><span role="cell"><b>{String(x.final_risk??"—")}</b><small>{String(x.final_priority??"—")}</small></span></div>)}</div></UiTableContainer>{data&&!data.items.length&&<p>NO DATA IN SELECTED RANGE</p>}</section>;
 }
 
 function FinanceIntelligenceWorkspace({api}:{api:Api}){
@@ -1276,7 +1278,7 @@ function List({
                 {requesterView&&<small>{x.submittedAt?`Submitted ${formatDate(x.submittedAt)}`:"Not submitted to Finance"}</small>}
               </span>
               <span role="cell">{formatMoney(x.currency,x.amount)}</span>
-              {x.humanFinalRisk && <span role="cell">Human risk: {x.humanFinalRisk}</span>}
+              {!requesterView && <span role="cell">{x.humanFinalRisk ? `Human risk: ${x.humanFinalRisk}` : "—"}</span>}
               <span className="requestProgress" role="cell"><StatusChip status={x.status}/>{requesterView&&<><small>Next owner: {requesterStatusPresentation[x.status].owner}</small><small>{requesterStatusPresentation[x.status].action}</small></>}</span>
               {requesterView&&<span role="cell">{formatDate(x.updatedAt)}<small>Updated</small></span>}
               <strong role="cell">Open Request →</strong>
