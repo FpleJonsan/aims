@@ -1,13 +1,13 @@
 # AIMS P11 Provider-Neutral Alert Catalogue
 
-Status: PASS / FROZEN provider-neutral specification; current deployment target is schema 61.
+Status: PASS / FROZEN provider-neutral specification; current deployment target is schema 69.
 
 The frozen machine-reviewable P11 contract in
 `apps/api/src/infrastructure/observability/alert-specification.ts` records the
 historical schema-58 baseline at which P11 was implemented. This document is
 the current operator-facing index: schema recovery always targets the runtime
-schema contract, currently schema 61 at
-`061_p13_storage_object_version_binding`. No specification is a business rule
+schema contract, currently schema 69 at
+`069_p20_5g_notification_platform`. No specification is a business rule
 or deployed provider rule. Numeric thresholds remain deliberately unresolved
 where P15, Security, Finance, company standards or provider evidence owns the
 decision.
@@ -22,7 +22,7 @@ not AIMS authority. Alert evaluation/delivery cannot mutate business state.
 | `API_REQUIRED_READINESS_FAILURE` | ALERT / HIGH | readiness gauge/event | Deterministic | all required ready | Always | SRE / API | P13 duration |
 | `API_5XX_RATE_DEGRADATION` | WARNING / MEDIUM | HTTP outcomes | P15 | rate recovers | Always | Backend / API | P15/P13 |
 | `API_LATENCY_DEGRADATION` | WARNING / MEDIUM | HTTP duration | P15 | latency recovers | Always | Backend / API | P15 |
-| `SCHEMA_VERSION_MISMATCH` | ALERT / HIGH | schema readiness | Deterministic | runtime matches current schema contract: 61 / `061_p13_storage_object_version_binding` | Always | DBA / schema | P13 |
+| `SCHEMA_VERSION_MISMATCH` | ALERT / HIGH | schema readiness | Deterministic | runtime matches current schema contract: 69 / `069_p20_5g_notification_platform` | Always | DBA / schema | P13 |
 | `DATABASE_UNAVAILABLE` | PAGE / CRITICAL | readiness + DB outcomes | Business | DB/executors healthy | Always | DBA / DB | company/P13 |
 | `DATABASE_POOL_DEGRADATION` | WARNING / MEDIUM | pool gauges | P15 | wait pressure clears | Always | DBA / DB | P15 |
 | `DATABASE_TIMEOUT_LOCK_DEGRADATION` | ALERT / HIGH | DB outcome/duration | P15 | failures recover | Always | DBA / DB | P15 |

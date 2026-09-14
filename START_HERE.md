@@ -1,6 +1,6 @@
 # 🚀 Quick Start Guide - AIMS
 
-**Date:** 2026-09-08
+**Release contract:** schema 69, migrations `001`–`069`, latest `069_p20_5g_notification_platform`
 
 ---
 
@@ -15,127 +15,55 @@ Before starting, make sure you have:
 
 ## Step-by-Step Startup
 
-### 1️⃣ Start PostgreSQL Database
+### 1️⃣ Install dependencies and run the canonical bootstrap
 
-You need a PostgreSQL database running. Choose one option:
-
-#### Option A: Use Docker (Recommended)
-
-```bash
-# Start PostgreSQL container
-docker run -d \
-  --name aims-postgres \
-  -e POSTGRES_DB=aims \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=your_secure_password \
-  -p 5432:5432 \
-  postgres:17
-
-# Verify it's running
-docker ps | grep aims-postgres
-```
-
-#### Option B: Use Existing PostgreSQL
-
-If you already have PostgreSQL installed locally:
-```bash
-# Create database
-createdb aims
-
-# Or connect and create:
-psql postgres
-CREATE DATABASE aims;
-\q
-```
-
----
-
-### 2️⃣ Set Up Database Users & Roles
-
-Connect to PostgreSQL and create the required roles:
-
-```bash
-# Using Docker container
-docker exec -it aims-postgres psql -U postgres -d aims
-
-# Or local PostgreSQL
-psql -U postgres -d aims
-```
-
-Then run these SQL commands:
-
-```sql
--- Create application user
-CREATE USER aims_app WITH PASSWORD '111';
-
--- Create finance executor capability role (NOLOGIN)
-CREATE ROLE aims_finance_executor NOLOGIN;
-
--- Create finance runtime user (member of executor role)
-CREATE USER aims_finance_runtime WITH PASSWORD '111';
-GRANT aims_finance_executor TO aims_finance_runtime;
-
--- Create payment executor capability role (NOLOGIN)
-CREATE ROLE aims_payment_executor NOLOGIN;
-
--- Create payment runtime user (member of executor role)
-CREATE USER aims_payment_runtime WITH PASSWORD '111';
-GRANT aims_payment_executor TO aims_payment_runtime;
-
--- Exit
-\q
-```
-
----
-
-### 3️⃣ Run Database Migrations
-
-Apply all 53 migrations in order:
+The supported local path uses the repository's Docker Compose service, creates
+the complete owner/migrator/application/Finance/Payment/document-worker role
+model, writes an ignored `.env.local`, validates all 69 immutable migration
+files, executes the production-safe schema portions with `ON_ERROR_STOP=1`,
+runs post-migration hardening and verifies the privilege
+manifest. Do not hand-create partial runtime roles or replay SQL over a
+partially initialized database.
 
 ```bash
 cd /Users/woonchunkit/Sites/aims-site
-
-# If using Docker:
-for f in apps/api/migrations/*.sql; do
-  echo "Applying $f..."
-  docker exec -i aims-postgres psql -U postgres -d aims -v ON_ERROR_STOP=1 < "$f"
-done
-
-# If using local PostgreSQL:
-for f in apps/api/migrations/*.sql; do
-  echo "Applying $f..."
-  psql -U postgres -d aims -v ON_ERROR_STOP=1 < "$f"
-done
+npm install
+npm run bootstrap
 ```
 
-**Important:** This will apply all migrations including demo data fixtures.
+The resulting database must report schema 69 and migration
+`069_p20_5g_notification_platform`. The local bootstrap then applies the
+separately isolated development fixture layer. Production uses
+`npm run migrate:production` and never invokes it.
 
 ---
 
-### 4️⃣ Verify Environment Configuration
+### 2️⃣ Verify Environment Configuration
 
-Check your `.env` file has correct database URLs:
+The bootstrap creates `.env.local` with distinct local-only runtime URLs. Never
+copy these development credentials into a hosted environment.
 
 ```bash
-cat .env | grep DATABASE_URL
+grep 'DATABASE_URL' .env.local
 ```
 
 Should show:
 ```
-DATABASE_URL=postgresql://aims_app:111@localhost:5432/aims
-FINANCE_DATABASE_URL=postgresql://aims_finance_runtime:111@localhost:5432/aims
-PAYMENT_DATABASE_URL=postgresql://aims_payment_runtime:111@localhost:5432/aims
+DATABASE_URL=postgresql://aims_app:local_app@127.0.0.1:55432/aims
+FINANCE_DATABASE_URL=postgresql://aims_finance_runtime:local_finance@127.0.0.1:55432/aims
+PAYMENT_DATABASE_URL=postgresql://aims_payment_runtime:local_payment@127.0.0.1:55432/aims
+DOCUMENT_WORKER_DATABASE_URL=postgresql://aims_document_worker_runtime:local_worker@127.0.0.1:55432/aims
 ```
 
 ---
 
-### 5️⃣ Start the API Server
+### 3️⃣ Start the complete local application
 
-Open a terminal and run:
+Run the canonical launcher. It verifies schema 69, Redis, ports and readiness,
+then starts the API, worker and frontend together.
 
 ```bash
-cd /Users/woonchunkit/Sites/aims-site
-npm run dev --workspace @aims/api
+npm run local
 ```
 
 You should see:
@@ -143,7 +71,8 @@ You should see:
 [Nest] INFO [NestApplication] Nest application successfully started
 ```
 
-**API will be running at:** `http://localhost:3001`
+The web application runs at `http://localhost:3000` and the API at
+`http://localhost:3001`.
 
 Test it:
 ```bash
@@ -153,26 +82,7 @@ curl http://localhost:3001/health/ready
 
 ---
 
-### 6️⃣ Start the Web Application
-
-Open a **second terminal** and run:
-
-```bash
-cd /Users/woonchunkit/Sites/aims-site
-npm run dev
-```
-
-You should see:
-```
-▲ Next.js 16.3.3
-- Local: http://localhost:3000
-```
-
-**Web will be running at:** `http://localhost:3000`
-
----
-
-## 7️⃣ Access the Application
+## 4️⃣ Access the Application
 
 Open your browser and go to: **http://localhost:3000**
 
@@ -195,7 +105,7 @@ For full testing, start with **`demo.requester`** to create a payment request, t
 After startup, verify:
 
 - [ ] PostgreSQL is running
-- [ ] All 53 migrations applied successfully
+- [ ] All 69 migrations applied successfully; schema is 69 at `069_p20_5g_notification_platform`
 - [ ] API server running on port 3001
 - [ ] Web server running on port 3000
 - [ ] Can access http://localhost:3000
@@ -220,7 +130,8 @@ pg_isready -h localhost -p 5432
 
 ### Problem: "Role does not exist" or "Permission denied"
 
-**Solution:** Run the user creation SQL from Step 2 again.
+**Solution:** Re-run `npm run bootstrap`; it preserves an existing `.env.local`
+and verifies the complete role and privilege model.
 
 ---
 
@@ -229,7 +140,7 @@ pg_isready -h localhost -p 5432
 **Solution:** Make sure all migrations are applied:
 ```bash
 # Check current migration status
-psql -U postgres -d aims -c "SELECT * FROM schema_version ORDER BY applied_at DESC LIMIT 5;"
+docker compose exec -T postgres psql -X -U postgres -d aims -c "SELECT version,migration_id FROM aims_schema_version WHERE singleton;"
 ```
 
 ---

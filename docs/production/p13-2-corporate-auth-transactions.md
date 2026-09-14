@@ -78,6 +78,8 @@ MFA/conditional-access owner, allowed user population, logout policy, session
 policy, and identity revocation/incident process remain unresolved. No vendor,
 endpoint, secret or operational threshold is invented.
 
-Migration 060 remains frozen and schema remains 60. No Migration 061, frontend,
+Migration 060 remains frozen as historical provenance. This phase ended at
+schema 60; the current Enterprise release target is schema 69 at
+`069_p20_5g_notification_platform`. The phase introduced no frontend,
 financial logic, workflow, provider configuration, Redis state or second
-session/state model is introduced.
+session/state model.

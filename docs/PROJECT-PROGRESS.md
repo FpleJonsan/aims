@@ -10,12 +10,12 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | P13.3 — Storage and Scanner Architecture / Contract PASS / FROZEN |
-| Current status | P13 final documentation reconciliation complete; consolidated exit review pending |
-| Last completed phase | P13.3.2 — Storage and Scanner Company Decision Pack |
+| Current Production phase | Production Bootstrap Separation / Release Engineering |
+| Current status | Production-safe schema/system bootstrap and isolated development fixtures verified |
+| Last completed phase | P20.5H-1 — Release Documentation Synchronization / FROZEN |
 | Overall Production ready | NO |
-| Current schema | 61 |
-| Latest migration | `061_p13_storage_object_version_binding` |
+| Current schema | 69 |
+| Latest migration | `069_p20_5g_notification_platform` |
 | Current branch | `main` |
 | Last verified commit | `9a1c738` |
 | P6 database architecture | PASS |
@@ -81,11 +81,11 @@ Preserve these invariants:
   closed until an approved corporate identity adapter exists.
 - **Sessions:** only hashes of opaque session/CSRF tokens are stored; origin,
   CSRF, expiry, revocation, logout, and current-user status are enforced.
-- **Database:** schema 61 is authoritative. Runtime roles must not own schema
+- **Database:** schema 69 is authoritative. Runtime roles must not own schema
   objects or obtain DDL, role administration, or cross-executor authority.
-- **Finance executor:** only the approved Finance Control capabilities and two
-  trusted functions are available to the dedicated executor.
-- **Payment executor:** only the approved payment/document capabilities and five
+- **Finance executor:** only the five functions in the executable privilege
+  manifest are available to the dedicated executor.
+- **Payment executor:** only the approved payment/document capabilities and six
   trusted functions are available; it cannot invoke Finance Control functions.
 - **Documents:** evidence follows quarantine/trust-state controls; only CLEAN,
   current evidence may cross the authoritative trust boundary.
@@ -100,11 +100,11 @@ Preserve these invariants:
 
 | Item | State |
 | --- | --- |
-| Schema version | 61 |
-| Latest migration | `061_p13_storage_object_version_binding.sql` |
-| Historical migration chain | `001`–`061`; 001–060 remain immutable and Migration 061 is frozen |
-| Migration 062+ | NONE / NOT AUTHORIZED |
-| Local database | Schema 56; P6 ownership/role posture verified PASS and frozen |
+| Schema version | 69 |
+| Latest migration | `069_p20_5g_notification_platform.sql` |
+| Historical migration chain | `001`–`069`; all 69 migrations are immutable and applied lexically |
+| Next migration | `070+` does not exist in the current release |
+| Local database | Supported bootstrap and runtime target is schema 69 |
 | Target owner | `aims_owner` (`NOLOGIN`) |
 | Target migrator | `aims_migrator` (`LOGIN`, `NOINHERIT`, explicit owner-role entry) |
 | Normal runtime | `aims_app` |

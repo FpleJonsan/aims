@@ -1,6 +1,6 @@
 # AIMS Migration Inventory
 
-The clean-database lifecycle applies all 61 SQL files below in lexical order with `ON_ERROR_STOP=1`. Historical migrations are immutable; local/demo fixture migrations are explicitly identified by name, `052` removes Day 9 reconciliation fixtures so reporting is not polluted, and `053`–`061` provide the forward-only Production hardening foundations.
+The repository contains all 69 immutable SQL files below in lexical order. Production uses `apps/api/scripts/production-migrate.mjs`: it validates all 69 names, defers 14 fixture-only files, checksum-validates and removes fixture inserts from mixed migrations 048 and 054, executes every schema-bearing migration with `ON_ERROR_STOP`, then runs hardening, privilege and no-fixture verification. Development applies the same production-safe schema/system layer before its separate fixture layer. The required schema is version 69 with latest migration `069_p20_5g_notification_platform`.
 
 | Range | Purpose |
 | --- | --- |
@@ -20,6 +20,14 @@ The clean-database lifecycle applies all 61 SQL files below in lexical order wit
 | 059 | Recovery-generation fencing |
 | 060 | Corporate authentication transactions |
 | 061 | Provider-neutral immutable storage-object version binding |
+| 062 | Password authentication and password-reset foundation |
+| 063 | Finance Master and user-management foundation |
+| 064 | Enterprise role and permission matrix |
+| 065 | Enterprise master-data foundation |
+| 066 | Versioned business-configuration platform |
+| 067 | Multi-claim architecture |
+| 068 | Approval matrix and approval delegation |
+| 069 | Enterprise notification platform |
 
 Exact files:
 
@@ -80,11 +88,19 @@ Exact files:
 054_p1l_local_identity_sessions.sql
 055_p3_p4_document_security.sql
 056_payment_slip_trust_transition.sql
-057_p7_document_scan_worker.sql
-058_p10_observability_corrections.sql
+057_p7_document_scan_worker_leases.sql
+058_p10_observability_claim_recovery_and_outbox_index.sql
 059_p12_recovery_generation_fencing.sql
 060_p13_corporate_auth_transactions.sql
 061_p13_storage_object_version_binding.sql
+062_p20_5a_password_auth.sql
+063_p20_5b_finance_master_users.sql
+064_p21_role_permission_matrix.sql
+065_p20_5c_master_data_foundation.sql
+066_p20_5d_business_configuration_platform.sql
+067_p20_5e_multi_claim_architecture.sql
+068_p20_5f_approval_matrix_and_delegation.sql
+069_p20_5g_notification_platform.sql
 ```
 
 For a future production release, evaluate a checksum manifest and an optional baseline migration for deployment ergonomics. Preserve the full historical chain for audit and never destructively squash an already-used production database.

@@ -3,6 +3,7 @@ import {spawnSync} from 'node:child_process';
 import {readFileSync,writeFileSync,existsSync,readdirSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
+import {DEVELOPMENT_FIXTURE_MIGRATIONS,developmentFixtureSql,productionMigrationSql,validateMigrationNames} from '../apps/api/scripts/production-migration-plan.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const mode=process.argv[2]??'bootstrap';
 if(!['bootstrap','migrate','seed'].includes(mode))throw new Error('Use bootstrap, migrate, or seed');
@@ -39,15 +40,22 @@ if(mode==='bootstrap'){
   if(sql("SELECT count(*) FROM pg_tables WHERE schemaname='public'")!=='0')throw new Error('Database is not empty or at schema 69. Refusing to replay migrations over partial initialization. Preserve and inspect it before retrying.');
   const directory=path.join(root,'apps/api/migrations');
   const names=readdirSync(directory).filter(n=>/^\d{3}_.*\.sql$/.test(n)).sort();
-  if(names.length!==69||!names.at(-1).startsWith('069_'))throw new Error('Expected frozen migrations 001–069');
-  for(const name of names){sql('SET ROLE aims_owner;\n'+readFileSync(path.join(directory,name),'utf8'));console.log(`Applied ${name}`)}
+  validateMigrationNames(names);
+  for(const name of names){const migration=productionMigrationSql(name,readFileSync(path.join(directory,name),'utf8'));if(migration){sql('SET ROLE aims_owner;\n'+migration);console.log(`Applied production-safe ${name}`)}else console.log(`Deferred development fixture ${name}`)}
  }
  sql(readFileSync(path.join(root,'apps/api/database/production/post-migration-hardening.sql'),'utf8'));
  sql(readFileSync(path.join(root,'apps/api/database/production/privilege-manifest.sql'),'utf8'));
  console.log('Schema 69 ready; existing P6 role separation verified.');
 }else{
  if(sql('SELECT version FROM aims_schema_version WHERE singleton')!=='69')throw new Error('Migrate first');
- const users=Number(sql('SELECT count(*) FROM users'));
- if(users===0)throw new Error('Expected synthetic seed identities from immutable migrations');
- console.log(`Synthetic seeds already applied by migrations; ${users} users present. No duplicate seed writes.`);
+ const demoUsers=Number(sql("SELECT count(*) FROM users WHERE external_subject LIKE 'demo.%'"));
+ if(demoUsers===0){
+  const directory=path.join(root,'apps/api/migrations');
+  const names=readdirSync(directory).filter(name=>DEVELOPMENT_FIXTURE_MIGRATIONS.has(name)).sort();
+  for(const name of names){const source=readFileSync(path.join(directory,name),'utf8');sql('SET ROLE aims_owner;\n'+developmentFixtureSql(name,source));console.log(`Applied development fixture ${name}`)}
+  sql("SET ROLE aims_owner; INSERT INTO user_external_identities(id,user_id,provider,issuer,subject) SELECT gen_random_uuid(),id,'local','aims-local',external_subject FROM users WHERE external_subject LIKE 'demo.%' ON CONFLICT (issuer,subject) DO NOTHING");
+ }
+ const users=Number(sql("SELECT count(*) FROM users WHERE external_subject LIKE 'demo.%'"));
+ if(users===0)throw new Error('Development fixture did not create demo identities');
+ console.log(`Development fixture ready; ${users} demo users present.`);
 }

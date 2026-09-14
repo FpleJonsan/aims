@@ -2,12 +2,12 @@
 
 ## Start and readiness
 
-1. Provision PostgreSQL and restricted application, Finance executor, and Payment executor logins.
+1. Provision PostgreSQL with the reviewed owner/migrator/application, Finance, Payment, and document-worker roles from `apps/api/database/production/bootstrap-roles.sql`.
 2. Load secrets through the deployment secret manager; never bake `.env` into an image.
-3. Apply migrations in lexical order with `ON_ERROR_STOP=1` using the migration administrator.
+3. Run `npm run migrate:production` with `AIMS_ENVIRONMENT=production` and the dedicated `aims_migrator` URL. It validates all 69 immutable files, executes the production-safe schema plan, defers development fixtures, runs hardening and the privilege manifest, and verifies zero fixture records.
 4. Start the API with `npm run build --workspace @aims/api` then `npm start --workspace @aims/api`.
 5. Start the web application after `npm run build`.
-6. Probe `/health/live` for process liveness and `/health/ready` for PostgreSQL, executor, storage, AI, and Telegram configuration state. AI/Telegram disabled is healthy; an enabled but incomplete integration is not ready.
+6. Probe `/health/live` for process liveness and `/health/ready` for PostgreSQL, schema 69, executor, storage, AI, and Telegram configuration state. AI/Telegram disabled is healthy; an enabled but incomplete integration is not ready.
 
 Production startup requires trusted identity and both executor database URLs. The repository intentionally refuses local document storage in production. OpenAPI is disabled in production.
 
@@ -18,6 +18,7 @@ Production startup requires trusted identity and both executor database URLs. Th
 - Use an isolated empty database to test the complete chain before release.
 - Run migrations with an administrator unavailable to the runtime API.
 - Stop deployment on the first error. Do not mark an incomplete migration as applied.
+- Verify the singleton schema row is version 69 with migration ID `069_p20_5g_notification_platform` before starting runtime processes.
 - A baseline/squash may be evaluated later for release ergonomics; keep the immutable chain and checksum record. No squash has been performed.
 
 ## AI operations
@@ -52,7 +53,7 @@ Inspect `notification_outbox` for `FAILED` and old `PROCESSING` rows. Claims old
 
 Local storage is only for synthetic local/demo files and is non-recoverable by design unless the operator separately backs it up. Production requires an S3-compatible versioned bucket, encryption, blocked public access, lifecycle policy, malware quarantine/scan/promotion, and a tested backup/replication strategy.
 
-Restore order is PostgreSQL first, object versions second, then API/workers, and web last. Validate database-to-object hashes before reopening mutations.
+Follow `docs/production/runbooks/p12-backup-restore-dr.md`: restore PostgreSQL and exact object versions into an isolated frozen environment, advance the recovery generation through the separately controlled migrator procedure, run the read-only checker with a schema-69 manifest, reconcile authority and external payments, obtain human approval, then start API/workers and resume traffic in the approved order.
 
 ## Backup and credential recovery
 
@@ -65,4 +66,3 @@ Restore order is PostgreSQL first, object versions second, then API/workers, and
 ## Operational signals
 
 Alert on request 5xx failures, database connectivity, `40001` exhaustion, failed AI runs, provider latency, outbox age/failures, Telegram failures, Finance Control failures, and Payment recording failures. Include correlation IDs, entity IDs, safe failure classifications, and latency; exclude prompts, documents, credentials, payment details, and bank references.
-

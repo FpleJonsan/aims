@@ -2,9 +2,9 @@
 
 ## Status and scope
 
-P6 defines the provider-independent PostgreSQL deployment boundary and P7 extends it with the dedicated document-worker boundary. P12 adds recovery-generation fencing and Migration 061 adds exact storage-object identity to the worker boundary. Neither phase selects a database provider or implements HA/read replicas, Production backups, or centralized monitoring. Infrastructure SQL is under `apps/api/database/production`; the current frozen application chain is `001`–`061`, with schema readiness requiring version 61 and `061_p13_storage_object_version_binding`. Migration 062+ does not exist.
+P6 defines the provider-independent PostgreSQL deployment boundary and P7 extends it with the dedicated document-worker boundary. P12 adds recovery-generation fencing and Migration 061 adds exact storage-object identity to the worker boundary. Neither phase selects a database provider or implements HA/read replicas, Production backups, or centralized monitoring. Infrastructure SQL is under `apps/api/database/production`; the current frozen application chain is `001`–`069`, with schema readiness requiring version 69 and `069_p20_5g_notification_platform`.
 
-The disposable proof is the authoritative executable model. The existing local `aims` database remains at its separately governed schema-56 checkpoint and is not a schema-61 deployment target. Its P6 ownership, role, default-privilege and runtime-restriction posture is verified PASS/FROZEN. Applying migrations 057–061 to that shared local database requires separate explicit authorization.
+The disposable proof is the authoritative executable model. The supported local bootstrap target is schema 69. Any manually managed database at an older checkpoint is not a current release target and must use only the explicitly supported forward path or a fresh isolated bootstrap; never replay the chain over a partially initialized database.
 
 ## Role and ownership model
 
@@ -35,13 +35,13 @@ After migrations, all `PUBLIC` table/sequence privileges and all application-fun
 
 ## Table and sequence privileges
 
-`aims_app` retains the explicitly accumulated per-table/per-column grants in the frozen migration chain through 061. These grants are broad only where current repositories require them; they are not replaced with `ALL TABLES` defaults. Protected Payment/ledger writes and final Finance Control are removed from normal runtime and mediated by trusted functions/guards. Audit and historical records retain append-only/immutability triggers.
+`aims_app` retains the explicitly accumulated per-table/per-column grants in the frozen migration chain through 069. These grants are broad only where current repositories require them; they are not replaced with `ALL TABLES` defaults. Protected Payment/ledger writes and final Finance Control are removed from normal runtime and mediated by trusted functions/guards. Audit and historical records retain append-only/immutability triggers.
 
 Finance executor receives direct Finance Control working-table privileges required by the existing service plus its trusted capabilities. It receives no Payment trusted function. Payment executor receives no Finance Control trusted function. Its document capability is limited to version-bound payment-slip attachment; it cannot claim or finalize scans. Recording the externally completed payment remains its separate trusted capability. Raw payment-slip security transitions remain rejected by the trusted-write guard, and the removed synchronous scan functions remain absent.
 
 The application uses UUIDs for nearly all identities. The one owned sequence is migration-created and remains owner-controlled; legitimate runtime operations depend on explicit migration grants rather than ownership or future blanket sequence defaults.
 
-## Current effective executor SECURITY DEFINER allowlists at schema 61
+## Current effective executor SECURITY DEFINER allowlists at schema 69
 
 Document-worker callable only:
 
@@ -60,6 +60,7 @@ Finance callable:
 - `complete_finance_control_pass(uuid,uuid)`
 - `create_corporate_auth_transaction(uuid,text,text,text,text,text,text,integer,uuid)`
 - `consume_corporate_auth_transaction(text)`
+- `self_register_requester(uuid,uuid,character varying,character varying,uuid,bytea,bytea,jsonb)`
 
 Payment callable:
 
@@ -68,6 +69,7 @@ Payment callable:
 - `record_payment(uuid,uuid,uuid,date,bigint,text,text,uuid,boolean)`
 - `create_corporate_auth_transaction(uuid,text,text,text,text,text,text,integer,uuid)`
 - `consume_corporate_auth_transaction(text)`
+- `self_register_requester(uuid,uuid,character varying,character varying,uuid,bytea,bytea,jsonb)`
 
 The synchronous `begin_payment_slip_security_scan` and `complete_payment_slip_security_scan` capabilities were removed by Migration 061. Document scanning is available only through the document-worker allowlist above. Trigger/internal functions require no direct runtime `EXECUTE`: PostgreSQL invokes them through owned triggers. Fixed search paths and schema-qualified protected relations prevent caller-controlled object shadowing. The manifest inventory must be regenerated and reviewed whenever migrations add or change a definer function.
 
@@ -95,12 +97,12 @@ New installation:
 
 1. Create an isolated database with the operational bootstrap identity.
 2. Run `bootstrap-roles.sql` with an explicit target database; assign generated credentials through the approved secret channel.
-3. Connect as `aims_migrator`, explicitly `SET ROLE aims_owner`, and apply the reviewed migrations 001–061 in lexical order with `ON_ERROR_STOP` under an approved Production bootstrap plan.
-4. Run `post-migration-hardening.sql` and `privilege-manifest.sql`.
-5. Verify singleton schema version 61 and exact migration ID `061_p13_storage_object_version_binding`.
+3. Set `AIMS_ENVIRONMENT=production` and `AIMS_MIGRATION_DATABASE_URL` to the dedicated migrator connection, then run `npm run migrate:production`. The runner validates all 69 immutable files, defers fixture-only migrations, checksum-validates the fixture removal from mixed migrations 048 and 054, and executes every schema transition with `ON_ERROR_STOP`.
+4. The runner applies `post-migration-hardening.sql`, verifies `privilege-manifest.sql`, and fails if any demo/local/competition record exists.
+5. Verify singleton schema version 69 and exact migration ID `069_p20_5g_notification_platform` from the runtime readiness endpoint before enabling traffic.
 6. Start the API with its three existing runtime credentials and the independent worker with its dedicated document-worker credential; verify readiness and representative workflow.
 
-An existing installation must first prove its exact schema and migration identity, then use only the separately reviewed forward path to schema 61. It must not replay historical migrations, skip migrations, or import synthetic data. Production bootstrap/master-data strategy remains D-015/PG-026; the historical chain contains explicitly local synthetic fixtures and is therefore a proven schema artifact, not by itself an approved Production data-loading policy.
+An existing installation must first prove its exact schema and migration identity, then use only the separately reviewed forward path to schema 69. It must not replay historical migrations, skip migrations, or import synthetic data. Production bootstrap/master-data strategy remains D-015/PG-026; the historical chain contains explicitly local synthetic fixtures and is therefore a proven schema artifact, not by itself an approved Production data-loading policy.
 
 Application startup checks schema and configuration but never migrates or self-elevates. Migration credentials are absent from the runtime secret catalogue.
 
@@ -112,7 +114,7 @@ Password/credential rotation follows the P5 runbook. Database release rollback d
 
 ## Disposable proof and future roles
 
-Run `npm run test:p6:database-proof --workspace @aims/api`. It creates and destroys an isolated container, applies migrations 001–061, verifies schema 61/latest Migration 061, and checks the forward-upgrade preservation boundary, defaults, exact executor allowlists, attacks and UAT with generated disposable credentials. It never uses local `aims`.
+Run `npm run test:p6:database-proof --workspace @aims/api`. It creates and destroys an isolated container, applies migrations 001–069, verifies schema 69/latest Migration 069, and checks the forward-upgrade preservation boundary, defaults, exact executor allowlists, attacks and UAT with generated disposable credentials. It never uses local `aims`.
 
 Mutating integration scripts also run through the repository's isolated database
 runner. The runner creates a uniquely named `aims_test_*` database/container,

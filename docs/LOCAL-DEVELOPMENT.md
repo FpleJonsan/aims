@@ -12,7 +12,7 @@ npm run bootstrap
 npm run local
 ```
 
-`npm run bootstrap` runs the existing Compose startup, bootstrap, migration and seed commands in order, stopping on failure. It adds no separate bootstrap logic.
+`npm run bootstrap` starts Compose, creates the local role boundary, applies the production-safe schema/system layer, and then applies the separate development fixture layer. `npm run bootstrap:system` stops before fixtures; `npm run fixtures:development` adds them explicitly.
 
 The bootstrap writes an ignored `.env.local` without overwriting an existing file. It uses distinct, **local-only** development passwords for the existing application, Finance, Payment, worker, and migrator roles. PostgreSQL is available on loopback port 55432 and Redis on 56379. Optional `AIMS_LOCAL_POSTGRES_PORT` and `AIMS_LOCAL_REDIS_PORT` overrides must be exported consistently before Compose and bootstrap. These containers use persistent project-scoped volumes.
 
@@ -22,7 +22,7 @@ After bootstrap, the canonical startup command is:
 npm run local
 ```
 
-It reads `.env.local`, checks PostgreSQL schema 61 and Redis, checks service ports, builds the API, then starts API, worker polling, and frontend independently. It reports ready only after API and worker readiness endpoints and the frontend respond. Missing prerequisites fail with instructions; this command never provisions containers or databases. Keep Docker services running with `docker compose up -d`.
+It reads `.env.local`, checks PostgreSQL schema 69 and Redis, checks service ports, builds the API, then starts API, worker polling, and frontend independently. It reports ready only after API and worker readiness endpoints and the frontend respond. Missing prerequisites fail with instructions; this command never provisions containers or databases. Keep Docker services running with `docker compose up -d`.
 
 The launcher derives `NEXT_PUBLIC_AIMS_API_URL=http://localhost:<API_PORT>` automatically. An explicit value in `.env.local` (or the shell when absent from that file) is preserved. It must address the API being launched; an inconsistent override fails with instructions rather than being overwritten. Readiness includes the browser-facing API health URL and credentialed CORS for `WEB_ORIGIN`.
 
@@ -36,13 +36,13 @@ npm run dev
 
 Visit `http://localhost:3000/login`, select a synthetic local identity, then open the dashboard with the seeded Finance user. Check `http://localhost:3001/health/live` and `/health/ready`. The local deterministic scanner is selected in `.env.local`; start the worker so uploaded evidence can complete scanning. No separate scheduler process is required for the worker polling loop.
 
-Re-running bootstrap preserves credentials and `.env.local`. Re-running migrate on schema 61 checks the existing privilege manifest without replaying migrations. Seed verifies the synthetic data already included in migrations 001–061; it does not insert duplicates. A partially migrated database is rejected rather than replayed or erased. Stop services with `docker compose stop`; restarting retains data. `docker compose down -v` **deletes this Compose project's local database and Redis data** and is only for an intentional disposable reset.
+Re-running bootstrap preserves credentials and `.env.local`. Re-running migrate on schema 69 checks the existing privilege manifest without replaying migrations. Development fixtures are isolated from the production migration path and are idempotent. A partially migrated database is rejected rather than replayed or erased. Stop services with `docker compose stop`; restarting retains data. `docker compose down -v` **deletes this Compose project's local database and Redis data** and is only for an intentional disposable reset.
 
 ## Database bootstrap and ownership
 
 The bootstrap uses the existing provider-independent `apps/api/database/production/bootstrap-roles.sql` and post-migration hardening/privilege manifest unchanged. The directory name is historical; these SQL contracts also define local P6 role separation. The database and public schema belong to `aims_owner`; the API uses `aims_app`, while Finance, Payment and document scanning retain separate runtime logins. Migrations execute as `aims_owner` through the local container administrator, never through application credentials.
 
-Migrations 001–061 include synthetic identities, budgets and policy seeds. Their contents are unchanged. The seed command verifies availability after migration; it is not a second seed load. Existing manually managed environments may continue using `.env` and their original npm startup commands; the new Compose path explicitly selects `.env.local`.
+The immutable migration history contains historical synthetic identities, budgets and policy seeds. The production-safe execution plan defers those fixture sections; the local seed step applies them separately after schema 69 is ready. Existing manually managed environments may continue using `.env` and their original npm startup commands; the Compose path explicitly selects `.env.local`.
 
 Day 2 adds Validation without starting Finance Context. AI defaults OFF in `ai_feature_configuration`; `AI_MASTER` and `DOCUMENT_VALIDATION` must both be enabled before the Document Agent can call the configured server-side provider. `DOCUMENT_EXTRACTION` is independently recorded for operational control. With either required flag OFF, no provider call occurs and manual validation remains available. Run `npm run test:ai:live --workspace @aims/api` only when `OPENAI_API_KEY` is intentionally configured; the normal test suite never calls paid AI.
 

@@ -1,6 +1,6 @@
 # P13.3.1 Storage Object Version Binding
 
-Status: PASS / FROZEN at schema 61.
+Status: PASS / FROZEN. This capability was introduced at schema 61; the current Enterprise release target is schema 69 at `069_p20_5g_notification_platform`.
 
 Migration `061_p13_storage_object_version_binding` adds a provider-neutral,
 immutable physical-object identity to `payment_documents`. The source identity

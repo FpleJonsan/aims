@@ -1,6 +1,6 @@
 # AIMS P7 Redis / Queue / Worker Decision
 
-Status: DECISION PASS — authorized implementation complete and frozen at schema 57.
+Status: DECISION PASS — authorized implementation complete and frozen. The capability was introduced at schema 57; the current Enterprise release target is schema 69 at `069_p20_5g_notification_platform`.
 
 Decision baseline: branch `main`, commit `a705249`, clean worktree, schema 56,
 `056_payment_slip_trust_transition`, P6 PASS and frozen. The later implementation

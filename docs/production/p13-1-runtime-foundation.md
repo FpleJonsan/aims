@@ -41,7 +41,8 @@ reviews passed with no Critical, High, Medium, or Low correction-required
 finding: Application Security, Backend/Deployment, SRE/Platform,
 Production/Cloud, DBA/PostgreSQL, and Finance Systems/Controls.
 
-The repository schema contract remains 59 at migration 059; migration 060+ is
-absent. The shared local `aims` database remains at its intentionally unchanged
-schema-56 checkpoint and was not migrated by P13.1. Overall P13 remains in
-progress, P14 is not started, and Production readiness remains NO.
+At this phase checkpoint, the repository schema contract was 59 at migration
+059 and the shared local `aims` database remained at its schema-56 checkpoint.
+The current Enterprise release target is schema 69 at
+`069_p20_5g_notification_platform`. Production readiness remains governed by
+the current readiness checklist.

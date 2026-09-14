@@ -208,7 +208,7 @@ Restore-safe startup is required conceptually:
 4. Restore PostgreSQL and the bound object versions into an isolated target.
 5. Keep AI, Telegram, outbound alerts and workers disabled; use only isolated
    object storage, IdP and secrets.
-6. Verify schema 58 (or the manifest version), migration identity, protected
+6. Verify schema 69 (the manifest version), migration identity, protected
    functions/triggers, ownership/default privileges and runtime-role denials.
 7. Run a non-mutating restore checker for financial, audit, authority,
    token/lease/outbox and document/object invariants.
