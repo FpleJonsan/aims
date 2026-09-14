@@ -32,21 +32,21 @@ const states=(overrides:Record<string,unknown> = {})=>{
  return [merged.data,merged.loading,merged.notice,merged.busy];
 };
 test('loading state shows a named status and hides both the calculate action and the empty state',()=>{
- const html=render(view(states({loading:true}),{item,user:'demo.finance',api:()=>{throw Error('must not call API while loading')}}));
+ const html=render(view(states({loading:true}),{item,capabilities:{financeAnalysis:true},api:()=>{throw Error('must not call API while loading')}}));
  assert.match(html,/role="status" aria-label="Loading Finance Context…"/);
  assert.doesNotMatch(html,/Calculate Finance Context/);
  assert.doesNotMatch(html,/has not been calculated/);
 });
 test('Calculate Finance Context triggers the exact same POST as before migration',()=>{
  const calls:Array<[string,unknown]>=[];
- const tree=view(states(),{item,user:'demo.finance',api:(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})}});
+ const tree=view(states(),{item,capabilities:{financeAnalysis:true},api:(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})}});
  const button=nodes(tree).find(n=>text(n)==='Calculate Finance Context');assert.ok(button);
  button!.props!.onClick!();
  assert.equal(calls[0][0],'/payment-requests/req-1/finance-context');
  assert.deepEqual(calls[0][1],{method:'POST',body:'{}'});
 });
 test('a non-finance viewer sees the empty state instead of an action they cannot take',()=>{
- const html=render(view(states(),{item,user:'demo.requester',api:()=>Promise.resolve({})}));
+ const html=render(view(states(),{item,capabilities:{financeAnalysis:false},api:()=>Promise.resolve({})}));
  assert.match(html,/Finance Context has not been calculated/);
  assert.doesNotMatch(html,/Calculate Finance Context/);
 });
@@ -62,7 +62,7 @@ test('a completed calculation preserves every budget figure, status, fiscal year
   projectedAvailable:{minor:'9350000',decimal:'93,500.00'},
   readyForFinancialRiskAnalysis:true,
  };
- const html=render(view(states({data}),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
+ const html=render(view(states({data}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({})}));
  assert.match(html,/Fiscal year 2026/);assert.match(html,/Operations/);
  assert.match(html,/Completed/);
  for(const [label,value] of [['Original budget','121,000.00'],['Revised budget','121,000.00'],['Actual spending','20,000.00'],['Active commitments','5,000.00'],['Available budget','96,000.00'],['Current request','250.00'],['Projected available','93,500.00']]){
@@ -75,7 +75,7 @@ test('an exception preserves the exact code and message, and Recalculate posts t
  const calls:Array<[string,unknown]>=[];
  const api=(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})};
  const data={status:'EXCEPTION',exceptionCode:'STALE_VALIDATION',category:'Operations',requestCurrency:'MYR',requestAmount:{minor:'25000',decimal:'250.00'},readyForFinancialRiskAnalysis:false};
- const tree=view(states({data}),{item,user:'demo.finance',api});
+ const tree=view(states({data}),{item,capabilities:{financeAnalysis:true},api});
  const html=render(tree);
  assert.match(html,/Finance Context exception/);
  assert.match(html,/Stale validation/);
@@ -88,7 +88,7 @@ test('an exception preserves the exact code and message, and Recalculate posts t
 });
 test('a non-finance viewer never sees the recalculate action for an open exception',()=>{
  const data={status:'EXCEPTION',exceptionCode:'MISSING_APPLICABLE_BUDGET',category:'Operations',requestCurrency:'MYR',requestAmount:{minor:'25000',decimal:'250.00'},readyForFinancialRiskAnalysis:false};
- const html=render(view(states({data}),{item,user:'demo.requester',api:()=>Promise.resolve({})}));
+ const html=render(view(states({data}),{item,capabilities:{financeAnalysis:false},api:()=>Promise.resolve({})}));
  assert.match(html,/No applicable budget/);
  assert.doesNotMatch(html,/Recalculate after correction/);
 });
@@ -96,21 +96,21 @@ test('every documented exception code maps to a readable label instead of a raw 
  const codes=['MISSING_APPLICABLE_BUDGET','INACTIVE_BUDGET','AMBIGUOUS_BUDGET_MAPPING','CURRENCY_CONTEXT_UNSUPPORTED','STALE_VALIDATION','INVALID_REQUEST_AMOUNT','INCONSISTENT_BUDGET_DATA'];
  for(const code of codes){
   const data={status:'EXCEPTION',exceptionCode:code,category:'Operations',requestCurrency:'MYR',requestAmount:{minor:'0',decimal:'0.00'},readyForFinancialRiskAnalysis:false};
-  const html=render(view(states({data}),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
+  const html=render(view(states({data}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({})}));
   assert.doesNotMatch(html,new RegExp(code.replaceAll('_',' ')),code);
   assert.doesNotMatch(html,new RegExp(code),code);
  }
 });
 test('busy state disables the pending action and swaps to an accessible busy label via the shared Button pattern',()=>{
- const normalHtml=render(view(states(),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
+ const normalHtml=render(view(states(),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({})}));
  assert.match(normalHtml,/aims-button-label">Calculate Finance Context/);
- const busyHtml=render(view(states({busy:true}),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
+ const busyHtml=render(view(states({busy:true}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({})}));
  assert.match(busyHtml,/aria-busy="true"/);
  assert.match(busyHtml,/disabled=""/);
  assert.match(busyHtml,/aims-button-label">Calculating…/);
 });
 test('an in-flight failure surfaces as an announced error without silently discarding it',()=>{
- const html=render(view(states({notice:'Something went wrong'}),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
+ const html=render(view(states({notice:'Something went wrong'}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({})}));
  assert.match(html,/role="alert"[^>]*>Something went wrong/);
 });
 test('finance context composition only references frozen tokens and introduces no design literals',async()=>{

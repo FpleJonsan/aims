@@ -33,14 +33,14 @@ const states=(overrides:Record<string,unknown> = {})=>{
  return [merged.data,merged.loading,merged.notice,merged.risk,merged.priority,merged.busy];
 };
 test('loading state shows a named status and hides both the start action and the empty state',()=>{
- const html=render(view(states({loading:true}),{item,user:'demo.finance',api:()=>{throw Error('must not call API while loading')}}));
+ const html=render(view(states({loading:true}),{item,capabilities:{financeAnalysis:true},api:()=>{throw Error('must not call API while loading')}}));
  assert.match(html,/role="status" aria-label="Loading Financial Risk Analysis…"/);
  assert.doesNotMatch(html,/Start AI-assisted analysis/);
  assert.doesNotMatch(html,/has not started yet/);
 });
 test('not-started outcome badge, and Start AI-assisted analysis triggers the exact same POST as before migration',()=>{
  const calls:Array<[string,unknown]>=[];
- const tree=view(states(),{item,user:'demo.finance',api:(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({id:'run-1',source:'AI_ASSISTED',status:'PROCESSING',agents:[],readyForPolicyEvaluation:false})}});
+ const tree=view(states(),{item,capabilities:{financeAnalysis:true},api:(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({id:'run-1',source:'AI_ASSISTED',status:'PROCESSING',agents:[],readyForPolicyEvaluation:false})}});
  const html=render(tree);
  assert.match(html,/Not started/);
  const button=nodes(tree).find(n=>text(n)==='Start AI-assisted analysis');assert.ok(button);
@@ -49,14 +49,14 @@ test('not-started outcome badge, and Start AI-assisted analysis triggers the exa
  assert.deepEqual(calls[0][1],{method:'POST',body:'{}'});
 });
 test('a non-finance viewer sees the empty state instead of an action they cannot take',()=>{
- const html=render(view(states(),{item,user:'demo.requester',api:()=>Promise.resolve({})}));
+ const html=render(view(states(),{item,capabilities:{financeAnalysis:false},api:()=>Promise.resolve({})}));
  assert.match(html,/Financial Risk Analysis has not started yet/);
  assert.doesNotMatch(html,/Start AI-assisted analysis/);
 });
 test('Complete manually posts the exact same fixed assessment payload with the selected risk and priority',()=>{
  const calls:Array<[string,unknown]>=[];
  const api=(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({id:'run-2',source:'MANUAL',status:'AWAITING_HUMAN_REVIEW',agents:[],readyForPolicyEvaluation:false})};
- const tree=view(states({risk:'HIGH',priority:'URGENT'}),{item,user:'demo.finance',api});
+ const tree=view(states({risk:'HIGH',priority:'URGENT'}),{item,capabilities:{financeAnalysis:true},api});
  const button=nodes(tree).find(n=>text(n)==='Complete manually');assert.ok(button);
  button!.props!.onClick!();
  assert.equal(calls[0][0],'/payment-requests/req-1/financial-analysis/manual');
@@ -92,7 +92,7 @@ test('each AI agent result is preserved verbatim with a standardized status and 
   ],
   readyForPolicyEvaluation:false,
  };
- const html=render(view(states({data}),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
+ const html=render(view(states({data}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({})}));
  assert.match(html,/FINANCIAL RISK/);assert.match(html,/Amount is within normal range for this department\./);assert.match(html,/1 evidence-backed finding\(s\)/);
  assert.match(html,/SPENDING PATTERN/);assert.match(html,/No unusual spending pattern detected\./);assert.match(html,/0 evidence-backed finding\(s\)/);
  assert.match(html,/COMPLIANCE/);assert.match(html,/AI assistance unavailable\./);
@@ -106,7 +106,7 @@ test('the AI recommendation and human final assessment render as visually distin
   agents:[],
   readyForPolicyEvaluation:true,
  };
- const html=render(view(states({data}),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
+ const html=render(view(states({data}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({})}));
  assert.match(html,/AI RECOMMENDATION/);
  assert.match(html,/Elevated risk due to vendor history\./);
  assert.match(html,/Disagreement: SPENDING_PATTERN flagged an anomaly COMPLIANCE did not\./);
@@ -118,20 +118,20 @@ test('the AI recommendation and human final assessment render as visually distin
  assert.match(html,/Financial Risk Analysis finalized · Ready for Day 5 Policy\s*\n?\s*Evaluation\. No automatic transition was performed\./);
 });
 test('busy state disables the pending actions without changing their labels',()=>{
- const busyHtml=render(view(states({busy:true}),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
+ const busyHtml=render(view(states({busy:true}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({})}));
  assert.match(busyHtml,/aria-busy="true"/);
  assert.match(busyHtml,/disabled=""/);
  assert.match(busyHtml,/Start AI-assisted analysis/);
  assert.match(busyHtml,/Complete manually/);
 });
 test('an in-flight failure surfaces as an announced error without silently discarding it',()=>{
- const html=render(view(states({notice:'Something went wrong'}),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
+ const html=render(view(states({notice:'Something went wrong'}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({})}));
  assert.match(html,/role="alert"[^>]*>Something went wrong/);
 });
 test('AI-unavailable and AI-disabled fallback notices are preserved verbatim',()=>{
- const disabledHtml=render(view(states({notice:'AI Assistance: Disabled · Complete the manual assessment.'}),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
+ const disabledHtml=render(view(states({notice:'AI Assistance: Disabled · Complete the manual assessment.'}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({})}));
  assert.match(disabledHtml,/AI Assistance: Disabled · Complete the manual assessment\./);
- const unavailableHtml=render(view(states({notice:'AI assistance unavailable · Continue manually.'}),{item,user:'demo.finance',api:()=>Promise.resolve({})}));
+ const unavailableHtml=render(view(states({notice:'AI assistance unavailable · Continue manually.'}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({})}));
  assert.match(unavailableHtml,/AI assistance unavailable · Continue manually\./);
 });
 test('financial analysis composition only references frozen tokens and introduces no design literals',async()=>{

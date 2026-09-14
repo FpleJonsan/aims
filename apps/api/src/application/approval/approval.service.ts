@@ -562,8 +562,8 @@ export class ApprovalService {
         AND (aa.authority_scope='ORGANIZATION' OR aa.department_id=pr.department_id)
         AND (aa.minimum_amount_minor IS NULL OR aa.minimum_amount_minor<=fc.request_amount_minor) AND (aa.maximum_amount_minor IS NULL OR aa.maximum_amount_minor>=fc.request_amount_minor)
         AND (s.minimum_amount_minor IS NULL OR s.minimum_amount_minor<=fc.request_amount_minor) AND (s.maximum_amount_minor IS NULL OR s.maximum_amount_minor>=fc.request_amount_minor)
-       WHERE ($2::boolean OR (aa.user_id IS NOT NULL AND pr.created_by<>$1 AND ac.is_current AND ac.status='PENDING' AND pr.status='PENDING_APPROVAL'))
-        AND (s.status='ACTIVE' OR $2::boolean)
+       WHERE ac.is_current AND ac.status='PENDING' AND pr.status='PENDING_APPROVAL' AND s.status='ACTIVE'
+        AND ($2::boolean OR (aa.user_id IS NOT NULL AND pr.created_by<>$1))
        ), page_rows AS (
          SELECT * FROM eligible ORDER BY due_date,ticket_number LIMIT $3 OFFSET $4
        )

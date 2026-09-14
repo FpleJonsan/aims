@@ -33,14 +33,14 @@ const states=(overrides:Record<string,unknown> = {})=>{
  return [merged.data,merged.loading,merged.notice,merged.justification,merged.busy];
 };
 test('loading state shows a named status and hides both the evaluate action and the empty state',()=>{
- const html=render(view(states({loading:true}),{item,user:'demo.finance',api:()=>{throw Error('must not call API while loading')},completed:async()=>{}}));
+ const html=render(view(states({loading:true}),{item,capabilities:{financeAnalysis:true},api:()=>{throw Error('must not call API while loading')},completed:async()=>{}}));
  assert.match(html,/role="status" aria-label="Loading policy evaluation…"/);
  assert.doesNotMatch(html,/Evaluate active policy/);
  assert.doesNotMatch(html,/has not been evaluated/);
 });
 test('not-evaluated outcome badge and Evaluate active policy trigger the exact same POST as before migration',()=>{
  const calls:Array<[string,unknown]>=[];
- const tree=view(states(),{item,user:'demo.finance',api:(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})},completed:async()=>{}});
+ const tree=view(states(),{item,capabilities:{financeAnalysis:true},api:(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})},completed:async()=>{}});
  const html=render(tree);
  assert.match(html,/Not evaluated/);
  const button=nodes(tree).find(n=>text(n)==='Evaluate active policy');assert.ok(button);
@@ -49,13 +49,13 @@ test('not-evaluated outcome badge and Evaluate active policy trigger the exact s
  assert.deepEqual(calls[0][1],{method:'POST',body:'{}'});
 });
 test('a non-finance viewer sees the empty state instead of an action they cannot take',()=>{
- const html=render(view(states(),{item,user:'demo.requester',api:()=>Promise.resolve({}),completed:async()=>{}}));
+ const html=render(view(states(),{item,capabilities:{financeAnalysis:false},api:()=>Promise.resolve({}),completed:async()=>{}}));
  assert.match(html,/Policy has not been evaluated yet/);
  assert.doesNotMatch(html,/Evaluate active policy/);
 });
 test('policy summary, approval requirements and matched rule count are preserved and standardized',()=>{
  const data={id:'d1',result:'PASS',policy_code:'PLC-STANDARD',policy_version:3,matched_rule_ids:['r1','r2'],approval_required:true,approval_plan:[{sequence:1,requiredRole:'FINANCE_LEAD',authorityScope:'DEPARTMENT',reason:'Amount exceeds department threshold'}],required_evidence:['INVOICE'],escalation:'Escalate to Finance Director after 3 business days',auto_approval_eligible:false,ready_for_approval:true,stale:false};
- const html=render(view(states({data}),{item,user:'demo.finance',api:()=>Promise.resolve({}),completed:async()=>{}}));
+ const html=render(view(states({data}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),completed:async()=>{}}));
  assert.match(html,/PLC-STANDARD/);assert.match(html,/v3/);
  assert.match(html,/Current/);
  assert.match(html,/Matched rules: 2/);
@@ -68,7 +68,7 @@ test('policy summary, approval requirements and matched rule count are preserved
 });
 test('a stale evaluation and a policy with no approval plan or evidence render without inventing content',()=>{
  const data={id:'d2',result:'PASS',matched_rule_ids:[],approval_required:false,approval_plan:[],required_evidence:[],auto_approval_eligible:true,ready_for_approval:false,stale:true};
- const html=render(view(states({data}),{item,user:'demo.finance',api:()=>Promise.resolve({}),completed:async()=>{}}));
+ const html=render(view(states({data}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),completed:async()=>{}}));
  assert.match(html,/No applicable policy/);
  assert.match(html,/Stale/);
  assert.match(html,/Matched rules: 0/);
@@ -80,7 +80,7 @@ test('a policy exception preserves the exact code, reason, and required justific
  const calls:Array<[string,unknown]>=[];
  const api=(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})};
  const data={id:'d3',result:'JUSTIFICATION_REQUIRED',matched_rule_ids:['r3'],approval_required:false,approval_plan:[],required_evidence:[],auto_approval_eligible:false,ready_for_approval:false,stale:false,exception_id:'exc-1',exception_code:'HIGH_RISK_VENDOR',exception_reason:'Vendor flagged for enhanced due diligence.',required_justification:'Written approval from department head',requested_role:'FINANCE',exception_status:'OPEN'};
- const tree=view(states({data,justification:'Reviewed and approved by department head, see attached memo.'}),{item,user:'demo.finance',api,completed:async()=>{}});
+ const tree=view(states({data,justification:'Reviewed and approved by department head, see attached memo.'}),{item,capabilities:{financeAnalysis:true},api,completed:async()=>{}});
  const html=render(tree);
  assert.match(html,/HIGH RISK VENDOR/);
  assert.match(html,/Vendor flagged for enhanced due diligence\./);
@@ -95,26 +95,26 @@ test('a justified exception hides the response form and offers re-evaluation to 
  const calls:Array<[string,unknown]>=[];
  const api=(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})};
  const data={id:'d4',result:'JUSTIFICATION_REQUIRED',matched_rule_ids:[],approval_required:false,approval_plan:[],required_evidence:[],auto_approval_eligible:false,ready_for_approval:false,stale:false,exception_code:'HIGH_RISK_VENDOR',exception_reason:'Vendor flagged.',exception_status:'JUSTIFIED'};
- const financeTree=view(states({data}),{item,user:'demo.finance',api,completed:async()=>{}});
+ const financeTree=view(states({data}),{item,capabilities:{financeAnalysis:true},api,completed:async()=>{}});
  const financeHtml=render(financeTree);
  assert.doesNotMatch(financeHtml,/for="policy-justification"/);
  assert.match(financeHtml,/Justified/);
  const reEvaluate=nodes(financeTree).find(n=>text(n)==='Re-evaluate policy');assert.ok(reEvaluate);
  reEvaluate!.props!.onClick!();
  assert.equal(calls[0][0],'/payment-requests/req-1/policy-evaluation');
- const requesterHtml=render(view(states({data}),{item,user:'demo.requester',api,completed:async()=>{}}));
+ const requesterHtml=render(view(states({data}),{item,capabilities:{financeAnalysis:false},api,completed:async()=>{}}));
  assert.doesNotMatch(requesterHtml,/Re-evaluate policy/);
 });
 test('busy state disables the pending action and swaps to an accessible busy label via the shared Button pattern',()=>{
- const normalHtml=render(view(states(),{item,user:'demo.finance',api:()=>Promise.resolve({}),completed:async()=>{}}));
+ const normalHtml=render(view(states(),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),completed:async()=>{}}));
  assert.match(normalHtml,/aims-button-label">Evaluate active policy/);
- const busyHtml=render(view(states({busy:true}),{item,user:'demo.finance',api:()=>Promise.resolve({}),completed:async()=>{}}));
+ const busyHtml=render(view(states({busy:true}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),completed:async()=>{}}));
  assert.match(busyHtml,/aria-busy="true"/);
  assert.match(busyHtml,/disabled=""/);
  assert.match(busyHtml,/aims-button-label">Evaluating…/);
 });
 test('an in-flight failure surfaces as an announced error without silently discarding it',()=>{
- const html=render(view(states({notice:'Something went wrong'}),{item,user:'demo.finance',api:()=>Promise.resolve({}),completed:async()=>{}}));
+ const html=render(view(states({notice:'Something went wrong'}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),completed:async()=>{}}));
  assert.match(html,/role="alert"[^>]*>Something went wrong/);
 });
 test('policy composition only references frozen tokens and introduces no design literals',async()=>{

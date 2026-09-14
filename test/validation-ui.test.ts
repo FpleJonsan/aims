@@ -33,13 +33,13 @@ const states=(overrides:Record<string,unknown> = {})=>{
  return [merged.data,merged.loading,merged.remarks,merged.clarificationMessage,merged.response,merged.notice,merged.busy];
 };
 test('loading state shows a named status and hides the not-yet-available start action',()=>{
- const html=render(view(states({loading:true}),{item:{...item,status:'SUBMITTED'},user:'demo.finance',api:()=>{throw Error('must not call API while loading')},changed:async()=>{}}));
+ const html=render(view(states({loading:true}),{item:{...item,status:'SUBMITTED'},capabilities:{financeAnalysis:true},api:()=>{throw Error('must not call API while loading')},changed:async()=>{}}));
  assert.match(html,/role="status" aria-label="Loading validation…"/);
  assert.doesNotMatch(html,/Start validation/);
 });
 test('not-started outcome badge and Start validation trigger the exact same POST as before migration',()=>{
  const calls:Array<[string,unknown]>=[];
- const tree=view(states(),{item:{...item,status:'SUBMITTED'},user:'demo.finance',api:(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})},changed:async()=>{}});
+ const tree=view(states(),{item:{...item,status:'SUBMITTED'},capabilities:{financeAnalysis:true},api:(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})},changed:async()=>{}});
  const html=render(tree);
  assert.match(html,/Not started/);
  const button=nodes(tree).find(n=>text(n)==='Start validation');assert.ok(button);
@@ -54,7 +54,7 @@ test('validation findings remain readable with standardized check-status, severi
   {id:'f3',code:'MISSING_DOCUMENT',check_status:'UNKNOWN',severity:'LOW',explanation:'No supporting document was found.',evidence:[{a:1}]},
   {id:'f4',code:'PAYEE_MISMATCH',check_status:'PASS',severity:'LOW',explanation:'Payee reconciled.',evidence:[{a:1}]},
  ];
- const html=render(view(states({data:{findings}}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const html=render(view(states({data:{findings}}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(html,/Validation findings/);
  for(const finding of findings)for(const text of [finding.code,finding.explanation,`${finding.evidence.length} evidence reference`])assert.ok(html.includes(text),text);
  assert.match(html,/Fail/);assert.match(html,/Warning/);assert.match(html,/Unknown/);
@@ -62,7 +62,7 @@ test('validation findings remain readable with standardized check-status, severi
 });
 test('extracted document information preserves every disclosed fact including nulls and structured evidence',()=>{
  const extractions=[{id:'e1',extraction:{payee:'Acme Supplies',invoiceDate:null,amount:{structured:true}}}];
- const html=render(view(states({data:{extractions}}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const html=render(view(states({data:{extractions}}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(html,/EXTRACTED INFORMATION/);
  assert.match(html,/Acme Supplies/);
  assert.match(html,/Not found/);
@@ -71,7 +71,7 @@ test('extracted document information preserves every disclosed fact including nu
 test('manual validator review posts the identical PASS payload with entered remarks',()=>{
  const calls:Array<[string,unknown]>=[];
  const api=(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})};
- const tree=view(states({remarks:'Looks correct after manual review'}),{item:{...item,status:'VALIDATING'},user:'demo.finance',api,changed:async()=>{}});
+ const tree=view(states({remarks:'Looks correct after manual review'}),{item:{...item,status:'VALIDATING'},capabilities:{financeAnalysis:true},api,changed:async()=>{}});
  const html=render(tree);
  assert.match(html,/for="validation-remarks"/);
  assert.match(html,/Validation actions/);
@@ -82,7 +82,7 @@ test('manual validator review posts the identical PASS payload with entered rema
 test('a clarification request sends a distinct clarification message, never the validator remarks',()=>{
  const calls:Array<[string,unknown]>=[];
  const api=(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})};
- const tree=view(states({remarks:'Payee, purpose, claims, and payment method verified against submitted documentation. No discrepancies found.',clarificationMessage:'Please upload the missing supplier invoice.'}),{item:{...item,status:'VALIDATING'},user:'demo.finance',api,changed:async()=>{}});
+ const tree=view(states({remarks:'Payee, purpose, claims, and payment method verified against submitted documentation. No discrepancies found.',clarificationMessage:'Please upload the missing supplier invoice.'}),{item:{...item,status:'VALIDATING'},capabilities:{financeAnalysis:true},api,changed:async()=>{}});
  const html=render(tree);
  assert.match(html,/for="validation-clarification-message"/);
  assert.match(html,/Clarification message/);
@@ -94,7 +94,7 @@ test('a clarification request sends a distinct clarification message, never the 
  assert.equal(body.remarks,'Payee, purpose, claims, and payment method verified against submitted documentation. No discrepancies found.');
 });
 test('the Request clarification action is disabled until a clarification message is entered',()=>{
- const tree=view(states({remarks:'Looks correct after manual review',clarificationMessage:''}),{item:{...item,status:'VALIDATING'},user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}});
+ const tree=view(states({remarks:'Looks correct after manual review',clarificationMessage:''}),{item:{...item,status:'VALIDATING'},capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}});
  const html=render(tree);
  const clarify=nodes(tree).find(n=>text(n)==='Request clarification');assert.ok(clarify);
  assert.equal(clarify!.props!.disabled,true);
@@ -104,7 +104,7 @@ test('requester clarification view shows the exact reason and required response,
  const calls:Array<[string,unknown]>=[];
  const api=(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})};
  const clarifications=[{id:'c1',reason:'Invoice total does not match request amount',required_response:'Provide the corrected invoice or amend the amount',status:'OPEN'}];
- const tree=view(states({data:{clarifications},response:'Corrected invoice attached'}),{item:{...item,status:'NEEDS_CLARIFICATION'},user:'demo.requester',api,changed:async()=>{}});
+ const tree=view(states({data:{clarifications},response:'Corrected invoice attached'}),{item:{...item,status:'NEEDS_CLARIFICATION'},capabilities:{financeAnalysis:false},api,changed:async()=>{}});
  const html=render(tree);
  assert.match(html,/Clarification required/);
  assert.match(html,/Invoice total does not match request amount/);
@@ -116,19 +116,19 @@ test('requester clarification view shows the exact reason and required response,
  assert.deepEqual(JSON.parse((calls[0][1] as {body:string}).body),{response:'Corrected invoice attached'});
 });
 test('busy state disables the manual review actions without changing their labels',()=>{
- const busyHtml=render(view(states({busy:true}),{item:{...item,status:'VALIDATING'},user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const busyHtml=render(view(states({busy:true}),{item:{...item,status:'VALIDATING'},capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(busyHtml,/aria-busy="true"/);
  assert.match(busyHtml,/disabled=""/);
  assert.match(busyHtml,/Confirm PASS/);
  assert.match(busyHtml,/Request clarification/);
 });
 test('a completed PASS outcome shows the exact ready marker text and hides manual review',()=>{
- const html=render(view(states({data:{current:{source:'MANUAL',status:'COMPLETED',overall_result:'PASS'}}}),{item:{...item,status:'VALIDATING'},user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const html=render(view(states({data:{current:{source:'MANUAL',status:'COMPLETED',overall_result:'PASS'}}}),{item:{...item,status:'VALIDATING'},capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(html,/Validation complete · Ready for Day 3 Finance Context\. No automatic\s*\n?\s*transition was performed\./);
  assert.doesNotMatch(html,/Confirm PASS/);
 });
 test('an in-flight failure surfaces as an announced error without silently discarding it',()=>{
- const html=render(view(states({notice:'Something went wrong'}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const html=render(view(states({notice:'Something went wrong'}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(html,/role="alert"[^>]*>Something went wrong/);
 });
 test('validation composition only references frozen tokens and introduces no design literals',async()=>{

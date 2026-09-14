@@ -125,13 +125,13 @@ const statusStage: Record<Item["status"], number> = {
   READY_FOR_PAYMENT: 8, PAID: 9, REJECTED: 6, CANCELLED:1,
 };
 
-function availableWorkflowStages(item:Item,user:string){
+function availableWorkflowStages(item:Item,capabilities:PortalSession["capabilities"]){
   const available:number[]=[];
   if(item.status!=="DRAFT")available.push(2);
   if(["VALIDATING","APPROVED","FINANCE_CHECK","FINANCE_HOLD","READY_FOR_PAYMENT","PAID"].includes(item.status))available.push(3,4,5);
   if(["VALIDATING","PENDING_APPROVAL","APPROVED","FINANCE_CHECK","FINANCE_HOLD","READY_FOR_PAYMENT","PAID","REJECTED","NEEDS_CLARIFICATION"].includes(item.status))available.push(6);
-  if(["APPROVED","FINANCE_CHECK","FINANCE_HOLD","READY_FOR_PAYMENT","PAID"].includes(item.status)&&user==="demo.finance")available.push(7);
-  if(["READY_FOR_PAYMENT","PAID"].includes(item.status)&&user==="demo.finance")available.push(item.status==="PAID"?9:8);
+  if(["APPROVED","FINANCE_CHECK","FINANCE_HOLD","READY_FOR_PAYMENT","PAID"].includes(item.status)&&capabilities.financeControl)available.push(7);
+  if(["READY_FOR_PAYMENT","PAID"].includes(item.status)&&capabilities.payment)available.push(item.status==="PAID"?9:8);
   return available;
 }
 
@@ -438,7 +438,7 @@ export default function Home() {
   const financeDescriptions:Record<FinanceView,string>={"work-queue":"General Finance review within your authorized scope.",approvals:"Requests on which you have actionable Approval authority.","finance-control":"The mandatory final controlled gate before payment readiness.","payment-queue":"Only requests you are authorized to record as externally paid.","payment-history":"Immutable historical payment records within your authorized scope.",dashboard:"Authoritative financial position and operational attention.",ai:"Read-only interpretation grounded in authorized finance evidence."};
   const pageTitle = workspace==="requester"?(requesterHome?"Requester Dashboard":requesterPaymentOnly?"Payment Status":"My Requests"):financeTitles[financeView];
   const currentStage = selected ? statusStage[selected.status] : -1;
-  const selectableWorkflowStages=selected?availableWorkflowStages(selected,session.user.subject):[];
+  const selectableWorkflowStages=selected?availableWorkflowStages(selected,session.capabilities):[];
   const activeWorkflowStage=workflowStage!==null&&selectableWorkflowStages.includes(workflowStage)?workflowStage:selectableWorkflowStages.includes(currentStage)?currentStage:(selectableWorkflowStages.at(-1)??currentStage);
   const profile = {initials:session.user.displayName.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase(),name:session.user.displayName,department:session.user.department};
   const goRequester=(home:boolean,paymentOnly=false)=>{setMobileNavOpen(false);setNotice("");setSelected(null);setRequesterHome(home);setRequesterPaymentOnly(paymentOnly);window.history.pushState({},"",home?"/requester":paymentOnly?"/requester/payment-status":"/requester/requests")};
@@ -555,7 +555,7 @@ export default function Home() {
           <Editor
             key={selected.id}
             item={selected}
-            user={session.user.subject}
+            capabilities={session.capabilities}
             requesterView={workspace==="requester"}
             activeWorkflowStage={activeWorkflowStage}
             api={api}
@@ -1602,7 +1602,7 @@ function ClaimItemsEditor({ item, api, editable, changed, departmentId }: { item
 }
 function Editor({
   item,
-  user,
+  capabilities,
   requesterView,
   activeWorkflowStage,
   api,
@@ -1610,7 +1610,7 @@ function Editor({
   back,
 }: {
   item: Item;
-  user: string;
+  capabilities: PortalSession["capabilities"];
   requesterView:boolean;
   activeWorkflowStage:number;
   api: Api;
@@ -1750,7 +1750,7 @@ function Editor({
         <div><AuthorityBadge>POLICY DECISION</AuthorityBadge><b>Deterministic Policy</b><span>Rules and approval route remain system-controlled</span></div>
       </section>
       {!requesterView&&activeWorkflowStage===2&&item.status !== "DRAFT" && (
-        <ValidationPanel item={item} user={user} api={api} changed={changed} />
+        <ValidationPanel item={item} capabilities={capabilities} api={api} changed={changed} />
       )}
       {!requesterView&&activeWorkflowStage===3&&[
         "VALIDATING",
@@ -1760,7 +1760,7 @@ function Editor({
         "READY_FOR_PAYMENT",
         "PAID",
       ].includes(item.status) && (
-        <FinanceContextPanel item={item} user={user} api={api} />
+        <FinanceContextPanel item={item} capabilities={capabilities} api={api} />
       )}
       {!requesterView&&activeWorkflowStage===4&&[
         "VALIDATING",
@@ -1770,7 +1770,7 @@ function Editor({
         "READY_FOR_PAYMENT",
         "PAID",
       ].includes(item.status) && (
-        <FinancialAnalysisPanel item={item} user={user} api={api} />
+        <FinancialAnalysisPanel item={item} capabilities={capabilities} api={api} />
       )}
       {!requesterView&&activeWorkflowStage===5&&[
         "VALIDATING",
@@ -1780,7 +1780,7 @@ function Editor({
         "READY_FOR_PAYMENT",
         "PAID",
       ].includes(item.status) && (
-        <PolicyDecisionPanel item={item} user={user} api={api} completed={async()=>{await changed();setPolicyRevision(value=>value+1)}} />
+        <PolicyDecisionPanel item={item} capabilities={capabilities} api={api} completed={async()=>{await changed();setPolicyRevision(value=>value+1)}} />
       )}
       {!requesterView&&activeWorkflowStage===6&&[
         "VALIDATING",
@@ -1802,11 +1802,11 @@ function Editor({
         "READY_FOR_PAYMENT",
         "PAID",
       ].includes(item.status) &&
-        user === "demo.finance" && (
+        capabilities.financeControl && (
           <FinanceControlPanel item={item} api={api} changed={changed} />
         )}
       {!requesterView&&(activeWorkflowStage===8||activeWorkflowStage===9)&&["READY_FOR_PAYMENT", "PAID"].includes(item.status) &&
-        user === "demo.finance" && (
+        capabilities.payment && (
           <PaymentPanel item={item} api={api} changed={changed} />
         )}
       <div className="editorGrid">
@@ -2060,12 +2060,12 @@ function validationSeverityBadge(severity: string) {
 }
 function ValidationPanel({
   item,
-  user,
+  capabilities,
   api,
   changed,
 }: {
   item: Item;
-  user: string;
+  capabilities: PortalSession["capabilities"];
   api: Api;
   changed: () => Promise<void>;
 }) {
@@ -2177,7 +2177,7 @@ function ValidationPanel({
         <UiCardBody>
           {notice && <UiAlert tone="danger">{notice}</UiAlert>}
           {loading && <UiSpinner label="Loading validation…" />}
-          {!loading && user === "demo.finance" && item.status === "SUBMITTED" && (
+          {!loading && capabilities.financeAnalysis && item.status === "SUBMITTED" && (
             <UiButton
               variant="primary"
               disabled={busy}
@@ -2237,7 +2237,7 @@ function ValidationPanel({
           </UiCardBody>
         </UiCard>
       )}
-      {user === "demo.finance" &&
+      {capabilities.financeAnalysis &&
         item.status === "VALIDATING" &&
         data.current?.status !== "COMPLETED" && (
           <UiCard className="p1833-manualReview">
@@ -2272,8 +2272,7 @@ function ValidationPanel({
             </UiCardBody>
           </UiCard>
         )}
-      {user === "demo.requester" &&
-        item.status === "NEEDS_CLARIFICATION" &&
+      {item.status === "NEEDS_CLARIFICATION" &&
         open && (
           <UiCard className="p1833-clarification" aria-labelledby="validation-clarification-title">
             <UiCardBody>
@@ -2339,11 +2338,11 @@ function currencyLabel(code?: string) {
 }
 function FinanceContextPanel({
   item,
-  user,
+  capabilities,
   api,
 }: {
   item: Item;
-  user: string;
+  capabilities: PortalSession["capabilities"];
   api: Api;
 }) {
   type Money = { minor: string; decimal: string };
@@ -2429,12 +2428,12 @@ function FinanceContextPanel({
         <UiCardBody>
           {notice && <UiAlert tone="danger">{notice}</UiAlert>}
           {loading && <UiSpinner label="Loading Finance Context…" />}
-          {!loading && !data && user === "demo.finance" && (
+          {!loading && !data && capabilities.financeAnalysis && (
             <UiButton variant="primary" disabled={busy} busy={busy} busyLabel="Calculating…" onClick={() => void calculate()}>
               Calculate Finance Context
             </UiButton>
           )}
-          {!loading && !data && user !== "demo.finance" && (
+          {!loading && !data && !capabilities.financeAnalysis && (
             <UiEmptyState title="Finance Context has not been calculated">
               <span>Finance will calculate the authoritative financial context for this request.</span>
             </UiEmptyState>
@@ -2457,7 +2456,7 @@ function FinanceContextPanel({
                   {financeExceptionBadge(data.exceptionCode)}{" "}
                   <UiTypography as="span" variant="body">Finance attention is required before Stage 5.</UiTypography>
                 </UiAlert>
-                {user === "demo.finance" && (
+                {capabilities.financeAnalysis && (
                   <UiButton variant="secondary" disabled={busy} busy={busy} busyLabel="Recalculating…" onClick={() => void recalculate()}>
                     Recalculate after correction
                   </UiButton>
@@ -2524,11 +2523,11 @@ function priorityBadge(value: string) {
 }
 function FinancialAnalysisPanel({
   item,
-  user,
+  capabilities,
   api,
 }: {
   item: Item;
-  user: string;
+  capabilities: PortalSession["capabilities"];
   api: Api;
 }) {
   type Agent = {
@@ -2651,7 +2650,7 @@ function FinancialAnalysisPanel({
         <UiCardBody>
           {notice && <UiAlert tone="danger">{notice}</UiAlert>}
           {loading && <UiSpinner label="Loading Financial Risk Analysis…" />}
-          {!loading && !data && user === "demo.finance" && (
+          {!loading && !data && capabilities.financeAnalysis && (
             <div className="p1837-actions">
               <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => void start()}>
                 Start AI-assisted analysis
@@ -2673,7 +2672,7 @@ function FinancialAnalysisPanel({
               </UiButton>
             </div>
           )}
-          {!loading && !data && user !== "demo.finance" && (
+          {!loading && !data && !capabilities.financeAnalysis && (
             <UiEmptyState title="Financial Risk Analysis has not started yet">
               <span>Finance will start the AI-assisted or manual assessment for this request.</span>
             </UiEmptyState>
@@ -2736,7 +2735,7 @@ function FinancialAnalysisPanel({
         </>
       )}
       </UiProvider>
-      {item.status === "VALIDATING" && user === "demo.finance" && data && (
+      {item.status === "VALIDATING" && capabilities.financeAnalysis && data && (
         <FinancialHumanReview item={item} api={api} data={data} reload={reload} />
       )}
     </>
@@ -2839,12 +2838,12 @@ function policyExceptionStatusBadge(status: string) {
 }
 function PolicyDecisionPanel({
   item,
-  user,
+  capabilities,
   api,
   completed,
 }: {
   item: Item;
-  user: string;
+  capabilities: PortalSession["capabilities"];
   api: Api;
   completed:()=>Promise<void>;
 }) {
@@ -2965,12 +2964,12 @@ function PolicyDecisionPanel({
         <UiCardBody>
           {notice && <UiAlert tone="danger">{notice}</UiAlert>}
           {loading && <UiSpinner label="Loading policy evaluation…" />}
-          {!loading && !data && user === "demo.finance" && (
+          {!loading && !data && capabilities.financeAnalysis && (
             <UiButton variant="primary" disabled={busy} busy={busy} busyLabel="Evaluating…" onClick={() => void evaluate()}>
               Evaluate active policy
             </UiButton>
           )}
-          {!loading && !data && user !== "demo.finance" && (
+          {!loading && !data && !capabilities.financeAnalysis && (
             <UiEmptyState title="Policy has not been evaluated yet">
               <span>Finance will evaluate the applicable policy for this request.</span>
             </UiEmptyState>
@@ -3066,7 +3065,7 @@ function PolicyDecisionPanel({
               </UiCardBody>
             </UiCard>
           )}
-          {data.exception_status === "JUSTIFIED" && user === "demo.finance" && (
+          {data.exception_status === "JUSTIFIED" && capabilities.financeAnalysis && (
             <UiButton variant="secondary" disabled={busy} busy={busy} busyLabel="Re-evaluating…" onClick={() => void evaluate()}>
               Re-evaluate policy
             </UiButton>

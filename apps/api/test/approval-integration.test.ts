@@ -1682,6 +1682,77 @@ test("barrier G: final Approval and commitment versus invalidation stays consist
   }
 });
 
+test("Approval Inbox stays truthful: broad Finance visibility never surfaces a completed step as actionable", async () => {
+  const db = new Postgres();
+  try {
+    const fixture = await eligible(db),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
+      view = await service.create(fixture.r.id, finance, "inbox-truth-create");
+
+    const initialFinance = (await service.list(finance, { page: 1, pageSize: 100 })).items.filter(
+      (item) => item.approval_case_id === view.case.id,
+    );
+    assert.equal(initialFinance.length, 1);
+    assert.equal(initialFinance[0].step_status, "ACTIVE");
+    assert.equal(initialFinance[0].sequence, 1);
+    assert.ok(
+      (await service.list(approver, { page: 1, pageSize: 100 })).items.some(
+        (item) => item.approval_case_id === view.case.id,
+      ),
+    );
+
+    await service.act(
+      fixture.r.id,
+      view.steps[0].id,
+      { commandKey: randomUUID(), action: "APPROVE" },
+      approver,
+      "inbox-truth-step1",
+    );
+
+    // Step 1 (AM) is now APPROVED and inactive; only the DIRECTOR step is actionable.
+    const midFinance = (await service.list(finance, { page: 1, pageSize: 100 })).items.filter(
+      (item) => item.approval_case_id === view.case.id,
+    );
+    assert.equal(midFinance.length, 1);
+    assert.equal(midFinance[0].step_status, "ACTIVE");
+    assert.equal(midFinance[0].sequence, 2);
+    assert.equal(
+      (await service.list(approver, { page: 1, pageSize: 100 })).items.some(
+        (item) => item.approval_case_id === view.case.id,
+      ),
+      false,
+      "the already-approved AM step must not still surface for the first approver",
+    );
+
+    await service.act(
+      fixture.r.id,
+      view.steps[1].id,
+      { commandKey: randomUUID(), action: "APPROVE" },
+      finance,
+      "inbox-truth-step2",
+    );
+
+    // Case is now fully APPROVED. Before the fix, `broad` (FINANCE) bypassed every
+    // case/step/request status guard, so this completed case still leaked into the
+    // Approval Inbox as an actionable "waiting for approval" row.
+    assert.equal(
+      (await service.list(finance, { page: 1, pageSize: 100 })).items.some(
+        (item) => item.approval_case_id === view.case.id,
+      ),
+      false,
+      "a completed approval case must not appear as actionable in the broad Finance inbox",
+    );
+    assert.equal(
+      (await service.list(approver, { page: 1, pageSize: 100 })).items.some(
+        (item) => item.approval_case_id === view.case.id,
+      ),
+      false,
+    );
+  } finally {
+    await db.onModuleDestroy();
+  }
+});
+
 test("Telegram master OFF dominates stale secret, binding, and valid action token", async () => {
   const oldEnabled = process.env.TELEGRAM_APPROVAL_ENABLED,
     oldSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
