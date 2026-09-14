@@ -81,6 +81,24 @@ test("requester projection is owner scoped and excludes finance internals",async
     assert.equal(raw.includes(restricted),false,restricted);
 });
 
+test("requester detail carries the Requester's saved Payment Details back on re-entry",async()=>{
+  const savedPaymentDetails="Maybank account 5123 4567 8901, Acme Office Supplies Sdn Bhd";
+  const queries:string[]=[];
+  const db={pool:{query:async(sql:string,values:unknown[])=>{
+    queries.push(sql);
+    if(sql.includes("FROM payment_requests WHERE id="))return{rowCount:1,rows:[{id:values[0],ticket_number:"PAY-1",status:"DRAFT",payee:"Vendor",amount:"10.00",currency:"MYR",department_id:requester.departmentId,payment_details:savedPaymentDetails}]};
+    if(sql.includes("FROM payment_documents"))return{rowCount:0,rows:[]};
+    if(sql.includes("FROM validation_clarifications"))return{rowCount:0,rows:[]};
+    if(sql.includes("FROM audit_events"))return{rowCount:0,rows:[]};
+    if(sql.includes("FROM payments"))return{rowCount:0,rows:[]};
+    if(sql.includes("FROM claim_items"))return{rowCount:0,rows:[]};
+    throw Error("Unexpected query");
+  }}};
+  const result=await new PortalService(db as never).requesterDetail(requester,"20000000-0000-4000-8000-000000000001");
+  assert.match(queries[0],/payment_details/);
+  assert.equal((result.request as {payment_details:string}).payment_details,savedPaymentDetails);
+});
+
 test("finance-only identity cannot enter requester workspace",async()=>{
   const finance:Principal={...requester,roles:["FINANCE"]};
   await assert.rejects(()=>new PortalService({} as never).requesterSummary(finance),/Requester workspace entitlement required/);

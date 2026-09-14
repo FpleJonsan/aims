@@ -8,9 +8,9 @@ const root=path.resolve(import.meta.dirname,"../../..");
 const directory=path.join(root,"apps/api/migrations");
 const names=(await readdir(directory)).filter(name=>/^\d{3}_.*\.sql$/.test(name)).sort();
 
-test("production plan accounts for the immutable 001-070 chain",()=>{
+test("production plan accounts for the immutable 001-071 chain",()=>{
  assert.doesNotThrow(()=>validateMigrationNames(names));
- assert.equal(names.length,70);
+ assert.equal(names.length,71);
  assert.equal(DEVELOPMENT_FIXTURE_MIGRATIONS.size,14);
 });
 
@@ -30,7 +30,7 @@ test("mixed migration fixture transforms fail closed on checksum drift",async()=
  assert.throws(()=>productionMigrationSql("048_day9_finance_intelligence.sql",`${source}\n-- drift`),/checksum mismatch/);
 });
 
-test("development policy fixture is sequenced through DRAFT on schema 70",async()=>{
+test("development policy fixture is sequenced through DRAFT on schema 71",async()=>{
  const source=await readFile(path.join(directory,"010_day5_local_demo_policy.sql"),"utf8"),sql=developmentFixtureSql("010_day5_local_demo_policy.sql",source);
  assert.match(sql,/1,'DRAFT'/);assert.match(sql,/SET status='ACTIVE'/);
 });

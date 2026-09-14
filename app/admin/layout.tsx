@@ -5,31 +5,64 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { UIProvider as UiProvider, LoadingSpinner as UiSpinner, Alert as UiAlert, Typography as UiTypography } from "../components/ui";
 import { AuthApiError, authApiGet } from "../lib/auth-api";
+import "./admin-shell.css";
 
 type Status = "checking" | "ready" | "forbidden" | "error";
 
 function AdminNav() {
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const closeMobileNav = () => setMobileOpen(false);
+  const groups = [
+    { label: "Overview", links: [{ href: "/admin", label: "Dashboard" }] },
+    { label: "Access", links: [
+      { href: "/admin/users", label: "Users" },
+      { href: "/admin/roles", label: "Roles" },
+      { href: "/admin/permissions", label: "Permissions" },
+    ] },
+    { label: "Business", links: [
+      { href: "/admin/master-data", label: "Master Data" },
+      { href: "/admin/settings", label: "Business Configuration" },
+      { href: "/admin/approval-matrix", label: "Approval Matrix" },
+      { href: "/admin/delegation", label: "Delegation" },
+    ] },
+    { label: "Platform", links: [
+      { href: "/admin/notifications", label: "Notifications" },
+      { href: "/admin/audit", label: "Audit" },
+      { href: "/admin/settings/ai", label: "AI Configuration" },
+      { href: "/admin/settings/system", label: "System Parameters" },
+      { href: "/admin/settings/version-history", label: "Configuration History" },
+    ] },
+  ];
   return (
-    <nav
-      aria-label="Finance Master console"
-      style={{ width: 220, flexShrink: 0, borderRight: "1px solid #ddd", padding: "24px 16px", boxSizing: "border-box" }}
-    >
-      <UiTypography as="h2" variant="section" style={{ marginBottom: 16 }}>
-        Finance Master
-      </UiTypography>
-      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-        <li><Link href="/admin">Console</Link></li>
-        <li><Link href="/admin/users">User Management</Link></li>
-        <li><Link href="/admin/roles">Roles</Link></li>
-        <li><Link href="/admin/permissions">Permission matrix</Link></li>
-        <li><Link href="/admin/master-data">Master Data</Link></li>
-        <li><Link href="/admin/settings">Business Configuration</Link></li>
-        <li><Link href="/admin/approval-matrix">Approval Matrix</Link></li>
-        <li><Link href="/admin/delegation">Approval Delegation</Link></li>
-        <li><Link href="/admin/notifications">Notifications</Link></li>
-      </ul>
-      <div style={{ marginTop: 32 }}>
-        <Link href="/">&larr; Back to AIMS</Link>
+    <nav aria-label="Finance Master console" className="adminNav">
+      <div className="adminNavHeader">
+        <UiTypography as="h2" variant="section">
+          Finance Master
+        </UiTypography>
+        <button
+          type="button"
+          className="adminNavToggle"
+          aria-controls="admin-primary-navigation"
+          aria-expanded={mobileOpen}
+          onClick={() => setMobileOpen((open) => !open)}
+        >
+          <span aria-hidden="true">{mobileOpen ? "×" : "☰"}</span>
+          <span>{mobileOpen ? "Close menu" : "Finance Master"}</span>
+        </button>
+      </div>
+      <div id="admin-primary-navigation" className={`adminNavGroups${mobileOpen ? " mobileOpen" : ""}`}>
+        {groups.map((group) => (
+          <section key={group.label} aria-label={group.label}>
+            <UiTypography as="h3" variant="metadata">{group.label}</UiTypography>
+            <ul>
+              {group.links.map((link) => <li key={link.href}><Link href={link.href} onClick={closeMobileNav}>{link.label}</Link></li>)}
+            </ul>
+          </section>
+        ))}
+      </div>
+      <div className={`adminNavFooter${mobileOpen ? " mobileOpen" : ""}`}>
+        <Link href="/profile" onClick={closeMobileNav}>My profile</Link>
+        <Link href="/" onClick={closeMobileNav}>&larr; Back to AIMS</Link>
       </div>
     </nav>
   );
@@ -87,9 +120,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <UiProvider className="aims-admin-shell" style={{ display: "flex", minHeight: "100vh" }}>
+    <UiProvider className="aims-admin-shell">
       <AdminNav />
-      <main style={{ flex: 1, padding: 32, boxSizing: "border-box" }}>{children}</main>
+      <main className="adminMain">{children}</main>
     </UiProvider>
   );
 }

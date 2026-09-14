@@ -309,6 +309,13 @@ export class ValidationService {
         throw new BadRequestException(
           "Validation cannot PASS with failed or unknown findings",
         );
+      if (
+        input.overallResult === "CLARIFICATION_REQUIRED" &&
+        !input.requiredResponse?.trim()
+      )
+        throw new BadRequestException(
+          "A required response describing what the Requester must provide is required",
+        );
       // AI candidates remain immutable evidence; human review findings append to the run.
       for (const finding of input.findings) {
         const findingId = randomUUID();
@@ -352,7 +359,7 @@ export class ValidationService {
             id,
             run.rows[0].id,
             input.remarks,
-            input.requiredResponse ?? null,
+            input.requiredResponse!.trim(),
             actor.id,
           ],
         );
@@ -374,7 +381,7 @@ export class ValidationService {
           correlationId,
           variables: {
             ticketNumber: request.ticketNumber ?? "",
-            reason: input.remarks,
+            reason: input.requiredResponse!.trim(),
           },
         });
       } else {

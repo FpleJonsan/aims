@@ -13,8 +13,8 @@ const declarations=ast.statements.filter(n=>ts.isFunctionDeclaration(n)&&names.i
 assert.equal(declarations.length,names.length,'expected every named declaration to be found in app/page.tsx');
 const imports=source.split('\n').find(line=>line.includes('UIProvider as UiProvider'))!.replace('"./components/ui"','"./app/components/ui/components"');
 const require=createRequire(import.meta.url);
-// Snapshot-driven useState (order: data, loading, remarks, response, notice, busy) mirroring the
-// dashboard/request migration test harnesses; useEffect and useCallback are inert for static markup.
+// Snapshot-driven useState (order: data, loading, remarks, clarificationMessage, response, notice, busy)
+// mirroring the dashboard/request migration test harnesses; useEffect and useCallback are inert for static markup.
 const output=await build({stdin:{contents:`${imports}
 let snapshot:unknown[]=[],cursor=0;
 const useState=(initial:unknown)=>[cursor in snapshot?snapshot[cursor++]:(cursor++,initial),()=>{}];
@@ -24,13 +24,13 @@ ${declarations.join('\n')}
 export function view(states:unknown[],props:Record<string,unknown>){snapshot=states;cursor=0;return ValidationPanel(props as never);}`,resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,format:'esm',platform:'node',jsx:'automatic',plugins:[{name:'react-instance',setup(b){b.onResolve({filter:/^react(\/.*)?$/},args=>({path:pathToFileURL(require.resolve(args.path)).href,external:true}));}}]});
 const {view}=await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString('base64')}`);
 const item={id:'req-1',status:'VALIDATING'};
-type Node={props?:{children?:unknown;onClick?:()=>void;onChange?:(event:{target:{value:string}})=>void;id?:string}};
+type Node={props?:{children?:unknown;onClick?:()=>void;onChange?:(event:{target:{value:string}})=>void;id?:string;disabled?:boolean}};
 function nodes(tree:unknown):Node[]{if(Array.isArray(tree))return tree.flatMap(nodes);if(!tree||typeof tree!=='object')return [];const node=tree as Node;return [node,...nodes(node.props?.children)];}
 function text(tree:unknown):string{if(Array.isArray(tree))return tree.map(text).join(' ');if(tree==null||typeof tree==='boolean')return '';if(typeof tree==='object')return text((tree as Node).props?.children);return String(tree);}
 const states=(overrides:Record<string,unknown> = {})=>{
- const base:Record<string,unknown>={data:{},loading:false,remarks:'',response:'',notice:'',busy:false};
+ const base:Record<string,unknown>={data:{},loading:false,remarks:'',clarificationMessage:'',response:'',notice:'',busy:false};
  const merged={...base,...overrides};
- return [merged.data,merged.loading,merged.remarks,merged.response,merged.notice,merged.busy];
+ return [merged.data,merged.loading,merged.remarks,merged.clarificationMessage,merged.response,merged.notice,merged.busy];
 };
 test('loading state shows a named status and hides the not-yet-available start action',()=>{
  const html=render(view(states({loading:true}),{item:{...item,status:'SUBMITTED'},user:'demo.finance',api:()=>{throw Error('must not call API while loading')},changed:async()=>{}}));
@@ -68,7 +68,7 @@ test('extracted document information preserves every disclosed fact including nu
  assert.match(html,/Not found/);
  assert.match(html,/Structured evidence available/);
 });
-test('manual validator review posts the identical PASS and clarification payloads with entered remarks',()=>{
+test('manual validator review posts the identical PASS payload with entered remarks',()=>{
  const calls:Array<[string,unknown]>=[];
  const api=(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})};
  const tree=view(states({remarks:'Looks correct after manual review'}),{item:{...item,status:'VALIDATING'},user:'demo.finance',api,changed:async()=>{}});
@@ -78,11 +78,27 @@ test('manual validator review posts the identical PASS and clarification payload
  const pass=nodes(tree).find(n=>text(n)==='Confirm PASS');assert.ok(pass);pass!.props!.onClick!();
  assert.equal(calls[0][0],'/payment-requests/req-1/validation/manual');
  assert.deepEqual(JSON.parse((calls[0][1] as {body:string}).body),{overallResult:'PASS',remarks:'Looks correct after manual review',findings:[]});
+});
+test('a clarification request sends a distinct clarification message, never the validator remarks',()=>{
+ const calls:Array<[string,unknown]>=[];
+ const api=(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})};
+ const tree=view(states({remarks:'Payee, purpose, claims, and payment method verified against submitted documentation. No discrepancies found.',clarificationMessage:'Please upload the missing supplier invoice.'}),{item:{...item,status:'VALIDATING'},user:'demo.finance',api,changed:async()=>{}});
+ const html=render(tree);
+ assert.match(html,/for="validation-clarification-message"/);
+ assert.match(html,/Clarification message/);
  const clarify=nodes(tree).find(n=>text(n)==='Request clarification');assert.ok(clarify);clarify!.props!.onClick!();
- const secondBody=JSON.parse((calls[1][1] as {body:string}).body);
- assert.equal(secondBody.overallResult,'CLARIFICATION_REQUIRED');
- assert.equal(secondBody.requiredResponse,'Looks correct after manual review');
- assert.equal(secondBody.findings[0].explanation,'Looks correct after manual review');
+ const body=JSON.parse((calls[0][1] as {body:string}).body);
+ assert.equal(body.overallResult,'CLARIFICATION_REQUIRED');
+ assert.equal(body.requiredResponse,'Please upload the missing supplier invoice.');
+ assert.notEqual(body.requiredResponse,body.remarks);
+ assert.equal(body.remarks,'Payee, purpose, claims, and payment method verified against submitted documentation. No discrepancies found.');
+});
+test('the Request clarification action is disabled until a clarification message is entered',()=>{
+ const tree=view(states({remarks:'Looks correct after manual review',clarificationMessage:''}),{item:{...item,status:'VALIDATING'},user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}});
+ const html=render(tree);
+ const clarify=nodes(tree).find(n=>text(n)==='Request clarification');assert.ok(clarify);
+ assert.equal(clarify!.props!.disabled,true);
+ assert.match(html,/Request clarification/);
 });
 test('requester clarification view shows the exact reason and required response, and responds with the typed value',()=>{
  const calls:Array<[string,unknown]>=[];

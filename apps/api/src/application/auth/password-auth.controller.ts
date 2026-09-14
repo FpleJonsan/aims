@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Post, Req, Res } from "@nestjs/common";
+import { Body, Controller, Get, Post, Req, Res, UseGuards } from "@nestjs/common";
 import type { Request, Response } from "express";
-import { ForgotPasswordDto, LoginDto, RegisterDto, ResetPasswordDto } from "./password-auth.dto.js";
+import { ChangePasswordDto, ForgotPasswordDto, LoginDto, RegisterDto, ResetPasswordDto } from "./password-auth.dto.js";
 import { PasswordAuthService } from "./password-auth.service.js";
+import { AuthGuard } from "./auth.guard.js";
 
 @Controller("auth/password")
 export class PasswordAuthController {
@@ -30,5 +31,11 @@ export class PasswordAuthController {
   @Post("reset-password")
   resetPassword(@Body() body: ResetPasswordDto, @Req() request: Request) {
     return this.passwordAuth.resetPassword(body, request);
+  }
+
+  @Post("change")
+  @UseGuards(AuthGuard)
+  changePassword(@Body() body:ChangePasswordDto,@Req() request:Request,@Res({passthrough:true})response:Response){
+    return this.passwordAuth.changePassword(request.principal,body,request,response);
   }
 }

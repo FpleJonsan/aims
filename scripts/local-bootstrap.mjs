@@ -33,21 +33,24 @@ if(mode==='bootstrap'){
 }else if(mode==='migrate'){
  const versionTable=sql("SELECT to_regclass('public.aims_schema_version') IS NOT NULL")==='t';
  const version=versionTable?sql('SELECT version FROM aims_schema_version WHERE singleton'):'0';
- if(version==='69'){
-  sql('SET ROLE aims_owner;\n'+readFileSync(path.join(root,'apps/api/migrations/070_p20_5h_ai_configuration_authority.sql'),'utf8'));
-  console.log('Applied 070_p20_5h_ai_configuration_authority.sql');
- }else if(version!=='70'){
-  if(sql("SELECT count(*) FROM pg_tables WHERE schemaname='public'")!=='0')throw new Error('Database is not empty or at schema 70. Refusing to replay migrations over partial initialization. Preserve and inspect it before retrying.');
+ if(version!=='71'){
   const directory=path.join(root,'apps/api/migrations');
   const names=readdirSync(directory).filter(n=>/^\d{3}_.*\.sql$/.test(n)).sort();
   validateMigrationNames(names);
-  for(const name of names){const migration=productionMigrationSql(name,readFileSync(path.join(directory,name),'utf8'));if(migration){sql('SET ROLE aims_owner;\n'+migration);console.log(`Applied production-safe ${name}`)}else console.log(`Deferred development fixture ${name}`)}
+  const current=Number(version);
+  if(!Number.isInteger(current)||current<0||current>71)throw new Error(`Unsupported schema version ${version}`);
+  for(const name of names){
+   if(Number(name.slice(0,3))<=current)continue;
+   const migration=productionMigrationSql(name,readFileSync(path.join(directory,name),'utf8'));
+   if(migration){sql('SET ROLE aims_owner;\n'+migration);console.log(`Applied production-safe ${name}`)}
+   else console.log(`Deferred development fixture ${name}`);
+  }
  }
  sql(readFileSync(path.join(root,'apps/api/database/production/post-migration-hardening.sql'),'utf8'));
  sql(readFileSync(path.join(root,'apps/api/database/production/privilege-manifest.sql'),'utf8'));
- console.log('Schema 70 ready; existing P6 role separation verified.');
+ console.log('Schema 71 ready; existing P6 role separation verified.');
 }else{
- if(sql('SELECT version FROM aims_schema_version WHERE singleton')!=='70')throw new Error('Migrate first');
+ if(sql('SELECT version FROM aims_schema_version WHERE singleton')!=='71')throw new Error('Migrate first');
  const demoUsers=Number(sql("SELECT count(*) FROM users WHERE external_subject LIKE 'demo.%'"));
  if(demoUsers===0){
   const directory=path.join(root,'apps/api/migrations');

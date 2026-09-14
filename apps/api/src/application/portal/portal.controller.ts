@@ -8,7 +8,7 @@ import { PortalService } from "./portal.service.js";
 @Controller()
 export class PortalController {
   constructor(private readonly portal: PortalService) {}
-  @Get("session") session(@Req() request:Request){ return this.portal.session(request.principal); }
+  @Get("session") session(@Req() request:Request){ return this.portal.session(request.principal,request.mustChangePassword??false); }
   @Get("requester/dashboard") dashboard(@Req() request:Request){ return this.portal.requesterSummary(request.principal); }
   @Get("requester/requests") list(@Req() request:Request,@Query() query:RequesterListDto){ return this.portal.requesterList(request.principal,query); }
   @Get("requester/requests/:id") detail(@Req() request:Request,@Param("id",ParseUUIDPipe) id:string){ return this.portal.requesterDetail(request.principal,id); }

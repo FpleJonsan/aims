@@ -132,7 +132,7 @@ export default function NotificationHistoryPage() {
                     role="row"
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "1.4fr 0.7fr 1fr 0.9fr 0.6fr 1fr 1.1fr 1.1fr",
+                      gridTemplateColumns: "minmax(150px,1.4fr) minmax(90px,0.7fr) minmax(120px,1fr) minmax(100px,0.9fr) minmax(70px,0.6fr) minmax(110px,1fr) minmax(150px,1.1fr) minmax(150px,1.1fr)",
                       gap: 8,
                       alignItems: "center",
                       padding: "8px 0",

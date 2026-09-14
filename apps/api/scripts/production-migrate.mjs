@@ -30,5 +30,5 @@ try{
  await client.query(serverSql(await readFile(path.join(root,"apps/api/database/production/post-migration-hardening.sql"),"utf8")));
  await client.query(serverSql(await readFile(path.join(root,"apps/api/database/production/privilege-manifest.sql"),"utf8")));
  await client.query(`SET ROLE aims_owner;${PRODUCTION_FIXTURE_ASSERTION_SQL}`);
- console.log(JSON.stringify({result:"PASS",schema:70,migration:"070_p20_5h_ai_configuration_authority",migrationFiles:70,executedFiles:executed,deferredFixtureFiles:deferred,filteredMixedFiles:filtered,noDemoRecords:true}));
+ console.log(JSON.stringify({result:"PASS",schema:71,migration:"071_p20_7a_enterprise_ui_contracts",migrationFiles:71,executedFiles:executed,deferredFixtureFiles:deferred,filteredMixedFiles:filtered,noDemoRecords:true}));
 }finally{await client.end()}

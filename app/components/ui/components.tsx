@@ -177,8 +177,8 @@ export function TableContainer({label,density='default',children,className,...pr
  * that CSS. Reuse this for every workflow list — do not hand-roll a second
  * hidden header row.
  */
-export function TableHeaderRow({columns}:{columns:string[]}){
-  return <div role="row" className="aims-visually-hidden">{columns.map(label=><span role="columnheader" key={label}>{label}</span>)}</div>;
+export function TableHeaderRow({columns,className}:{columns:string[];className?:string}){
+  return <div role="row" className={className??"aims-visually-hidden"}>{columns.map(label=><span role="columnheader" key={label}>{label}</span>)}</div>;
 }
 export type PaginationProps={page:number;totalPages?:number;total?:number;hasPreviousPage:boolean;hasNextPage:boolean;onPrevious:()=>void;onNext:()=>void;busy?:boolean;label?:string};
 export function Pagination({page,totalPages,total,hasPreviousPage,hasNextPage,onPrevious,onNext,busy=false,label='Pagination'}:PaginationProps){

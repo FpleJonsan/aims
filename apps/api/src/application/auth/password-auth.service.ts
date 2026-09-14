@@ -5,9 +5,9 @@ import { Postgres } from "../../infrastructure/database/postgres.js";
 import { metrics } from "../../infrastructure/observability/telemetry.js";
 import { hashPassword, verifyPassword } from "../../infrastructure/security/password-hash.js";
 import { EMAIL_SENDER, type EmailSender } from "../../infrastructure/email/email-sender.js";
-import type { Role } from "../../domain/payment-request.js";
+import type { Principal, Role } from "../../domain/payment-request.js";
 import { SessionService } from "./session.service.js";
-import type { ForgotPasswordDto, LoginDto, RegisterDto, ResetPasswordDto } from "./password-auth.dto.js";
+import type { ChangePasswordDto, ForgotPasswordDto, LoginDto, RegisterDto, ResetPasswordDto } from "./password-auth.dto.js";
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_SECONDS = 900;
@@ -160,6 +160,21 @@ export class PasswordAuthService {
     await this.audit("PASSWORD_RESET_COMPLETED", request, userId, null, null);
     metrics.counter("aims_domain_operations_total", { operation: "PASSWORD_RESET", outcome: "SUCCESS", failure_category: "NONE", channel: "WEB" });
     return { ok: true };
+  }
+
+  async changePassword(actor:Principal,dto:ChangePasswordDto,request:Request,response:Response){
+    if(dto.newPassword!==dto.confirmPassword)throw new BadRequestException("Passwords do not match");
+    if(dto.currentPassword===dto.newPassword)throw new BadRequestException("New password must be different");
+    const current=await this.database.pool.query<CredentialRow>(`SELECT user_id,NULL::uuid department_id,NULL::varchar role,NULL::uuid identity_id,hash,salt,scrypt_params,failed_attempts,locked_until,force_reset FROM password_credentials WHERE user_id=$1`,[actor.id]);
+    if(!current.rowCount||!(await verifyPassword(dto.currentPassword,current.rows[0].hash,current.rows[0].salt,current.rows[0].scrypt_params)))throw new UnauthorizedException("Current password is incorrect");
+    const encoded=await hashPassword(dto.newPassword);
+    await this.database.retryableTransaction(async client=>{
+      await client.query(`UPDATE password_credentials SET hash=$2,salt=$3,scrypt_params=$4,force_reset=false,failed_attempts=0,locked_until=NULL,updated_at=now() WHERE user_id=$1`,[actor.id,encoded.hash,encoded.salt,encoded.params]);
+      await client.query(`UPDATE aims_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1`,[actor.id]);
+      await client.query(`INSERT INTO authentication_audit_events(id,user_id,authentication_method,source_channel,event_type,correlation_id,source_ip,actor_role_snapshot) VALUES($1,$2,'LOCAL_PASSWORD','WEB','PASSWORD_CHANGED',$3,$4,$5)`,[randomUUID(),actor.id,request.correlationId??"unavailable",request.ip??null,actor.roles]);
+    });
+    await this.sessions.logout(request,response);
+    return{changed:true,reauthenticationRequired:true};
   }
 
   private async denyLogin(request: Request, userId: string | null, identityId: string | null): Promise<never> {

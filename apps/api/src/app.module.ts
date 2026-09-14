@@ -87,6 +87,10 @@ import {
 import { MasterDataService } from "./application/master-data/master-data.service.js";
 import { ConfigurationController } from "./application/configuration/configuration.controller.js";
 import { ConfigurationService } from "./application/configuration/configuration.service.js";
+import { ProfileController } from "./application/profile/profile.controller.js";
+import { ProfileService } from "./application/profile/profile.service.js";
+import { AuditController } from "./application/audit/audit.controller.js";
+import { AuditService } from "./application/audit/audit.service.js";
 import { ApprovalMatrixController } from "./application/approval-matrix/approval-matrix.controller.js";
 import { ApprovalMatrixService } from "./application/approval-matrix/approval-matrix.service.js";
 import { ApprovalDelegationController } from "./application/approval-delegation/approval-delegation.controller.js";
@@ -118,6 +122,8 @@ import {
     CurrenciesController,
     PaymentMethodsController,
     ConfigurationController,
+    ProfileController,
+    AuditController,
     ApprovalMatrixController,
     ApprovalDelegationController,
     PaymentRequestController,
@@ -156,6 +162,8 @@ import {
     { provide: CURRENCIES_MASTER_DATA, useFactory: (postgres: Postgres) => new MasterDataService(postgres, CURRENCIES_CONFIG), inject: [Postgres] },
     { provide: PAYMENT_METHODS_MASTER_DATA, useFactory: (postgres: Postgres) => new MasterDataService(postgres, PAYMENT_METHODS_CONFIG), inject: [Postgres] },
     ConfigurationService,
+    ProfileService,
+    AuditService,
     ApprovalMatrixService,
     ApprovalDelegationService,
     PaymentRequestService,

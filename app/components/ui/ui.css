@@ -66,6 +66,10 @@
 .aims-table-container [data-numeric] { text-align:end; font-variant-numeric:tabular-nums; }
 .aims-table-container[data-density=compact] :is(th,td) { padding-block:var(--aims-space-8); }
 .aims-table-container[data-density=compact] tbody tr { height:var(--aims-table-row-compact); }
+/* F7 follow-up: grid-based rows ([role=row] > [role=cell]/[role=columnheader]) built with CSS Grid
+   otherwise refuse to shrink below an unbroken token's intrinsic width (e.g. an email address),
+   overflowing into the next column instead of respecting their minmax() track. */
+.aims-table-container [role=cell],.aims-table-container [role=columnheader] { min-width:0; overflow-wrap:anywhere; }
 .aims-pagination { padding-block:var(--aims-space-16); font-size:var(--aims-font-size-14); line-height:var(--aims-line-height-14); }
 .aims-button:disabled,.aims-control:disabled { background:var(--aims-color-disabled-surface); border-color:var(--aims-color-disabled-border); color:var(--aims-color-disabled-text); cursor:not-allowed; opacity:1; }
 @media (pointer:coarse) { .aims-button,.aims-control { min-height:var(--aims-control-touch-height); } .aims-card-header,.aims-card-body,.aims-card-footer { padding:var(--aims-space-16); } }

@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto";
 
-export const PRODUCTION_SCHEMA_VERSION=70;
-export const PRODUCTION_MIGRATION_ID="070_p20_5h_ai_configuration_authority";
+export const PRODUCTION_SCHEMA_VERSION=71;
+export const PRODUCTION_MIGRATION_ID="071_p20_7a_enterprise_ui_contracts";
 
 export const DEVELOPMENT_FIXTURE_MIGRATIONS=new Set([
  "002_local_demo_seed.sql",
@@ -61,7 +61,7 @@ ON CONFLICT (issuer,subject) DO NOTHING;
 }
 
 export function validateMigrationNames(names){
- if(names.length!==70||names[0]!=="001_day1_foundation.sql"||names.at(-1)!=="070_p20_5h_ai_configuration_authority.sql")throw new Error("expected immutable migration chain 001-070");
+ if(names.length!==71||names[0]!=="001_day1_foundation.sql"||names.at(-1)!=="071_p20_7a_enterprise_ui_contracts.sql")throw new Error("expected immutable migration chain 001-071");
  for(let index=0;index<names.length;index+=1)if(Number(names[index].slice(0,3))!==index+1)throw new Error(`migration sequence gap at ${names[index]}`);
 }
 
@@ -85,7 +85,7 @@ BEGIN
   (SELECT count(*) FROM approval_cases WHERE id::text LIKE 'd9100000-0000-4000-8000-00000000000%')
  INTO fixture_count;
  IF fixture_count<>0 THEN RAISE EXCEPTION 'production fixture records present: %',fixture_count; END IF;
- IF NOT EXISTS(SELECT 1 FROM aims_schema_version WHERE singleton AND version=70 AND migration_id='070_p20_5h_ai_configuration_authority') THEN RAISE EXCEPTION 'production schema identity mismatch'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM aims_schema_version WHERE singleton AND version=71 AND migration_id='071_p20_7a_enterprise_ui_contracts') THEN RAISE EXCEPTION 'production schema identity mismatch'; END IF;
  IF (SELECT count(*) FROM roles)<>5 OR NOT EXISTS(SELECT 1 FROM roles WHERE code='ADMIN' AND is_system) THEN RAISE EXCEPTION 'system role bootstrap mismatch'; END IF;
  IF (SELECT count(*) FROM permissions)<1 THEN RAISE EXCEPTION 'system permission bootstrap mismatch'; END IF;
  IF (SELECT count(*) FROM ai_feature_configuration)<>8 OR EXISTS(SELECT 1 FROM ai_feature_configuration WHERE enabled) THEN RAISE EXCEPTION 'AI defaults mismatch'; END IF;

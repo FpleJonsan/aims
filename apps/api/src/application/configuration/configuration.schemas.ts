@@ -36,6 +36,8 @@ export async function validateConfigurationPayload(
       return validateCompany(payload, client);
     case "finance":
       return validateFinance(payload, client);
+    case "workflow":
+      return validateWorkflow(payload);
     case "numbering":
       return validateNumbering(payload);
     case "ai":
@@ -45,6 +47,11 @@ export async function validateConfigurationPayload(
     case "system":
       return validateSystem(payload);
   }
+}
+
+function validateWorkflow(payload:Record<string,unknown>):string[]{
+  const required={stageModel:"FIXED_12_STAGE",stageCount:12,approvalRoutingAuthority:"APPROVAL_MATRIX",notificationAuthority:"NOTIFICATION_CONFIGURATION"};
+  return Object.entries(required).flatMap(([field,value])=>payload[field]===value?[]:[`${field} is governed by the frozen Enterprise workflow and cannot be changed`]);
 }
 
 async function validateCompany(payload: Record<string, unknown>, client: Queryable): Promise<string[]> {

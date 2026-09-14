@@ -10,7 +10,7 @@ type Capability = "financeAnalysis"|"approval"|"financeControl"|"payment"|"repor
 export class PortalService {
   constructor(private readonly db: Postgres) {}
 
-  async session(actor: Principal) {
+  async session(actor: Principal,mustChangePassword=false) {
     const [user, authority] = await Promise.all([
       this.db.pool.query<{external_subject:string;email:string;display_name:string;department_name:string}>(
         `SELECT u.external_subject,u.email,u.display_name,d.name department_name
@@ -40,7 +40,7 @@ export class PortalService {
       capabilities.financeControl || capabilities.payment || capabilities.reporting;
     return {
       user: { id:actor.id, subject:user.rows[0].external_subject, email:user.rows[0].email, displayName:competitionIdentityDisplayName(user.rows[0].external_subject,user.rows[0].display_name), department:user.rows[0].department_name },
-      workspaces: { requester, finance }, capabilities,
+      workspaces: { requester, finance }, capabilities,mustChangePassword,
     };
   }
 
@@ -87,7 +87,7 @@ export class PortalService {
   async requesterDetail(actor: Principal, id: string) {
     this.requester(actor);
     const request=await this.db.pool.query(
-      `SELECT id,ticket_number,status,payee,purpose,category,amount,currency,department_id,due_date,payment_method,remark,
+      `SELECT id,ticket_number,status,payee,purpose,category,amount,currency,department_id,due_date,payment_method,payment_details,remark,
         total_tax_amount,claim_count,attachment_count,created_at,updated_at,submitted_at
        FROM payment_requests WHERE id=$1 AND created_by=$2 AND department_id=$3`,[id,actor.id,actor.departmentId]);
     if(!request.rowCount) throw new NotFoundException("Payment request not found");

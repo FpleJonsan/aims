@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
 import type { PoolClient } from "pg";
@@ -107,6 +107,34 @@ export class SessionService {
     const revoked=await this.database.pool.query<{user_id:string;external_identity_id:string}>(
       `UPDATE aims_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE id=$1 RETURNING user_id,external_identity_id`,[sessionId]);
     if(revoked.rowCount)await this.audit("SESSION_REVOKED",request,revoked.rows[0].user_id,revoked.rows[0].external_identity_id,null);
+  }
+
+  async listMine(userId:string,currentSessionId:string){
+    const result=await this.database.pool.query<{id:string;authentication_method:string;created_at:string;expires_at:string}>(
+      `SELECT id,authentication_method,created_at,expires_at FROM aims_sessions
+       WHERE user_id=$1 AND revoked_at IS NULL AND expires_at>now()
+       ORDER BY created_at DESC,id`,[userId]);
+    return result.rows.map(row=>({id:row.id,authenticationMethod:row.authentication_method,createdAt:row.created_at,expiresAt:row.expires_at,current:row.id===currentSessionId}));
+  }
+
+  async revokeMine(userId:string,sessionId:string,request:Request){
+    const result=await this.database.pool.query<{external_identity_id:string}>(
+      `UPDATE aims_sessions SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL RETURNING external_identity_id`,[sessionId,userId]);
+    if(!result.rowCount)throw new NotFoundException("Active session not found");
+    await this.audit("SESSION_REVOKED",request,userId,result.rows[0].external_identity_id,null);
+    return{revoked:true,current:sessionId===(request as Request&{aimsSessionId?:string}).aimsSessionId};
+  }
+
+  async revokeOthers(userId:string,currentSessionId:string,request:Request){
+    const result=await this.database.pool.query<{external_identity_id:string}>(
+      `UPDATE aims_sessions SET revoked_at=now() WHERE user_id=$1 AND id<>$2 AND revoked_at IS NULL AND expires_at>now() RETURNING external_identity_id`,[userId,currentSessionId]);
+    if(result.rowCount)await this.audit("OTHER_SESSIONS_REVOKED",request,userId,result.rows[0].external_identity_id,null);
+    return{revoked:result.rowCount??0};
+  }
+
+  async requirePasswordChange(userId:string):Promise<boolean>{
+    const result=await this.database.pool.query<{force_reset:boolean}>(`SELECT force_reset FROM password_credentials WHERE user_id=$1`,[userId]);
+    return result.rows[0]?.force_reset===true;
   }
 
   private localLifetimeSeconds():number{

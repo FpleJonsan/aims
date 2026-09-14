@@ -539,7 +539,9 @@ export class ApprovalService {
         WHERE ac.payment_request_id=pr.id AND ac.is_current AND ac.status='PENDING' AND s.status='ACTIVE' AND pr.status='PENDING_APPROVAL' AND pr.created_by<>$2
           AND (aa.authority_scope='ORGANIZATION' OR aa.department_id=pr.department_id)
           AND (aa.minimum_amount_minor IS NULL OR aa.minimum_amount_minor<=fc.request_amount_minor) AND (aa.maximum_amount_minor IS NULL OR aa.maximum_amount_minor>=fc.request_amount_minor)
-          AND (s.minimum_amount_minor IS NULL OR s.minimum_amount_minor<=fc.request_amount_minor) AND (s.maximum_amount_minor IS NULL OR s.maximum_amount_minor>=fc.request_amount_minor)))`,
+          AND (s.minimum_amount_minor IS NULL OR s.minimum_amount_minor<=fc.request_amount_minor) AND (s.maximum_amount_minor IS NULL OR s.maximum_amount_minor>=fc.request_amount_minor))
+       OR EXISTS(SELECT 1 FROM approval_actions aa2 JOIN approval_steps s2 ON s2.id=aa2.approval_step_id
+        JOIN approval_cases ac2 ON ac2.id=s2.approval_case_id WHERE ac2.payment_request_id=pr.id AND aa2.actor_id=$2))`,
       [id, actor.id, actor.roles.includes("FINANCE")],
     );
     if (!allowed.rowCount)
@@ -966,10 +968,34 @@ export class ApprovalService {
       );
   }
   private async present(c: any, ac: any, actor: Principal) {
+    const stepsForActor = (
+      await c.query(
+        "SELECT * FROM approval_steps WHERE approval_case_id=$1 ORDER BY sequence",
+        [ac.id],
+      )
+    ).rows;
+    const activeStep = stepsForActor.find((s: any) => s.status === "ACTIVE");
+    let canAct = false;
+    if (activeStep) {
+      const createdByRow = (
+        await c.query(
+          "SELECT created_by,department_id FROM payment_requests WHERE id=$1",
+          [ac.payment_request_id],
+        )
+      ).rows[0];
+      canAct = (
+        await this.authorized(
+          c,
+          actor,
+          { createdBy: createdByRow.created_by, departmentId: createdByRow.department_id },
+          { ...activeStep, finance_context_snapshot_id: ac.finance_context_snapshot_id },
+        )
+      ).authorized;
+    }
     const detail =
       (
         await c.query(
-          `SELECT pr.ticket_number,pr.payee,pr.purpose,pr.amount,pr.currency,pr.department_id,pr.due_date,
+          `SELECT pr.created_by,pr.ticket_number,pr.payee,pr.purpose,pr.amount,pr.currency,pr.department_id,pr.due_date,
       fc.revised_amount_minor,fc.available_amount_minor,fc.projected_available_amount_minor,ra.ai_assessment,ra.final_risk,ra.final_priority,
       pd.result policy_result,pd.approval_plan,pd.matched_rule_ids
       FROM approval_cases ac JOIN payment_requests pr ON pr.id=ac.payment_request_id JOIN finance_context_snapshots fc ON fc.id=ac.finance_context_snapshot_id
@@ -987,12 +1013,7 @@ export class ApprovalService {
       ).rows[0] ?? null;
     return {
       case: ac,
-      steps: (
-        await c.query(
-          "SELECT * FROM approval_steps WHERE approval_case_id=$1 ORDER BY sequence",
-          [ac.id],
-        )
-      ).rows,
+      steps: stepsForActor,
       clarifications: (
         await c.query(
           "SELECT * FROM approval_clarifications WHERE approval_case_id=$1 ORDER BY requested_at",
@@ -1013,6 +1034,7 @@ export class ApprovalService {
         )
       ).rows,
       actorId: actor.id,
+      canAct,
       commitment,
       commitmentStatus: commitment?.status ?? "NOT_CREATED",
       readyForFinanceControl:

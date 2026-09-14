@@ -1,0 +1,13 @@
+.enterpriseStatePage{min-height:100vh;background:var(--aims-surface-canvas,#f6f7f8);padding:48px 18px}
+.enterpriseStateMain{width:min(920px,100%);margin:0 auto}
+.profileGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.profileGrid>*:first-child{grid-column:1/-1}
+.profileDetails{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:20px 0}
+.profileDetails div{padding:14px;border:1px solid var(--aims-border,#dfe3e1);border-radius:7px}.profileDetails dt{font-size:.8rem;color:#66716c}.profileDetails dd{margin:4px 0 0;font-weight:650}
+.profileBadges,.profileActions,.profileLinks{display:flex;flex-wrap:wrap;gap:9px}.profileLinks{margin-top:18px}.profileLinks a{font-weight:650;text-decoration:underline;text-underline-offset:3px}
+.profileForm{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}.profileSessions{grid-column:1/-1}.sessionList{display:flex;flex-direction:column;gap:10px}.sessionList article{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px;border:1px solid var(--aims-border,#dfe3e1);border-radius:7px}.profileActions{align-items:center;margin-top:18px}.profileActions>a{font-weight:650;text-decoration:underline;text-underline-offset:3px}
+.enterpriseMessage{width:min(620px,100%);margin:0 auto;text-align:center}.enterpriseMessage .aims-card-body{padding:38px}.enterpriseMessageCode{display:block;font-size:.78rem;letter-spacing:.14em;color:#66716c;margin-bottom:8px}
+.enterpriseTableRow{display:grid;grid-template-columns:1.4fr .8fr 1fr 1.2fr 1.2fr;gap:14px;align-items:center;padding:14px;border-bottom:1px solid var(--aims-border,#dfe3e1);font-size:.88rem}.enterpriseTableRow>*{min-width:0;overflow-wrap:anywhere}.auditFilters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:end}.auditRow{grid-template-columns:1fr 1fr 1.2fr 1.4fr .8fr}
+.enterpriseTableHeader{font-weight:700;background:var(--aims-color-surface-muted,#f0f2f1)}
+@media(max-width:800px){.auditFilters{grid-template-columns:repeat(2,minmax(0,1fr))}.enterpriseTableRow,.auditRow{grid-template-columns:1fr 1fr}.enterpriseTableHeader{display:none}.enterpriseTableRow>*:before{content:attr(data-label);display:block;font-size:.75rem;font-weight:700;color:#66716c;margin-bottom:3px}}
+@media(max-width:650px){.enterpriseStatePage{padding:28px 12px}.profileGrid,.profileDetails,.profileForm{grid-template-columns:1fr}.profileGrid>*:first-child,.profileSessions{grid-column:auto}.sessionList article{align-items:flex-start;flex-direction:column}}

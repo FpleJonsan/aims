@@ -12,7 +12,7 @@ export interface Queryable {
  * engine, many thin configs" instead of one bespoke table/service per
  * category.
  */
-export const CONFIGURATION_CATEGORIES = ["company", "finance", "numbering", "ai", "notifications", "system"] as const;
+export const CONFIGURATION_CATEGORIES = ["company", "finance", "workflow", "numbering", "ai", "notifications", "system"] as const;
 export type ConfigurationCategory = (typeof CONFIGURATION_CATEGORIES)[number];
 
 export function isConfigurationCategory(value: string): value is ConfigurationCategory {

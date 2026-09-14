@@ -63,10 +63,27 @@ test("Production and staging reject local/header identity but accept a verified 
       await assert.rejects(()=>localGuard.canActivate({switchToHttp:()=>({getRequest:()=>request({cookie:`${SESSION_COOKIE}=local`,headerUser:"privileged"})})} as never),/Corporate or password authentication required/);
       const corporateGuard=new AuthGuard({pool:{query:async()=>{throw Error("identity lookup must not execute")}}} as never,{authenticate:async()=>({authenticationMethod:"CORPORATE_PROVIDER",csrfTokenHash:hash("csrf"),sessionId:"s",principal:{id:"u",departmentId:"d",roles:[]}}),verifyCsrf:()=>undefined} as never);
       assert.equal(await corporateGuard.canActivate({switchToHttp:()=>({getRequest:()=>request({cookie:`${SESSION_COOKIE}=corporate`,headerUser:"privileged"})})} as never),true);
-      const passwordGuard=new AuthGuard({pool:{query:async()=>{throw Error("identity lookup must not execute")}}} as never,{authenticate:async()=>({authenticationMethod:"LOCAL_PASSWORD",csrfTokenHash:hash("csrf"),sessionId:"s",principal:{id:"u",departmentId:"d",roles:["REQUESTER"]}}),verifyCsrf:()=>undefined} as never);
+      const passwordGuard=new AuthGuard({pool:{query:async()=>{throw Error("identity lookup must not execute")}}} as never,{authenticate:async()=>({authenticationMethod:"LOCAL_PASSWORD",csrfTokenHash:hash("csrf"),sessionId:"s",principal:{id:"u",departmentId:"d",roles:["REQUESTER"]}}),verifyCsrf:()=>undefined,requirePasswordChange:async()=>false} as never);
       assert.equal(await passwordGuard.canActivate({switchToHttp:()=>({getRequest:()=>request({cookie:`${SESSION_COOKIE}=password`,headerUser:"privileged"})})} as never),true);
     }finally{if(previousNode===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previousNode;if(previousEnvironment===undefined)delete process.env.AIMS_ENVIRONMENT;else process.env.AIMS_ENVIRONMENT=previousEnvironment;}
   }
+});
+
+test("session management is self-scoped and identifies only the current session",async()=>{
+  const calls:Array<{sql:string;values:unknown[]}>=[];
+  const service=new SessionService({pool:{query:async(sql:string,values:unknown[])=>{calls.push({sql,values});if(sql.includes("SELECT id,authentication_method"))return{rowCount:2,rows:[{id:"current",authentication_method:"LOCAL_PASSWORD",created_at:"2026-01-01",expires_at:"2026-01-02"},{id:"other",authentication_method:"CORPORATE_PROVIDER",created_at:"2026-01-01",expires_at:"2026-01-02"}]};if(sql.includes("UPDATE aims_sessions"))return{rowCount:1,rows:[{external_identity_id:"identity"}]};return{rowCount:1,rows:[]}}}} as never);
+  const rows=await service.listMine("user-a","current");assert.equal(rows[0].current,true);assert.equal(rows[1].current,false);assert.deepEqual(calls[0].values,["user-a"]);
+  await service.revokeMine("user-a","other",{correlationId:"c"} as never);assert.deepEqual(calls.find(call=>call.sql.includes("WHERE id=$1 AND user_id=$2"))?.values,["other","user-a"]);
+  await service.revokeOthers("user-a","current",{correlationId:"c"} as never);assert.deepEqual(calls.find(call=>call.sql.includes("id<>$2"))?.values,["user-a","current"]);
+});
+
+test("forced password sessions are limited to session bootstrap and password change",async()=>{
+  const sessions={authenticate:async()=>({authenticationMethod:"LOCAL_PASSWORD",csrfTokenHash:hash("csrf"),sessionId:"s",principal:{id:"u",departmentId:"d",roles:["REQUESTER"]}}),verifyCsrf:()=>undefined,requirePasswordChange:async()=>true};
+  const guard=new AuthGuard({} as never,sessions as never);
+  const context=(path:string)=>{const value=request() as unknown as Record<string,unknown>;return({switchToHttp:()=>({getRequest:()=>({...value,path})})}) as never};
+  assert.equal(await guard.canActivate(context("/session")),true);
+  assert.equal(await guard.canActivate(context("/auth/password/change")),true);
+  await assert.rejects(()=>guard.canActivate(context("/payment-requests")),/Password change required/);
 });
 
 test("identity schema prevents collisions without email matching",async()=>{

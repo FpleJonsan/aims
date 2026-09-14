@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import type { Request } from 'express';
 import type { Principal, Role } from '../../domain/payment-request.js';
 import { Postgres } from '../../infrastructure/database/postgres.js';
@@ -9,6 +9,7 @@ declare module 'express-serve-static-core' {
   interface Request {
     principal: Principal;
     aimsSessionId?: string;
+    mustChangePassword?: boolean;
   }
 }
 
@@ -24,6 +25,9 @@ export class AuthGuard implements CanActivate {
       if((environment==="production"||environment==="staging")&&authenticated.authenticationMethod!=="CORPORATE_PROVIDER"&&authenticated.authenticationMethod!=="LOCAL_PASSWORD")throw new UnauthorizedException("Corporate or password authentication required");
       this.sessions.verifyCsrf(request,authenticated.csrfTokenHash);
       request.principal=authenticated.principal;request.aimsSessionId=authenticated.sessionId;
+      request.mustChangePassword=authenticated.authenticationMethod==="LOCAL_PASSWORD"&&await this.sessions.requirePasswordChange(authenticated.principal.id);
+      const path=request.path??"";
+      if(request.mustChangePassword&&!path.endsWith("/auth/password/change")&&!path.endsWith("/session"))throw new ForbiddenException("Password change required");
       return true;
     }
     const subject = request.header('x-aims-user');

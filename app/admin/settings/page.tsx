@@ -6,6 +6,7 @@ import { Card as UiCard, CardBody as UiCardBody, PageHeader as UiPageHeader, Typ
 const SECTIONS = [
   { href: "/admin/settings/company", label: "Company Settings", description: "Identity, locale, calendar, and default currency." },
   { href: "/admin/settings/finance", label: "Finance Settings", description: "Defaults, limits, and remark templates." },
+  { href: "/admin/settings/workflow", label: "Workflow Configuration", description: "Frozen 12-stage workflow authority and its delegated configuration boundaries." },
   { href: "/admin/settings/numbering", label: "Business Numbering", description: "Document numbering rules per document type." },
   { href: "/admin/settings/ai", label: "AI Configuration", description: "Business-facing AI provider, model, and feature toggles." },
   { href: "/admin/settings/notifications", label: "Notification Settings", description: "Telegram reminders and escalation timing." },

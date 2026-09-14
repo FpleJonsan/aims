@@ -64,6 +64,13 @@ export function defaultPayloadFor(category: ConfigurationCategory): Record<strin
         allowedAttachmentTypes: ["pdf", "jpg", "jpeg", "png"],
         financeRemarkTemplates: [],
       };
+    case "workflow":
+      return {
+        stageModel: "FIXED_12_STAGE",
+        stageCount: 12,
+        approvalRoutingAuthority: "APPROVAL_MATRIX",
+        notificationAuthority: "NOTIFICATION_CONFIGURATION",
+      };
     case "numbering":
       return {
         documentTypes: Object.fromEntries(

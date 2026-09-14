@@ -98,7 +98,7 @@ export default function AdminRolesPage() {
                 <div
                   key={role.id}
                   role="row"
-                  style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 0.8fr 0.9fr 0.8fr 1.2fr", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #eee" }}
+                  style={{ display: "grid", gridTemplateColumns: "minmax(160px,1.4fr) minmax(100px,1fr) minmax(90px,0.8fr) minmax(100px,0.9fr) minmax(90px,0.8fr) minmax(140px,1.2fr)", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #eee" }}
                 >
                   <span role="cell">
                     <Link href={`/admin/roles/${role.id}`}>{role.name}</Link>

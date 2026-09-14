@@ -170,7 +170,7 @@ export default function DelegationPage() {
                 <div
                   key={item.id}
                   role="row"
-                  style={{ display: "grid", gridTemplateColumns: "1fr 1fr 0.8fr 0.8fr 0.8fr 1.4fr 0.8fr", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #eee" }}
+                  style={{ display: "grid", gridTemplateColumns: "minmax(120px,1fr) minmax(120px,1fr) minmax(90px,0.8fr) minmax(90px,0.8fr) minmax(90px,0.8fr) minmax(160px,1.4fr) minmax(100px,0.8fr)", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #eee" }}
                 >
                   <span role="cell">{item.delegateFromName ?? item.delegateFrom}</span>
                   <span role="cell">{item.delegateToName ?? item.delegateTo}</span>

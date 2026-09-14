@@ -34,6 +34,14 @@ test("getActive rejects an unknown category", async () => {
   await assert.rejects(() => service.getActive("not-a-category"), BadRequestException);
 });
 
+test("workflow configuration accepts only the frozen authority contract",async()=>{
+  const {service}=fakeDatabase({});
+  const active=await service.getActive("workflow");assert.deepEqual(active.payload,defaultPayloadFor("workflow"));
+  const invalid={...defaultPayloadFor("workflow"),stageCount:13};
+  const configured=fakeDatabase({"SELECT * FROM configuration_versions WHERE category=$1 AND status='draft'":()=>({rowCount:1,rows:[{id:"draft",payload:invalid}]})});
+  const preview=await configured.service.preview("workflow");assert.equal(preview.canPublish,false);assert.match(preview.validationErrors[0],/frozen Enterprise workflow/);
+});
+
 test("saveDraft creates a new draft when none exists and audits DRAFT_CREATED", async () => {
   const { calls, service } = fakeDatabase({ "SELECT id FROM configuration_versions": () => ({ rowCount: 0, rows: [] }) });
   const payload = { ...defaultPayloadFor("system") };

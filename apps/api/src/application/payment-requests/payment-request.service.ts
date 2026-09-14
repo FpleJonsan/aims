@@ -331,7 +331,9 @@ export class PaymentRequestService {
           AND (aa.minimum_amount_minor IS NULL OR aa.minimum_amount_minor<=fc.request_amount_minor)
           AND (aa.maximum_amount_minor IS NULL OR aa.maximum_amount_minor>=fc.request_amount_minor)
           AND (s.minimum_amount_minor IS NULL OR s.minimum_amount_minor<=fc.request_amount_minor)
-          AND (s.maximum_amount_minor IS NULL OR s.maximum_amount_minor>=fc.request_amount_minor) LIMIT 1`,
+          AND (s.maximum_amount_minor IS NULL OR s.maximum_amount_minor>=fc.request_amount_minor)
+        UNION SELECT 1 FROM approval_actions aa2 JOIN approval_steps s2 ON s2.id=aa2.approval_step_id
+          JOIN approval_cases ac2 ON ac2.id=s2.approval_case_id WHERE ac2.payment_request_id=$1 AND aa2.actor_id=$2 LIMIT 1`,
         [id, actor.id, request.departmentId],
       );
       if (!approvalAccess.rowCount)

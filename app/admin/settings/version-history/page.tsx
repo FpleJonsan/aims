@@ -26,6 +26,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   ai: "AI",
   notifications: "Notifications",
   system: "System",
+  workflow: "Workflow authority",
 };
 
 type VersionEntry = { category: string; version: number; reason: string | null; changedBy: string | null; publishedAt: string | null };
@@ -62,6 +63,7 @@ export default function ConfigurationVersionHistoryPage() {
 
   async function confirmRollback() {
     if (!rollbackTarget) return;
+    if (rollbackTarget.category === "workflow") return;
     setBusy(true);
     setError(null);
     try {
@@ -79,7 +81,7 @@ export default function ConfigurationVersionHistoryPage() {
 
   return (
     <div>
-      <UiPageHeader title="Configuration version history" description="Every published change across every settings category, with mandatory reasons and rollback." />
+      <UiPageHeader title="Configuration version history" description="Published settings evidence with mandatory reasons. Editable categories support controlled rollback; frozen workflow authority is evidence-only." />
       {error && <UiAlert tone="danger" title="Action failed" style={{ marginBottom: 16 }}>{error}</UiAlert>}
       {notice && <UiAlert tone="success" title="Done" style={{ marginBottom: 16 }}>{notice}</UiAlert>}
 
@@ -103,14 +105,18 @@ export default function ConfigurationVersionHistoryPage() {
             <UiTableContainer label="Configuration versions">
               <UiTableHeaderRow columns={["Category", "Version", "Reason", "Published by", "Published at", "Actions"]} />
               {data.items.map((item) => (
-                <div key={`${item.category}-${item.version}`} role="row" style={{ display: "grid", gridTemplateColumns: "1fr 0.6fr 2fr 1fr 1.2fr 1fr", gap: 8, padding: "8px 0", borderBottom: "1px solid #eee" }}>
+                <div key={`${item.category}-${item.version}`} role="row" style={{ display: "grid", gridTemplateColumns: "minmax(110px,1fr) minmax(70px,0.6fr) minmax(180px,2fr) minmax(110px,1fr) minmax(150px,1.2fr) minmax(140px,1fr)", gap: 8, padding: "8px 0", borderBottom: "1px solid #eee" }}>
                   <span role="cell"><UiBadge tone="neutral">{CATEGORY_LABELS[item.category] ?? item.category}</UiBadge></span>
                   <span role="cell">v{item.version}</span>
                   <span role="cell">{item.reason ?? "—"}</span>
                   <span role="cell">{item.changedBy ?? "—"}</span>
                   <span role="cell">{item.publishedAt ? new Date(item.publishedAt).toLocaleString() : "—"}</span>
                   <span role="cell">
-                    <UiButton onClick={() => setRollbackTarget(item)}>Rollback to this version</UiButton>
+                    {item.category === "workflow" ? (
+                      <UiTypography variant="metadata">Read-only evidence</UiTypography>
+                    ) : (
+                      <UiButton onClick={() => setRollbackTarget(item)}>Rollback to this version</UiButton>
+                    )}
                   </span>
                 </div>
               ))}

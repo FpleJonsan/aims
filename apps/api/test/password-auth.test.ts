@@ -154,3 +154,12 @@ test("reset-password rejects an invalid or expired token and accepts a valid one
   assert.deepEqual(await service2.resetPassword({ token: "y".repeat(40), newPassword: "brand new password 123" } as never, request()), { ok: true });
   assert.deepEqual(sessions.revoked, ["user"]);
 });
+
+test("authenticated password change verifies the current password, clears force reset, revokes sessions, and audits",async()=>{
+  const old=await hashPassword("temporary password 123");const calls:Array<{sql:string;values:unknown[]}>=[];
+  const query=async(sql:string,values:unknown[]=[])=>{calls.push({sql,values});if(sql.includes("SELECT user_id,NULL::uuid"))return{rowCount:1,rows:[{user_id:"user",hash:old.hash,salt:old.salt,scrypt_params:old.params,failed_attempts:0,locked_until:null,force_reset:true}]};return{rowCount:1,rows:[]}};
+  let loggedOut=false;const sessions={logout:async()=>{loggedOut=true}};
+  const service=new PasswordAuthService({pool:{query},retryableTransaction:async(fn:(client:{query:typeof query})=>Promise<unknown>)=>fn({query})} as never,sessions as never,fakeEmail() as never);
+  const result=await service.changePassword({id:"user",departmentId:"dept",roles:["REQUESTER"]} as never,{currentPassword:"temporary password 123",newPassword:"permanent password 456",confirmPassword:"permanent password 456"},request(),response());
+  assert.deepEqual(result,{changed:true,reauthenticationRequired:true});assert.equal(loggedOut,true);assert.ok(calls.some(c=>c.sql.includes("force_reset=false")));assert.ok(calls.some(c=>c.sql.includes("'PASSWORD_CHANGED'")));
+});

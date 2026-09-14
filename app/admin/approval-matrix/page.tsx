@@ -213,7 +213,7 @@ export default function ApprovalMatrixPage() {
                   <div
                     key={rule.id}
                     role="row"
-                    style={{ display: "grid", gridTemplateColumns: "0.9fr 1.2fr 0.6fr 1fr 0.6fr 1.2fr 1fr", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #eee" }}
+                    style={{ display: "grid", gridTemplateColumns: "minmax(100px,0.9fr) minmax(140px,1.2fr) minmax(80px,0.6fr) minmax(100px,1fr) minmax(70px,0.6fr) minmax(160px,1.2fr) minmax(140px,1fr)", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #eee" }}
                   >
                     <span role="cell" style={{ fontFamily: "monospace" }}>
                       {rule.code}

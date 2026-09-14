@@ -39,12 +39,14 @@ export function ConfigurationEditor<T extends Record<string, unknown>>({
   title,
   description,
   defaultValue,
+  readOnly = false,
   children,
 }: {
   category: string;
   title: string;
   description: string;
   defaultValue: T;
+  readOnly?: boolean;
   children: (props: { value: T; setValue: (updater: (value: T) => T) => void; disabled: boolean }) => ReactNode;
 }) {
   const apiPath = `/admin/configuration/${category}`;
@@ -158,9 +160,7 @@ export function ConfigurationEditor<T extends Record<string, unknown>>({
         title={title}
         description={description}
         actions={
-          <Link href={`/admin/settings/version-history?category=${category}`}>
-            <UiButton>Version history</UiButton>
-          </Link>
+          <Link className="aims-button aims-button-secondary" href={`/admin/settings/version-history?category=${category}`}>Version history</Link>
         }
       />
 
@@ -174,7 +174,7 @@ export function ConfigurationEditor<T extends Record<string, unknown>>({
 
       <UiCard style={{ marginBottom: 16 }}>
         <UiCardBody>{children({ value: draftValue, setValue, disabled: busy !== null })}</UiCardBody>
-        <UiCardFooter style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {!readOnly && <UiCardFooter style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <UiButton variant="primary" busy={busy === "save"} busyLabel="Saving…" onClick={saveDraft}>
             Save draft
           </UiButton>
@@ -187,7 +187,7 @@ export function ConfigurationEditor<T extends Record<string, unknown>>({
           <UiButton variant="primary" disabled={!hasDraft} onClick={() => setReasonOpen(true)}>
             Publish…
           </UiButton>
-        </UiCardFooter>
+        </UiCardFooter>}
       </UiCard>
 
       {preview && (

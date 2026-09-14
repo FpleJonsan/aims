@@ -85,7 +85,7 @@ export default function AdminUsersPage() {
                     key={user.id}
                     href={`/admin/users/${user.id}`}
                     role="row"
-                    style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8, padding: "8px 0", borderBottom: "1px solid #eee", textDecoration: "none", color: "inherit" }}
+                    style={{ display: "grid", gridTemplateColumns: "minmax(130px,1fr) minmax(190px,1.3fr) minmax(110px,1fr) minmax(120px,1fr) minmax(90px,0.8fr) minmax(150px,1fr)", gap: 8, padding: "8px 0", borderBottom: "1px solid #eee", textDecoration: "none", color: "inherit" }}
                   >
                     <span role="cell">{user.displayName}</span>
                     <span role="cell">{user.email}</span>

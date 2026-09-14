@@ -1,0 +1,33 @@
+.aims-admin-shell{display:flex;min-height:100vh;background:var(--aims-surface-canvas,#f6f7f8)}
+.adminNav{width:248px;flex:none;padding:28px 20px;border-right:1px solid var(--aims-border,#dfe3e1);background:var(--aims-surface,#fff)}
+.adminNavHeader{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.adminNavHeader h2{margin:0 0 16px}
+.adminNavToggle{display:none}
+.adminNavGroups{display:flex;flex-direction:column;gap:22px}
+.adminNavGroups h3{margin:0 0 7px;color:var(--aims-text-muted,#66716c)}
+.adminNavGroups ul{display:flex;flex-direction:column;gap:3px;list-style:none;margin:0;padding:0}
+.adminNavGroups a,.adminNavFooter a{display:block;padding:8px 10px;border-radius:6px;font-size:.9rem;font-weight:600}
+.adminNavGroups a:hover,.adminNavGroups a:focus-visible,.adminNavFooter a:hover,.adminNavFooter a:focus-visible{background:#edf4f0;outline:none}
+.adminNavFooter{display:flex;flex-direction:column;gap:3px;margin-top:30px;padding-top:18px;border-top:1px solid var(--aims-border,#dfe3e1)}
+.adminMain{flex:1;min-width:0;padding:32px}
+/* F7 fix: below the same collapse breakpoint the operational app's primary
+   nav (day1.css .mobileNavToggle / .sideNav) uses, hide the Finance Master
+   nav behind a "☰ Finance Master" toggle instead of rendering it inline
+   above the page content. Mirrors that pattern: header row stays visible,
+   the link groups and footer are display:none until .mobileOpen is toggled
+   by admin/layout.tsx's client-side state. */
+@media(max-width:900px){
+  .aims-admin-shell{display:block}
+  .adminNav{width:auto;border-right:0;border-bottom:1px solid var(--aims-border,#dfe3e1);padding:14px 16px}
+  .adminNavHeader h2{margin:0}
+  .adminNavToggle{display:flex;align-items:center;gap:8px;min-height:42px;padding:9px 12px;border:1px solid var(--aims-border,#dfe3e1);border-radius:6px;background:var(--aims-surface,#fff);color:var(--aims-text,#16221d);font-size:.9rem;font-weight:600;flex-shrink:0}
+  .adminNavGroups{display:none;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px}
+  .adminNavGroups.mobileOpen{display:grid}
+  .adminNavFooter{display:none;flex-direction:row;flex-wrap:wrap;margin-top:18px}
+  .adminNavFooter.mobileOpen{display:flex}
+  .adminMain{padding:22px 16px}
+}
+@media(max-width:480px){
+  .adminNavGroups.mobileOpen{grid-template-columns:1fr}
+  .adminMain{padding:18px 12px}
+}

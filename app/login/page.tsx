@@ -37,7 +37,7 @@ export default function LoginPage() {
         rememberMe,
       });
       if (result.mustChangePassword) {
-        setNotice("Your password must be changed before you continue. Use “Forgot password” to set a new one.");
+        router.push("/change-password");
         return;
       }
       router.push("/");

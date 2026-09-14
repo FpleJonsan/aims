@@ -140,6 +140,17 @@ export class NotificationService {
     };
   }
 
+  async listOwnHistory(actor:Principal,input:{page:number;pageSize:number;eventType?:string;status?:string}){
+    const result=await this.db.pool.query<Record<string,unknown>&{total:string}>(
+      `SELECT id,event_type,channel,status,created_at,sent_at,last_error_code,count(*) OVER() total
+       FROM notification_outbox WHERE recipient_user_id=$1
+         AND($4::text IS NULL OR event_type=$4)AND($5::text IS NULL OR status=$5)
+       ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3`,
+      [actor.id,input.pageSize,(input.page-1)*input.pageSize,input.eventType??null,input.status??null]);
+    const total=result.rows[0]?Number(result.rows[0].total):0;
+    return{items:result.rows.map(({total:rowTotal,...row})=>{void rowTotal;return row}),page:input.page,pageSize:input.pageSize,total,totalPages:Math.max(1,Math.ceil(total/input.pageSize))};
+  }
+
   async setPreference(
     actor: Principal,
     channel: string,

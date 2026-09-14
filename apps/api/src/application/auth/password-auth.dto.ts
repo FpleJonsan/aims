@@ -21,3 +21,9 @@ export class ResetPasswordDto {
   @IsString() @MinLength(32) @MaxLength(512) token!: string;
   @IsString() @MinLength(12) @MaxLength(200) newPassword!: string;
 }
+
+export class ChangePasswordDto {
+  @IsString() @MinLength(1) @MaxLength(200) currentPassword!: string;
+  @IsString() @MinLength(12) @MaxLength(200) newPassword!: string;
+  @IsString() @MinLength(12) @MaxLength(200) confirmPassword!: string;
+}

@@ -35,6 +35,11 @@ export class NotificationProfileController {
   @Get("notifications") preferences(@Req() r: Request) {
     return this.notifications.getPreferences(r.principal);
   }
+  @Get("notifications/history") history(@Req() r:Request,@Query() query:NotificationHistoryQueryDto){
+    return this.notifications.listOwnHistory(r.principal,{
+      page:Math.max(1,Number(query.page??1)),pageSize:Math.min(100,Math.max(1,Number(query.pageSize??25))),eventType:query.eventType,status:query.status,
+    });
+  }
   @Put("notifications/:channel") setPreference(
     @Req() r: Request,
     @Param("channel") channel: string,

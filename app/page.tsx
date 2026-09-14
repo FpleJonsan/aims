@@ -112,6 +112,7 @@ type PortalSession = {
   user:{id:string;subject:string;email:string;displayName:string;department:string};
   workspaces:{requester:boolean;finance:boolean};
   capabilities:{financeAnalysis:boolean;approval:boolean;financeControl:boolean;payment:boolean;reporting:boolean;policyAdmin:boolean};
+  mustChangePassword?:boolean;
 };
 type AuthPhase = "login"|"checking"|"ready"|"no-access"|"error";
 type IdentityMode = "LOCAL"|"COMPETITION";
@@ -248,6 +249,7 @@ export default function Home() {
     setAuthPhase("checking");setAuthMessage("");clearProtectedState();
     try {
       const next=await api("/session") as PortalSession;
+      if(next.mustChangePassword){window.location.replace("/change-password");return}
       const savedRedirect=safeInternalPath(window.sessionStorage.getItem("aims.redirect"));
       window.sessionStorage.removeItem("aims.redirect");
       applySession(next,savedRedirect??requestedPath);
@@ -1791,7 +1793,7 @@ function Editor({
         "REJECTED",
         "NEEDS_CLARIFICATION",
       ].includes(item.status) && (
-        <ApprovalPanel key={`${item.id}-${policyRevision}`} item={item} user={user} api={api} changed={changed} />
+        <ApprovalPanel key={`${item.id}-${policyRevision}`} item={item} api={api} changed={changed} />
       )}
       {!requesterView&&activeWorkflowStage===7&&[
         "APPROVED",
@@ -2094,6 +2096,7 @@ function ValidationPanel({
   const [data, setData] = useState<ValidationView>({});
   const [loading, setLoading] = useState(true);
   const [remarks, setRemarks] = useState(""),
+    [clarificationMessage, setClarificationMessage] = useState(""),
     [response, setResponse] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false);
@@ -2144,7 +2147,9 @@ function ValidationPanel({
           overallResult,
           remarks,
           requiredResponse:
-            overallResult === "CLARIFICATION_REQUIRED" ? remarks : undefined,
+            overallResult === "CLARIFICATION_REQUIRED"
+              ? clarificationMessage.trim()
+              : undefined,
           findings:
             overallResult === "PASS"
               ? []
@@ -2245,9 +2250,22 @@ function ValidationPanel({
                 value={remarks}
                 onChange={(event) => setRemarks(event.target.value)}
               />
+              <UiTextarea
+                id="validation-clarification-message"
+                label="Clarification message"
+                helper="What do you need from the Requester? This is the only text they will see."
+                required
+                value={clarificationMessage}
+                onChange={(event) => setClarificationMessage(event.target.value)}
+              />
               <div className="p1833-actions">
                 <UiButton variant="primary" disabled={busy} busy={busy} onClick={() => finalize("PASS")}>Confirm PASS</UiButton>
-                <UiButton variant="secondary" disabled={busy} busy={busy} onClick={() => finalize("CLARIFICATION_REQUIRED")}>
+                <UiButton
+                  variant="secondary"
+                  disabled={busy || !clarificationMessage.trim()}
+                  busy={busy}
+                  onClick={() => finalize("CLARIFICATION_REQUIRED")}
+                >
                   Request clarification
                 </UiButton>
               </div>
@@ -2260,9 +2278,9 @@ function ValidationPanel({
           <UiCard className="p1833-clarification" aria-labelledby="validation-clarification-title">
             <UiCardBody>
               <UiTypography as="span" variant="label">Clarification required</UiTypography>
-              <UiTypography id="validation-clarification-title" as="p" variant="body">{open.reason}</UiTypography>
-              {open.required_response && (
-                <UiTypography as="span" variant="metadata">{open.required_response}</UiTypography>
+              <UiTypography id="validation-clarification-title" as="p" variant="body">{open.required_response}</UiTypography>
+              {open.reason && (
+                <UiTypography as="span" variant="metadata">{open.reason}</UiTypography>
               )}
               <UiTextarea
                 id="validation-response"
@@ -3111,12 +3129,10 @@ function approvalChannelLabel(channel: string) {
 }
 function ApprovalPanel({
   item,
-  user,
   api,
   changed,
 }: {
   item: Item;
-  user: string;
   api: Api;
   changed: () => Promise<void>;
 }) {
@@ -3142,6 +3158,8 @@ function ApprovalPanel({
     detail?: Record<string, unknown>;
     evidence?: Array<Record<string, unknown>>;
     history?: Array<Record<string, unknown>>;
+    actorId?: string;
+    canAct?: boolean;
   };
   const [policy,setPolicy]=useState<{ready_for_approval?:boolean;stale?:boolean}|null>(null);
   const [data, setData] = useState<View | null>(null),
@@ -3228,7 +3246,7 @@ function ApprovalPanel({
           {notice && <UiAlert tone="danger">{notice}</UiAlert>}
           {loading && <UiSpinner label="Loading approval…" />}
           {!loading && !data?.case && (
-            policyReadyForApproval(policy,data?.case) && user === "demo.finance" ? (
+            policyReadyForApproval(policy,data?.case) ? (
               <UiButton variant="primary" disabled={busy} busy={busy} busyLabel="Creating…" onClick={() => void create()}>
                 Create Approval case
               </UiButton>
@@ -3327,7 +3345,7 @@ function ApprovalPanel({
               )}
             </UiCardBody>
           </UiCard>
-          {active && user === "demo.approver" && (
+          {active && data.canAct && (
             <UiCard>
               <UiCardBody className="p1835-currentStep">
                 <UiTypography as="h3" variant="section">Current approval step</UiTypography>
@@ -3641,8 +3659,7 @@ function FinanceControlPanel({
           )}
           {data.readyForPayment && (
             <UiAlert tone="success">
-              Final Finance Control passed · READY FOR PAYMENT. Payment
-              Processing is not implemented in Day 7.
+              Final Finance Control passed · READY FOR PAYMENT. Continue in the Payment Queue to record the external payment.
             </UiAlert>
           )}
         </>

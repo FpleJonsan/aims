@@ -206,7 +206,7 @@ export function MasterDataManager({ apiPath, label, pluralLabel }: { apiPath: st
                     <div
                       key={item.id}
                       role="row"
-                      style={{ display: "grid", gridTemplateColumns: "1.4fr 0.8fr 0.6fr 0.6fr 0.8fr 0.8fr 1fr 1.6fr", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #eee" }}
+                      style={{ display: "grid", gridTemplateColumns: "minmax(140px,1.4fr) minmax(90px,0.8fr) minmax(70px,0.6fr) minmax(80px,0.6fr) minmax(90px,0.8fr) minmax(80px,0.8fr) minmax(100px,1fr) minmax(170px,1.6fr)", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #eee" }}
                     >
                       {editing && editState ? (
                         <>

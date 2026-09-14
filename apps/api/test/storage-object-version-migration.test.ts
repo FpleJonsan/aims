@@ -9,7 +9,7 @@ const quarantineService=await readFile(new URL("../../src/application/documents/
 
 test("migration 061 is the sole guarded schema 60 to 61 transition",async()=>{
  const names=(await readdir(new URL("../../migrations/",import.meta.url))).filter(name=>/^\d{3}_.*\.sql$/.test(name)).sort();
- assert.equal(names.length,70);assert.equal(names.at(-1),"070_p20_5h_ai_configuration_authority.sql");
+ assert.equal(names.length,71);assert.equal(names.at(-1),"071_p20_7a_enterprise_ui_contracts.sql");
  assert.match(migration,/requires schema version 60/);assert.match(migration,/version=61,migration_id='061_p13_storage_object_version_binding'/);
  assert.doesNotMatch(migration,/CREATE ROLE|ALTER ROLE|S3|AWS|GCS|Azure/i);
 });
