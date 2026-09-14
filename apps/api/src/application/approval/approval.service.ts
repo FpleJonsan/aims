@@ -19,7 +19,7 @@ import type {
   ApprovalActionDto,
   ApprovalClarificationResponseDto,
 } from "./approval.dto.js";
-import type { NotificationService } from "../notification/notification.service.js";
+import { NotificationService } from "../notification/notification.service.js";
 
 @Injectable()
 export class ApprovalService {

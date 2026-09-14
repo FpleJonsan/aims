@@ -1,6 +1,6 @@
 export const RECOVERY_MANIFEST_VERSION = "1" as const;
-export const SUPPORTED_SCHEMA_VERSION = 69 as const;
-export const SUPPORTED_MIGRATION_ID = "069_p20_5g_notification_platform" as const;
+export const SUPPORTED_SCHEMA_VERSION = 70 as const;
+export const SUPPORTED_MIGRATION_ID = "070_p20_5h_ai_configuration_authority" as const;
 
 const MAX_TEXT = 256;
 const MAX_REFERENCE = 1024;

@@ -141,15 +141,36 @@ async function attachCleanPaymentSlip(db:Postgres,requestId:string,label:string)
 
 async function addDocument(db:Postgres,requestId:string,name:string){await db.pool.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference,storage_binding_state,storage_backend_id,storage_object_version,trusted_storage_object_key,trusted_storage_object_version)VALUES($1,$2,$3,$4,$5,'application/pdf',20,$6,'INVOICE',1,$7,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean','VERSION_BOUND','test-fixture',gen_random_uuid()::text,$5,gen_random_uuid()::text)`,[randomUUID(),requestId,randomUUID(),name,`active/uat/${randomUUID()}`,randomUUID().replaceAll("-","").repeat(2),requester.id]);}
 
+const AI_CONFIG_QUERY = "SELECT payload FROM configuration_versions WHERE category='ai' AND status='published' ORDER BY version DESC LIMIT 1";
 function withAiEnabled(db: Postgres): Postgres {
   const analysisDb = Object.create(db) as Postgres;
   Object.defineProperty(analysisDb, "pool", { value: new Proxy(db.pool, {
     get(target, property, receiver) {
       if (property === "query") {
         return async (query: string, values?: unknown[]) => {
-          if (query === "SELECT feature,enabled FROM ai_feature_configuration") {
-            const result = await db.pool.query<{ feature: string; enabled: boolean }>(query, values);
-            return { ...result, rows: result.rows.map((row) => ({ ...row, enabled: true })) };
+          if (query === AI_CONFIG_QUERY) {
+            return {
+              rows: [{
+                payload: {
+                  enabled: true,
+                  provider: "openai-compatible",
+                  model: "gpt-5-mini",
+                  temperature: 0.2,
+                  maxTokens: 4096,
+                  validationAiEnabled: true,
+                  documentExtractionEnabled: true,
+                  documentValidationEnabled: true,
+                  financialAnalysisAiEnabled: true,
+                  financialRiskAnalysisEnabled: true,
+                  spendingPatternAnalysisEnabled: true,
+                  complianceAnalysisEnabled: true,
+                  financeWatchEnabled: true,
+                  askAimsEnabled: true,
+                  manualModeAlwaysAvailable: true,
+                },
+              }],
+              rowCount: 1,
+            };
           }
           return db.pool.query(query, values);
         };

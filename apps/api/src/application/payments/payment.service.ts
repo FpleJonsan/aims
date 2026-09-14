@@ -20,7 +20,7 @@ import { PaymentRequestService } from "../payment-requests/payment-request.servi
 import { assertAllowedDocumentExtension } from "../documents/payment-document.service.js";
 import type { PaymentListDto, RecordPaymentDto } from "./payment.dto.js";
 import type { PaymentTelemetryOutcome } from "../../infrastructure/observability/telemetry.js";
-import type { NotificationService } from "../notification/notification.service.js";
+import { NotificationService } from "../notification/notification.service.js";
 
 @Injectable()
 export class PaymentService {

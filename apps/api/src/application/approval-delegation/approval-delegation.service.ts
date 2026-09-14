@@ -5,7 +5,7 @@ import type { Principal } from "../../domain/payment-request.js";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import { redactSensitiveData } from "../../infrastructure/configuration/secret-boundary.js";
 import type { CancelApprovalDelegationDto, CreateApprovalDelegationDto, ListApprovalDelegationsDto } from "./approval-delegation.dto.js";
-import type { NotificationService } from "../notification/notification.service.js";
+import { NotificationService } from "../notification/notification.service.js";
 
 /** Narrow shape both `Postgres.pool` and a transaction's `PoolClient` satisfy. */
 export interface Queryable {

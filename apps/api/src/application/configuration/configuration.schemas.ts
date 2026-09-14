@@ -157,19 +157,49 @@ function validateNumbering(payload: Record<string, unknown>): string[] {
   return errors;
 }
 
+const SUPPORTED_AI_PROVIDERS = ["openai-compatible"];
+
+// Every module-level and sub-capability AI feature flag Business Configuration
+// governs (P20.5H). This is the same flag set ai_feature_configuration used
+// to hold; consolidating it here retires that table as a business authority.
+const AI_MODULE_FLAGS: Array<[string, string]> = [
+  ["validationAiEnabled", "Validation AI flag"],
+  ["documentExtractionEnabled", "Document extraction flag"],
+  ["documentValidationEnabled", "Document validation flag"],
+  ["financialAnalysisAiEnabled", "Financial analysis AI flag"],
+  ["financialRiskAnalysisEnabled", "Financial risk analysis flag"],
+  ["spendingPatternAnalysisEnabled", "Spending pattern analysis flag"],
+  ["complianceAnalysisEnabled", "Compliance analysis flag"],
+  ["financeWatchEnabled", "Finance Watch flag"],
+  ["askAimsEnabled", "Ask AIMS flag"],
+];
+// Sub-capabilities that require their parent module flag to also be enabled.
+const AI_FLAG_PARENTS: Array<[string, string, string]> = [
+  ["documentExtractionEnabled", "validationAiEnabled", "Document extraction"],
+  ["documentValidationEnabled", "validationAiEnabled", "Document validation"],
+  ["financialRiskAnalysisEnabled", "financialAnalysisAiEnabled", "Financial risk analysis"],
+  ["spendingPatternAnalysisEnabled", "financialAnalysisAiEnabled", "Spending pattern analysis"],
+  ["complianceAnalysisEnabled", "financialAnalysisAiEnabled", "Compliance analysis"],
+];
+
 function validateAi(payload: Record<string, unknown>): string[] {
   const errors: string[] = [];
   if (typeof payload.enabled !== "boolean") errors.push("AI enabled flag must be true or false");
   if (typeof payload.provider !== "string" || !payload.provider.trim()) errors.push("AI provider is required");
+  else if (!SUPPORTED_AI_PROVIDERS.includes(payload.provider)) errors.push(`AI provider must be one of: ${SUPPORTED_AI_PROVIDERS.join(", ")}`);
   if (typeof payload.model !== "string" || !payload.model.trim()) errors.push("AI model is required");
   if (!isFiniteNumber(payload.temperature) || (payload.temperature as number) < 0 || (payload.temperature as number) > 2) errors.push("Temperature must be between 0 and 2");
   if (!Number.isInteger(payload.maxTokens) || (payload.maxTokens as number) < 1 || (payload.maxTokens as number) > 32000) errors.push("Max tokens must be between 1 and 32000");
   if (payload.apiKeyReference !== null && (typeof payload.apiKeyReference !== "string" || !payload.apiKeyReference.trim())) errors.push("API key reference must be a non-empty pointer name, never the key itself");
-  if (typeof payload.validationAiEnabled !== "boolean") errors.push("Validation AI flag must be true or false");
-  if (typeof payload.financialAnalysisAiEnabled !== "boolean") errors.push("Financial analysis AI flag must be true or false");
+  for (const [field, label] of AI_MODULE_FLAGS)
+    if (typeof payload[field] !== "boolean") errors.push(`${label} must be true or false`);
   if (payload.manualModeAlwaysAvailable !== true) errors.push("Manual mode must always remain available and cannot be disabled");
-  if (payload.enabled === false && (payload.validationAiEnabled === true || payload.financialAnalysisAiEnabled === true))
-    errors.push("Validation AI or Financial Analysis AI cannot be enabled while AI is disabled");
+  if (payload.enabled === false)
+    for (const [field, label] of AI_MODULE_FLAGS)
+      if (payload[field] === true) errors.push(`${label} cannot be enabled while AI is disabled`);
+  for (const [field, parent, label] of AI_FLAG_PARENTS)
+    if (payload[field] === true && payload[parent] !== true)
+      errors.push(`${label} cannot be enabled while ${parent} is disabled`);
   return errors;
 }
 

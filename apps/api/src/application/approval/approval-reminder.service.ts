@@ -3,7 +3,7 @@ import { Injectable } from "@nestjs/common";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import { ConfigurationService } from "../configuration/configuration.service.js";
 import { ApprovalDelegationService } from "../approval-delegation/approval-delegation.service.js";
-import type { NotificationService } from "../notification/notification.service.js";
+import { NotificationService } from "../notification/notification.service.js";
 
 type OverdueStepRow = {
   id: string;

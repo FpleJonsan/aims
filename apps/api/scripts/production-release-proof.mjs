@@ -31,7 +31,7 @@ try{
  const health=await client.query("SELECT version,migration_id FROM aims_schema_version WHERE singleton");
  const fixtureCounts=await client.query("SELECT (SELECT count(*) FROM users) users,(SELECT count(*) FROM departments) departments,(SELECT count(*) FROM policy_sets) policies,(SELECT count(*) FROM budgets) budgets");
  await client.end();
- if(Number(health.rows[0]?.version)!==69||health.rows[0]?.migration_id!=="069_p20_5g_notification_platform")throw new Error("runtime schema check failed");
+ if(Number(health.rows[0]?.version)!==70||health.rows[0]?.migration_id!=="070_p20_5h_ai_configuration_authority")throw new Error("runtime schema check failed");
  if(Object.values(fixtureCounts.rows[0]).some(value=>Number(value)!==0))throw new Error("production business fixture population is not empty");
  const developmentEnv={...process.env,DATABASE_URL:url("aims_migrator",credentials.migrator)};
  run("node",["apps/api/scripts/development-fixtures.mjs"],{env:developmentEnv,quiet:true});
@@ -39,5 +39,5 @@ try{
  const development=new pg.Client({connectionString:url("aims_app",credentials.app)});await development.connect();
  const developmentCounts=await development.query("SELECT count(*)::int demo_users FROM users WHERE external_subject LIKE 'demo.%'");await development.end();
  if(developmentCounts.rows[0].demo_users<1)throw new Error("development fixture layer did not populate demo identities");
- console.log(JSON.stringify({result:"PASS",environment:"isolated-production-proof",schema:69,migration:"069_p20_5g_notification_platform",migrationFiles:69,executedFiles:55,deferredFixtureFiles:14,filteredMixedFiles:2,noDemoRecords:true,systemBootstrap:true,privileges:true,runtimeSchemaCheck:true,developmentFixture:true,developmentFixtureIdempotent:true}));
+ console.log(JSON.stringify({result:"PASS",environment:"isolated-production-proof",schema:70,migration:"070_p20_5h_ai_configuration_authority",migrationFiles:70,executedFiles:56,deferredFixtureFiles:14,filteredMixedFiles:2,noDemoRecords:true,systemBootstrap:true,privileges:true,runtimeSchemaCheck:true,developmentFixture:true,developmentFixtureIdempotent:true}));
 }finally{spawnSync("docker",["rm","-f",container],{encoding:"utf8"});await rm(envFile,{force:true})}

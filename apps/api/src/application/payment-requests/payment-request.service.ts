@@ -22,7 +22,7 @@ import type {
   CapturePaymentRequestDto,
   ListPaymentRequestsDto,
 } from "./payment-request.dto.js";
-import type { NotificationService } from "../notification/notification.service.js";
+import { NotificationService } from "../notification/notification.service.js";
 
 type RequestRow = {
   id: string;

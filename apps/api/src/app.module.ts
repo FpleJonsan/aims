@@ -53,7 +53,7 @@ import {
   AI_PROVIDER,
   ValidationService,
 } from "./application/validation/validation.service.js";
-import { createAiProvider } from "./infrastructure/ai/ai-provider-factory.js";
+import { createAiRuntimeProvider } from "./infrastructure/ai/ai-provider-factory.js";
 import { Postgres } from "./infrastructure/database/postgres.js";
 import { correlationMiddleware } from "./infrastructure/http/correlation.middleware.js";
 import { HealthController } from "./application/health/health.controller.js";
@@ -201,7 +201,7 @@ import {
     },
     {
       provide: AI_PROVIDER,
-      useFactory: () => createAiProvider(process.env),
+      useFactory: () => createAiRuntimeProvider(process.env),
     },
     {
       provide: DOCUMENT_STORAGE,

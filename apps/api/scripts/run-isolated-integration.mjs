@@ -40,8 +40,8 @@ try{
   const bootstrap=(await readFile(path.join(apiRoot,"database/production/bootstrap-roles.sql"),"utf8")).replaceAll(':"DBNAME"',`"${database}"`);
   adminPsql(bootstrap);
   adminPsql(`ALTER ROLE aims_migrator PASSWORD ${literal(credentials.migrator)};ALTER ROLE aims_app PASSWORD ${literal(credentials.app)};ALTER ROLE aims_finance_runtime PASSWORD ${literal(credentials.finance)};ALTER ROLE aims_payment_runtime PASSWORD ${literal(credentials.payment)};ALTER ROLE aims_document_worker_runtime PASSWORD ${literal(credentials.worker)};`);
-  const migrations=(await readdir(path.join(apiRoot,"migrations"))).filter(name=>/^\d{3}_.*\.sql$/.test(name)&&Number(name.slice(0,3))<=69).sort();
-  if(migrations.length!==69||!migrations[0].startsWith("001_")||!migrations.at(-1).startsWith("069_"))throw new Error("expected immutable migration chain 001-069");
+  const migrations=(await readdir(path.join(apiRoot,"migrations"))).filter(name=>/^\d{3}_.*\.sql$/.test(name)&&Number(name.slice(0,3))<=70).sort();
+  if(migrations.length!==70||!migrations[0].startsWith("001_")||!migrations.at(-1).startsWith("070_"))throw new Error("expected immutable migration chain 001-070");
   for(const name of migrations){
     if(name.startsWith("061_"))adminPsql("DO $$BEGIN IF NOT EXISTS(SELECT 1 FROM aims_schema_version WHERE singleton AND version=60 AND migration_id='060_p13_corporate_auth_transactions') THEN RAISE EXCEPTION 'disposable 060 to 061 transition prerequisite failed';END IF;END$$;");
     adminPsql(`SET ROLE aims_owner;\n${await readFile(path.join(apiRoot,"migrations",name),"utf8")}`);
@@ -60,7 +60,7 @@ try{
   run("npx",["tsc","-p","tsconfig.test.json"],{cwd:apiRoot});
   const env={...process.env,AIMS_ENVIRONMENT:"local",DATABASE_URL:urls[0],FINANCE_DATABASE_URL:urls[1],PAYMENT_DATABASE_URL:urls[2],DOCUMENT_WORKER_DATABASE_URL:url("aims_document_worker_runtime",credentials.worker),AIMS_INTEGRATION_MIGRATOR_DATABASE_URL:url("aims_migrator",credentials.migrator),AIMS_INTEGRATION_ADMIN_DATABASE_URL:url("postgres",credentials.admin),AIMS_INTEGRATION_DATABASE:database,AIMS_INTEGRATION_DISPOSABLE:"true"};
   run(process.execPath,["--env-file=../../.env","--test","--test-concurrency=1",...requested],{cwd:apiRoot,env});
-  console.log(JSON.stringify({result:"PASS",database:"isolated-disposable",schema:69,tests:requested.length,cleanup:"pending"}));
+  console.log(JSON.stringify({result:"PASS",database:"isolated-disposable",schema:70,tests:requested.length,cleanup:"pending"}));
 }finally{
   spawnSync("docker",["rm","-f",container],{encoding:"utf8"});
   await rm(envFile,{force:true});

@@ -79,10 +79,17 @@ export function defaultPayloadFor(category: ConfigurationCategory): Record<strin
         provider: "openai-compatible",
         model: "gpt-5-mini",
         temperature: 0.2,
-        maxTokens: 2000,
+        maxTokens: 4096,
         apiKeyReference: "OPENAI_API_KEY",
         validationAiEnabled: false,
+        documentExtractionEnabled: false,
+        documentValidationEnabled: false,
         financialAnalysisAiEnabled: false,
+        financialRiskAnalysisEnabled: false,
+        spendingPatternAnalysisEnabled: false,
+        complianceAnalysisEnabled: false,
+        financeWatchEnabled: false,
+        askAimsEnabled: false,
         manualModeAlwaysAvailable: true,
       };
     case "notifications":

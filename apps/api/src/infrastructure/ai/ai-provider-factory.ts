@@ -54,3 +54,43 @@ export function createAiProvider(
     loadAiReliabilityConfig(environment),
   );
 }
+
+/**
+ * Constructs the AI provider whenever deployment credentials are valid,
+ * independent of any business enablement decision. Business Configuration's
+ * published "ai" category (P20.5H) is the sole authority for whether AI
+ * actually runs, checked by each call site (ValidationService,
+ * FinancialAnalysisService, FinanceIntelligenceService) against the
+ * published payload; this factory never reads AI_MASTER or AI_PROVIDER, so
+ * environment variables here are strictly deployment credentials/endpoints.
+ * Missing or invalid credentials return null (handled by each call site's
+ * existing AI_UNAVAILABLE_FALLBACK path) rather than failing application
+ * boot — a deployment with AI left OFF in Business Configuration need not
+ * provision an OpenAI credential at all.
+ */
+export function createAiRuntimeProvider(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+  construct: ProviderConstructor = (apiKey, model, baseUrl, reliability) =>
+    new OpenAiCompatibleProvider(apiKey, model, baseUrl, reliability),
+): OpenAiCompatibleProvider | null {
+  const apiKey = readServerSecret("OPENAI_API_KEY", environment);
+  if (!apiKey || isPlaceholderSecret(apiKey)) return null;
+
+  const baseUrl = environment.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" || !parsed.hostname) return null;
+
+  let reliability;
+  try {
+    reliability = loadAiReliabilityConfig(environment);
+  } catch {
+    return null;
+  }
+
+  return construct(apiKey, "gpt-5-mini", baseUrl, reliability);
+}

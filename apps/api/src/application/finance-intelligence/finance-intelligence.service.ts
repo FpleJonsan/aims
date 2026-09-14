@@ -20,10 +20,12 @@ import {
 } from "../../domain/finance-intelligence.js";
 import {
   AiProviderError,
+  type AiRuntimeCallOverrides,
   type FinanceIntelligenceProviderResult,
 } from "../../infrastructure/ai/openai-compatible-provider.js";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import { AI_PROVIDER } from "../validation/validation.service.js";
+import { loadPublishedAiConfig } from "../configuration/ai-runtime-config.js";
 import {
   DashboardService,
   type ReportingScope,
@@ -37,6 +39,7 @@ interface Provider {
   analyzeFinanceIntelligence(
     kind: "FINANCE_WATCH" | "ASK_AIMS",
     input: unknown,
+    overrides?: AiRuntimeCallOverrides,
   ): Promise<FinanceIntelligenceProviderResult>;
 }
 
@@ -47,13 +50,9 @@ export class FinanceIntelligenceService {
     private readonly dashboard: DashboardService,
     @Inject(AI_PROVIDER) private readonly provider: Provider | null,
   ) {}
-  protected async enabled(feature: string) {
-    const q = await this.db.pool.query<{ feature: string; enabled: boolean }>(
-      "SELECT feature,enabled FROM ai_feature_configuration WHERE feature IN('AI_MASTER',$1)",
-      [feature],
-    );
-    const m = new Map(q.rows.map((x) => [x.feature, x.enabled]));
-    return Boolean(m.get("AI_MASTER") && m.get(feature));
+  protected async enabled(feature: "financeWatchEnabled" | "askAimsEnabled") {
+    const aiConfig = await loadPublishedAiConfig(this.db.pool);
+    return Boolean(aiConfig.enabled && aiConfig[feature]);
   }
   private filter(x: IntelligenceFilterDto) {
     return {
@@ -156,10 +155,11 @@ export class FinanceIntelligenceService {
   async watch(actor: Principal, input: IntelligenceFilterDto) {
     const filter = this.filter(input),
       scope = await this.dashboard.scope(actor, input.departmentId);
-    if (!(await this.enabled("FINANCE_WATCH")))
+    if (!(await this.enabled("financeWatchEnabled")))
       throw new ConflictException("AI Finance Watch is disabled");
     if (!this.provider)
       throw new ServiceUnavailableException("AI Finance Watch is unavailable");
+    const aiConfig = await loadPublishedAiConfig(this.db.pool);
     const [summary, budget, trend, workflow] = await Promise.all([
         this.dashboard.summary(actor, filter),
         this.dashboard.budget(actor, filter),
@@ -186,6 +186,7 @@ export class FinanceIntelligenceService {
           evidenceCatalog: catalog,
           maxInsights: 20,
         },
+        { model: aiConfig.model, temperature: aiConfig.temperature, maxOutputTokens: aiConfig.maxTokens },
       );
       attempt = result;
       const output = FinanceWatchOutputSchema.parse(result.output);
@@ -282,10 +283,11 @@ export class FinanceIntelligenceService {
   async ask(actor: Principal, input: AskAimsDto) {
     const filter = this.filter(input),
       scope = await this.dashboard.scope(actor, input.departmentId);
-    if (!(await this.enabled("ASK_AIMS")))
+    if (!(await this.enabled("askAimsEnabled")))
       throw new ConflictException("Ask AIMS is disabled");
     if (!this.provider)
       throw new ServiceUnavailableException("Ask AIMS is unavailable");
+    const aiConfig = await loadPublishedAiConfig(this.db.pool);
     const classification = classify(input.question),
       tools = await this.tools(actor, filter, classification),
       catalog = tools.evidenceCatalog,
@@ -318,6 +320,7 @@ export class FinanceIntelligenceService {
             "workflow actions",
           ],
         },
+        { model: aiConfig.model, temperature: aiConfig.temperature, maxOutputTokens: aiConfig.maxTokens },
       );
       attempt = result;
       const output = AskAimsOutputSchema.parse(result.output);

@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common";
 import { Postgres } from "../../infrastructure/database/postgres.js";
-import { isAiMasterEnabled } from "../../infrastructure/ai/ai-governance.js";
 import {metrics,operationalLog} from "../../infrastructure/observability/telemetry.js";
 import { providerReadiness } from "../../infrastructure/configuration/provider-boundary.js";
 import { loadRuntimeFoundationConfig } from "../../infrastructure/configuration/runtime-foundation.js";
@@ -34,7 +33,7 @@ export class HealthService {
       ? process.env.OPENAI_API_KEY
         ? { status: "ready", detail: "enabled and provider configured" }
         : { status: "not_ready", detail: "enabled but provider is not configured" }
-      : { status: "disabled", detail: "AI_MASTER is OFF" };
+      : { status: "disabled", detail: "Business Configuration AI is OFF" };
     checks.telegram = process.env.TELEGRAM_APPROVAL_ENABLED === "true"
       ? process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_WEBHOOK_SECRET && process.env.TELEGRAM_CALLBACK_SECRET
         ? { status: "ready", detail: "enabled and configured" }
@@ -69,12 +68,10 @@ export class HealthService {
 
   private async aiState(): Promise<{ enabled: boolean; error?: string }> {
     try {
-      const result = await this.database.pool.query<{ enabled: boolean }>("SELECT enabled FROM ai_feature_configuration WHERE feature='AI_MASTER'");
-      return {
-        enabled: Boolean(
-          isAiMasterEnabled(process.env) && result.rows[0]?.enabled,
-        ),
-      };
+      const result = await this.database.pool.query<{ payload: { enabled?: boolean } }>(
+        "SELECT payload FROM configuration_versions WHERE category='ai' AND status='published' ORDER BY version DESC LIMIT 1",
+      );
+      return { enabled: result.rows[0]?.payload?.enabled === true };
     } catch { return { enabled: false, error: "AI configuration schema cannot be read" }; }
   }
 }

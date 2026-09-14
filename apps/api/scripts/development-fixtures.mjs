@@ -14,7 +14,7 @@ await client.connect();
 try{
  await client.query("SET ROLE aims_owner");
  const schema=(await client.query("SELECT version,migration_id FROM aims_schema_version WHERE singleton")).rows[0];
- if(Number(schema?.version)!==PRODUCTION_SCHEMA_VERSION||schema?.migration_id!==PRODUCTION_MIGRATION_ID)throw new Error("development fixtures require schema 69");
+ if(Number(schema?.version)!==PRODUCTION_SCHEMA_VERSION||schema?.migration_id!==PRODUCTION_MIGRATION_ID)throw new Error(`development fixtures require schema ${PRODUCTION_SCHEMA_VERSION}`);
  const existing=Number((await client.query("SELECT count(*) count FROM users WHERE external_subject LIKE 'demo.%'")).rows[0].count);
  if(existing>0)console.log(JSON.stringify({result:"PASS",layer:"development-fixtures",existing:true,demoUsers:existing}));
  else{

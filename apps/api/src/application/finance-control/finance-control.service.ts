@@ -21,7 +21,7 @@ import type {
   FinanceFinalizeDto,
   FinanceHoldResolutionDto,
 } from "./finance-control.dto.js";
-import type { NotificationService } from "../notification/notification.service.js";
+import { NotificationService } from "../notification/notification.service.js";
 
 type CheckResult = {
   code: FinanceControlCheckCode;

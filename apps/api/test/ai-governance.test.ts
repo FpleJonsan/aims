@@ -4,7 +4,10 @@ import {
   loadAiReliabilityConfig,
   AI_BOUNDS,
 } from "../src/infrastructure/ai/ai-governance.js";
-import { createAiProvider } from "../src/infrastructure/ai/ai-provider-factory.js";
+import {
+  createAiProvider,
+  createAiRuntimeProvider,
+} from "../src/infrastructure/ai/ai-provider-factory.js";
 import {
   AiProviderError,
   OpenAiCompatibleProvider,
@@ -223,6 +226,47 @@ test("provider rejects oversized, malformed, and schema-invalid responses withou
     classified("STRUCTURED_OUTPUT_INVALID"),
   );
   assert.ok(AI_BOUNDS.maxAggregateDocumentBytes >= AI_BOUNDS.maxDocumentBytes);
+});
+test("runtime provider ignores AI_MASTER and AI_PROVIDER: only credentials gate construction (P20.5H)", () => {
+  let constructions = 0;
+  const construct = (...args: unknown[]) => {
+    constructions++;
+    return new (OpenAiCompatibleProvider as unknown as new (...a: unknown[]) => OpenAiCompatibleProvider)(...args);
+  };
+  // No AI_MASTER at all, and AI_MASTER explicitly OFF, still construct when credentials are valid.
+  for (const environment of [
+    { OPENAI_API_KEY: "sk-configured-valid-secret", OPENAI_BASE_URL: "https://provider.test/v1" },
+    { AI_MASTER: "OFF", OPENAI_API_KEY: "sk-configured-valid-secret", OPENAI_BASE_URL: "https://provider.test/v1" },
+  ])
+    assert.ok(createAiRuntimeProvider(environment, construct as never));
+  assert.equal(constructions, 2);
+  // AI_PROVIDER requesting a different value has no effect: the runtime factory never reads it.
+  assert.ok(
+    createAiRuntimeProvider(
+      { AI_PROVIDER: "fake", OPENAI_API_KEY: "sk-configured-valid-secret", OPENAI_BASE_URL: "https://provider.test/v1" },
+      construct as never,
+    ),
+  );
+});
+test("runtime provider returns null (never throws) for missing or invalid credentials", () => {
+  assert.equal(createAiRuntimeProvider({}), null);
+  assert.equal(createAiRuntimeProvider({ OPENAI_API_KEY: "replace_with_key" }), null);
+  assert.equal(
+    createAiRuntimeProvider({ OPENAI_API_KEY: "sk-configured-valid-secret", OPENAI_BASE_URL: "http://provider.test" }),
+    null,
+  );
+  assert.equal(
+    createAiRuntimeProvider({ OPENAI_API_KEY: "sk-configured-valid-secret", OPENAI_BASE_URL: "not a url" }),
+    null,
+  );
+  assert.equal(
+    createAiRuntimeProvider({
+      OPENAI_API_KEY: "sk-configured-valid-secret",
+      OPENAI_BASE_URL: "https://provider.test/v1",
+      AI_MAX_RETRIES: "invalid",
+    }),
+    null,
+  );
 });
 test("document provider input enforces count, per-document, aggregate, and text bounds before fetch", async () => {
   let calls = 0;

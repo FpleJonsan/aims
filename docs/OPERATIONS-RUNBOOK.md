@@ -23,7 +23,7 @@ Production startup requires trusted identity and both executor database URLs. Th
 
 ## AI operations
 
-- `AI_MASTER` and feature switches are authoritative database configuration.
+- Business Configuration's published "ai" category (admin/configuration/ai) is the single authoritative source for AI enablement, provider, model, temperature, max tokens, and every per-module feature flag; a publish takes effect immediately, no restart required. `OPENAI_API_KEY`/`OPENAI_BASE_URL` remain deployment-only credentials and no longer gate business enablement.
 - AI OFF needs no provider key and leaves manual Validation/Financial Analysis, deterministic Policy, Approval, Finance Control, Payment, and Dashboard operational.
 - AI ON also requires a server-side provider key. Check failed immutable AI runs and usage events; do not replay a stale result into a changed request.
 - Rotate the provider key in the secret manager, restart instances, run only the explicit live smoke tests, then revoke the old key.

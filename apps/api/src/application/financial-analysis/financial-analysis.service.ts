@@ -24,6 +24,7 @@ import { AiProviderError } from "../../infrastructure/ai/openai-compatible-provi
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import { PaymentRequestService } from "../payment-requests/payment-request.service.js";
 import { AI_PROVIDER } from "../validation/validation.service.js";
+import { loadPublishedAiConfig, type AiRuntimeConfig } from "../configuration/ai-runtime-config.js";
 import type { FinalizeFinancialAnalysisDto } from "./financial-analysis.dto.js";
 type FinancialProvider = Pick<
   OpenAiCompatibleProvider,
@@ -43,19 +44,16 @@ export class FinancialAnalysisService {
   async start(id: string, actor: Principal, correlationId: string) {
     this.authorize(actor);
     const eligible = await this.eligible(id);
-    const flags = await this.db.pool.query<{
-      feature: string;
-      enabled: boolean;
-    }>("SELECT feature,enabled FROM ai_feature_configuration");
-    const enabled = new Map(flags.rows.map((r) => [r.feature, r.enabled]));
+    const aiConfig = await loadPublishedAiConfig(this.db.pool);
     const agents = [
-      ["FINANCIAL_RISK", "FINANCIAL_RISK_ANALYSIS"],
-      ["SPENDING_PATTERN", "SPENDING_PATTERN_ANALYSIS"],
-      ["COMPLIANCE", "COMPLIANCE_ANALYSIS"],
+      ["FINANCIAL_RISK", "financialRiskAnalysisEnabled"],
+      ["SPENDING_PATTERN", "spendingPatternAnalysisEnabled"],
+      ["COMPLIANCE", "complianceAnalysisEnabled"],
     ] as const;
     if (
-      !enabled.get("AI_MASTER") ||
-      !agents.some(([, flag]) => enabled.get(flag))
+      !aiConfig.enabled ||
+      !aiConfig.financialAnalysisAiEnabled ||
+      !agents.some(([, flag]) => aiConfig[flag])
     )
       return { mode: "MANUAL", requiresManualAssessment: true };
     if (!this.provider)
@@ -76,7 +74,7 @@ export class FinancialAnalysisService {
     const boundedInput = { ...input, evidenceCatalog };
     const results = await Promise.all(
       agents.map(async ([agent, flag]) =>
-        enabled.get(flag)
+        aiConfig[flag]
           ? this.callAgent(
               run.id,
               agent,
@@ -84,6 +82,7 @@ export class FinancialAnalysisService {
               evidenceCatalog,
               correlationId,
               actor.id,
+              aiConfig,
             )
           : this.skipped(run.id, agent),
       ),
@@ -105,6 +104,7 @@ export class FinancialAnalysisService {
           })),
         },
         true,
+        { model: aiConfig.model, temperature: aiConfig.temperature, maxOutputTokens: aiConfig.maxTokens },
       );
       validateRiskEvidence(aggregate.output, evidenceCatalog);
       await this.saveAgent(
@@ -139,7 +139,7 @@ export class FinancialAnalysisService {
           analysisId: run.id,
           completedAgents: completed.map((r) => r.agent),
           partialFailure:
-            completed.length < agents.filter(([, f]) => enabled.get(f)).length,
+            completed.length < agents.filter(([, f]) => aiConfig[f]).length,
         },
       );
     });
@@ -430,9 +430,14 @@ export class FinancialAnalysisService {
     catalog: RiskEvidenceCatalogEntry[],
     correlationId: string,
     actorId: string,
+    aiConfig: AiRuntimeConfig,
   ) {
     try {
-      const result = await this.provider!.analyzeFinancialAgent(agent, input);
+      const result = await this.provider!.analyzeFinancialAgent(agent, input, false, {
+        model: aiConfig.model,
+        temperature: aiConfig.temperature,
+        maxOutputTokens: aiConfig.maxTokens,
+      });
       validateRiskEvidence(result.output, catalog);
       await this.saveAgent(
         runId,

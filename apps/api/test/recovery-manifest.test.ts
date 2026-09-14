@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseRecoveryManifest, RecoveryManifestError } from "../src/infrastructure/recovery/recovery-manifest.js";
 
-const valid=()=>({specificationVersion:"1",environment:"isolated-restore",databaseRecoveryReference:"db-evidence-1",databaseRecoveryPoint:"2026-09-01T00:00:00Z",objectRecoveryReference:"object-evidence-1",applicationRelease:"release-67",schemaVersion:69,latestMigrationId:"069_p20_5g_notification_platform",expectedRecoveryGeneration:"123e4567-e89b-42d3-a456-426614174000",generationAdvancementEvidenceReference:"generation-evidence-1",createdAt:"2026-09-01T01:00:00Z",integrity:{algorithm:"PROVIDER_ATTESTATION_REQUIRED",evidenceReference:"provider-attestation-required"},operatorMetadata:{incidentId:"INC-1"}});
+const valid=()=>({specificationVersion:"1",environment:"isolated-restore",databaseRecoveryReference:"db-evidence-1",databaseRecoveryPoint:"2026-09-01T00:00:00Z",objectRecoveryReference:"object-evidence-1",applicationRelease:"release-67",schemaVersion:70,latestMigrationId:"070_p20_5h_ai_configuration_authority",expectedRecoveryGeneration:"123e4567-e89b-42d3-a456-426614174000",generationAdvancementEvidenceReference:"generation-evidence-1",createdAt:"2026-09-01T01:00:00Z",integrity:{algorithm:"PROVIDER_ATTESTATION_REQUIRED",evidenceReference:"provider-attestation-required"},operatorMetadata:{incidentId:"INC-1"}});
 
-test("valid recovery manifest is parsed and bounded",()=>assert.equal(parseRecoveryManifest(valid()).schemaVersion,69));
+test("valid recovery manifest is parsed and bounded",()=>assert.equal(parseRecoveryManifest(valid()).schemaVersion,70));
 test("unknown manifest version fails closed",()=>assert.throws(()=>parseRecoveryManifest({...valid(),specificationVersion:"2"}),error=>error instanceof RecoveryManifestError&&error.code==="MANIFEST_VERSION_UNSUPPORTED"));
 test("overlong fields are rejected",()=>assert.throws(()=>parseRecoveryManifest({...valid(),applicationRelease:"x".repeat(129)}),error=>error instanceof RecoveryManifestError&&error.code==="MANIFEST_RELEASE_REQUIRED"));
 test("missing recovery reference is rejected",()=>assert.throws(()=>parseRecoveryManifest({...valid(),databaseRecoveryReference:undefined}),error=>error instanceof RecoveryManifestError&&error.code==="MANIFEST_DATABASE_REFERENCE_REQUIRED"));

@@ -16,6 +16,7 @@ import {
 } from "../../domain/validation.js";
 import { AI_BOUNDS } from "../../infrastructure/ai/ai-governance.js";
 import { AiProviderError } from "../../infrastructure/ai/openai-compatible-provider.js";
+import { loadPublishedAiConfig } from "../configuration/ai-runtime-config.js";
 import { Postgres } from "../../infrastructure/database/postgres.js";
 import type {
   AiDocument,
@@ -28,7 +29,7 @@ import type {
   ClarificationResponseDto,
   ManualValidationDto,
 } from "./validation.dto.js";
-import type { NotificationService } from "../notification/notification.service.js";
+import { NotificationService } from "../notification/notification.service.js";
 export const AI_PROVIDER = Symbol("AI_PROVIDER");
 
 @Injectable()
@@ -60,16 +61,12 @@ export class ValidationService {
       );
       if (duplicate.rowCount)
         throw new ConflictException("A current validation already exists");
-      const flags = await client.query<{ feature: string; enabled: boolean }>(
-        "SELECT feature,enabled FROM ai_feature_configuration",
-      );
-      const enabled = Object.fromEntries(
-        flags.rows.map((x) => [x.feature, x.enabled]),
-      );
+      const aiConfig = await loadPublishedAiConfig(client);
       const aiRequested =
-        enabled.AI_MASTER &&
-        enabled.DOCUMENT_EXTRACTION &&
-        enabled.DOCUMENT_VALIDATION;
+        aiConfig.enabled &&
+        aiConfig.validationAiEnabled &&
+        aiConfig.documentExtractionEnabled &&
+        aiConfig.documentValidationEnabled;
       const ai = aiRequested && this.provider;
       const runId = randomUUID();
       await client.query(
@@ -158,15 +155,19 @@ export class ValidationService {
           mimeType: d.mime_type,
           data: await this.storage.read(d.storage_backend_id,d.storage_object_key, d.storage_object_version, d.sha256),
         });
-      const result = await this.provider!.analyzeDocuments({
-        request: {
-          payee: request.rows[0].payee,
-          amount: String(request.rows[0].amount),
-          currency: request.rows[0].currency,
-          dueDate: String(request.rows[0].due_date),
+      const aiConfig = await loadPublishedAiConfig(this.db.pool);
+      const result = await this.provider!.analyzeDocuments(
+        {
+          request: {
+            payee: request.rows[0].payee,
+            amount: String(request.rows[0].amount),
+            currency: request.rows[0].currency,
+            dueDate: String(request.rows[0].due_date),
+          },
+          documents: inputs,
         },
-        documents: inputs,
-      });
+        { model: aiConfig.model, temperature: aiConfig.temperature, maxOutputTokens: aiConfig.maxTokens },
+      );
       await this.db.transaction(async (client) => {
         const locked = await client.query<any>(
           "SELECT vr.*,pr.row_version FROM validation_runs vr JOIN payment_requests pr ON pr.id=vr.payment_request_id WHERE vr.id=$1 FOR UPDATE",

@@ -2,6 +2,7 @@ import {
   DocumentValidationOutputSchema,
   type DocumentValidationOutput,
 } from "../../domain/validation.js";
+import type { AiRuntimeCallOverrides } from "./openai-compatible-provider.js";
 
 export interface AiDocument {
   id: string;
@@ -32,14 +33,15 @@ export interface AiProviderResult {
   providerAttempts: number;
 }
 export interface AiProvider {
-  analyzeDocuments(input: DocumentAgentInput): Promise<AiProviderResult>;
+  analyzeDocuments(input: DocumentAgentInput, overrides?: AiRuntimeCallOverrides): Promise<AiProviderResult>;
 }
 
 export class FakeAiProvider implements AiProvider {
   calls = 0;
   constructor(private readonly candidate: unknown) {}
-  async analyzeDocuments(input: DocumentAgentInput): Promise<AiProviderResult> {
+  async analyzeDocuments(input: DocumentAgentInput, overrides?: AiRuntimeCallOverrides): Promise<AiProviderResult> {
     void input;
+    void overrides;
     this.calls++;
     return {
       output: DocumentValidationOutputSchema.parse(this.candidate),
