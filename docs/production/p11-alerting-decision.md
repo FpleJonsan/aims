@@ -63,7 +63,7 @@ rules. Evidence-based values must not be guessed.
 | API | Required readiness failure | `aims_readiness_status`, `readiness_failed` | High | all required components ready | Deterministic with anti-flap duration | SRE / component owner | Required |
 | API | Sustained 5xx increase | HTTP count by safe route/status class | High/Medium | rate returns to normal | P15 evidence + business decision | Backend / SRE | Required |
 | API | Sustained latency degradation | request-duration histogram | Medium/High | latency returns below approved objective | P15 load/soak evidence | Backend / SRE | Required |
-| Schema | Runtime schema behind/ahead of 69 | readiness schema component | High | expected schema 69 observed | Deterministic | SRE / DBA | Required |
+| Schema | Runtime schema behind/ahead of 71 | readiness schema component | High | expected schema 71 observed | Deterministic | SRE / DBA | Required |
 | Database | Complete unavailability | readiness + DB operation failures | Critical/High | connectivity and readiness restored | Deterministic plus sustained duration | SRE / DBA | Required |
 | Database | Pool waiting/exhaustion risk | pool waiting/total/idle gauges | Medium/High | waiting returns below approved limit | P15 capacity evidence | DBA / Backend | Required |
 | Database | Timeout/lock/transaction degradation | DB outcomes/duration/failure categories | Medium/High | bounded error/latency condition clears | P15 evidence | DBA / Backend | Required |

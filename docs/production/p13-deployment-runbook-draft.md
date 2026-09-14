@@ -3,9 +3,9 @@
 This is a non-executable draft. It contains no credentials, provider commands,
 real hostnames, approved thresholds or authority to deploy.
 
-The current Enterprise release contract is schema 69 with all 69 migrations
-`001`–`069` applied lexically and latest migration
-`069_p20_5g_notification_platform`. Runtime readiness, recovery manifests and
+The current Enterprise release contract is schema 71 with all 71 migrations
+`001`–`071` applied lexically and latest migration
+`071_p20_7a_enterprise_ui_contracts`. Runtime readiness, recovery manifests and
 restore verification must use that exact schema/migration identity.
 
 ## Preconditions
@@ -33,7 +33,7 @@ restore verification must use that exact schema/migration identity.
    migration lock/change approval.
 5. Run `npm run migrate:production` as the one-shot migration job with
    `AIMS_ENVIRONMENT=production` and the dedicated `aims_migrator` URL. It
-   validates all 69 immutable files, applies the production-safe schema plan,
+   validates all 71 immutable files, applies the production-safe schema plan,
    and rejects fixture data or a non-empty target.
 6. Confirm its post-migration hardening, exact P6 privilege-manifest and
    no-fixture checks pass. Stop on any drift. Do not grant the API or worker

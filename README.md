@@ -21,7 +21,7 @@ AIMS is an internal finance-control application. AI assists with evidence extrac
 11. Finance Dashboard
 12. AI Finance Intelligence
 
-AI never approves, pays, changes state, calculates authoritative balances, or modifies policy. With `AI_MASTER` OFF, the same workflow continues using manual validation and risk assessment.
+AI never approves, pays, changes state, calculates authoritative balances, or modifies policy. AI enablement is governed by Business Configuration's published `ai` category; when disabled, the same workflow continues using manual validation and risk assessment.
 
 ## Architecture
 
@@ -54,7 +54,7 @@ After bootstrap, the canonical startup command is:
 npm run local
 ```
 
-It reads `.env.local`, checks PostgreSQL schema 69 and Redis, checks service ports, builds the API, then starts API, worker polling, and frontend independently. It reports ready only after API and worker readiness endpoints and the frontend respond. Missing prerequisites fail with instructions; this command never provisions containers or databases. Keep Docker services running with `docker compose up -d`.
+It reads `.env.local`, checks PostgreSQL schema 71 and Redis, checks service ports, builds the API, then starts API, worker polling, and frontend independently. It reports ready only after API and worker readiness endpoints and the frontend respond. Missing prerequisites fail with instructions; this command never provisions containers or databases. Keep Docker services running with `docker compose up -d`.
 
 The launcher derives `NEXT_PUBLIC_AIMS_API_URL=http://localhost:<API_PORT>` automatically. An explicit value in `.env.local` (or the shell when absent from that file) is preserved. It must address the API being launched; an inconsistent override fails with instructions rather than being overwritten. Readiness includes the browser-facing API health URL and credentialed CORS for `WEB_ORIGIN`.
 
@@ -68,7 +68,7 @@ npm run dev
 
 Visit `http://localhost:3000/login`, select a synthetic local identity, then open the dashboard with the seeded Finance user. Check `http://localhost:3001/health/live` and `/health/ready`. The local deterministic scanner is selected in `.env.local`; start the worker so uploaded evidence can complete scanning. No separate scheduler process is required for the worker polling loop.
 
-Re-running bootstrap preserves credentials and `.env.local`. Re-running migrate on schema 69 checks the existing privilege manifest without replaying migrations. Development fixtures are isolated from the production migration path and are idempotent. A partially migrated database is rejected rather than replayed or erased. Stop services with `docker compose stop`; restarting retains data. `docker compose down -v` **deletes this Compose project's local database and Redis data** and is only for an intentional disposable reset.
+Re-running bootstrap preserves credentials and `.env.local`. Re-running migrate on schema 71 checks the existing privilege manifest without replaying migrations. Development fixtures are isolated from the production migration path and are idempotent. A partially migrated database is rejected rather than replayed or erased. Stop services with `docker compose stop`; restarting retains data. `docker compose down -v` **deletes this Compose project's local database and Redis data** and is only for an intentional disposable reset.
 
 See [local development](docs/LOCAL-DEVELOPMENT.md) for bootstrap details.
 

@@ -43,6 +43,6 @@ Production/Cloud, DBA/PostgreSQL, and Finance Systems/Controls.
 
 At this phase checkpoint, the repository schema contract was 59 at migration
 059 and the shared local `aims` database remained at its schema-56 checkpoint.
-The current Enterprise release target is schema 69 at
-`069_p20_5g_notification_platform`. Production readiness remains governed by
+The current Enterprise release target is schema 71 at
+`071_p20_7a_enterprise_ui_contracts`. Production readiness remains governed by
 the current readiness checklist.

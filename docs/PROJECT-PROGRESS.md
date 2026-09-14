@@ -10,14 +10,14 @@ in this document.
 | Field | Current value |
 | --- | --- |
 | Project | AIMS — AImazing Intelligent Management System |
-| Current Production phase | Production Bootstrap Separation / Release Engineering |
-| Current status | Production-safe schema/system bootstrap and isolated development fixtures verified |
-| Last completed phase | P20.5H-1 — Release Documentation Synchronization / FROZEN |
+| Current Production phase | P20 Release Hardening — Final Release Sign-Off / Documentation Reconciliation |
+| Current status | P20.8B-CLOSURE frozen (PASS, 0 Critical/High); P20.9 Final Release Sign-Off returned BLOCKED — documentation only (0 Critical/0 High code findings); P20.9A documentation reconciliation applied; P20.9 re-sign-off pending |
+| Last completed phase | P20.8B-CLOSURE — Final Release Gap Closure / FROZEN |
 | Overall Production ready | NO |
-| Current schema | 69 |
-| Latest migration | `069_p20_5g_notification_platform` |
+| Current schema | 71 |
+| Latest migration | `071_p20_7a_enterprise_ui_contracts` |
 | Current branch | `main` |
-| Last verified commit | `9a1c738` |
+| Last verified commit | `0a03c2c` |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -81,7 +81,7 @@ Preserve these invariants:
   closed until an approved corporate identity adapter exists.
 - **Sessions:** only hashes of opaque session/CSRF tokens are stored; origin,
   CSRF, expiry, revocation, logout, and current-user status are enforced.
-- **Database:** schema 69 is authoritative. Runtime roles must not own schema
+- **Database:** schema 71 is authoritative. Runtime roles must not own schema
   objects or obtain DDL, role administration, or cross-executor authority.
 - **Finance executor:** only the five functions in the executable privilege
   manifest are available to the dedicated executor.
@@ -100,11 +100,11 @@ Preserve these invariants:
 
 | Item | State |
 | --- | --- |
-| Schema version | 69 |
-| Latest migration | `069_p20_5g_notification_platform.sql` |
-| Historical migration chain | `001`–`069`; all 69 migrations are immutable and applied lexically |
-| Next migration | `070+` does not exist in the current release |
-| Local database | Supported bootstrap and runtime target is schema 69 |
+| Schema version | 71 |
+| Latest migration | `071_p20_7a_enterprise_ui_contracts.sql` |
+| Historical migration chain | `001`–`071`; all 71 migrations are immutable and applied lexically |
+| Next migration | `072` does not exist in the current release |
+| Local database | Supported bootstrap and runtime target is schema 71 |
 | Target owner | `aims_owner` (`NOLOGIN`) |
 | Target migrator | `aims_migrator` (`LOGIN`, `NOINHERIT`, explicit owner-role entry) |
 | Normal runtime | `aims_app` |
@@ -2140,3 +2140,75 @@ local storage and deterministic/test scanning and have no automatic fallback.
 Schema remains 61 at `061_p13_storage_object_version_binding`; Migration 062+
 is absent; shared local `aims` remains at schema 56. No provider, credential,
 infrastructure, frontend, workflow or financial authority changed.
+
+> **Ledger note:** this append-only log has no entries between this 2026-09-08
+> P13.3 checkpoint and the P20.9A entry below. Repository/commit history
+> (`git log`) is authoritative for that intervening work (P14–P20.8B-CLOSURE);
+> backfilling narrative entries for it is out of scope for this
+> documentation-only reconciliation and was not attempted.
+
+### 2026-09-15 — P20.9A release documentation reconciliation
+
+Status: PASS / DOCUMENTATION ONLY
+
+Starting Commit: `0a03c2c`
+
+Ending Commit: NOT COMMITTED (working tree change only; commit is the user's decision)
+
+Schema: 71 → 71 (no migration change)
+
+Summary:
+- P20.9 Final Release Sign-Off (read-only) found 0 Critical and 0 High
+  code-level findings across financial integrity, RBAC, approval, payment,
+  workflow and AI-governance review, and confirmed AI Business Configuration
+  ("ai" category) is the sole business-enablement authority with no
+  AI_MASTER split-brain. The sole blocker was stale release documentation
+  still declaring schema 69 (migrations 001–069) as the current production
+  target, when repository truth (schema-contract constant, migration 071,
+  tests, and `verify:production-release`) is schema 71 (migrations 001–071).
+- P20.9A corrected every release-facing document found asserting schema 69
+  (or "all 69 migrations") as the CURRENT/production target, updating them to
+  schema 71 / migrations 001–071 / latest `071_p20_7a_enterprise_ui_contracts`.
+  Genuinely historical mentions (e.g. "introduced at schema 57", "this phase
+  ended at schema 60") were left unchanged.
+- Corrected `README.md` and `docs/LOCAL-DEVELOPMENT.md` passages that
+  described `AI_MASTER` / legacy `ai_feature_configuration` as the business
+  AI enable/disable switch; they now describe Business Configuration's
+  published `ai` category (its `enabled` flag plus per-module flags) as the
+  authority, matching the already-correct language in
+  `docs/OPERATIONS-RUNBOOK.md`.
+- Updated `docs/MIGRATION-INVENTORY.md` to list migrations 070
+  (`070_p20_5h_ai_configuration_authority.sql`) and 071
+  (`071_p20_7a_enterprise_ui_contracts.sql`).
+- Updated this file's Section 1 (Current Status), Section 3 (schema
+  authority statement) and Section 4 (Database Baseline table) to schema 71
+  and to record that P20.8B-CLOSURE is the last full PASS/FROZEN closure,
+  P20.9 returned BLOCKED — documentation only, and P20.9 re-sign-off is
+  still pending (not yet READY FOR RC).
+
+Explicitly NOT changed: application code, test code, SQL migrations, database
+state, business/workflow/financial/AI/authorization logic, or production
+scripts. Sections 5 and 9 of this document (older P14–P20 roadmap
+definitions, superseded by the P20.5x/P20.6A/P20.7A/P20.8x phase scheme
+actually used) were left unchanged — reconciling them was outside the
+specific schema/phase-status finding P20.9 raised, and rewriting them
+without full historical evidence risked introducing inaccuracies; this is
+noted here as a known residual documentation gap, not a release blocker.
+
+Verification:
+- `git diff --check`: clean (no whitespace errors introduced).
+- Re-grep for `schema 69` / `schema69` / `version 69` as a CURRENT-release
+  claim: zero remaining hits (see P20.9A sign-off report for the full
+  historical-vs-current classification).
+- No application, test, migration, or production-script file touched
+  (confirmed via `git status` scoped to non-`.md` paths).
+
+Frozen: Documentation changes only; P20.9 Final Release Sign-Off re-review
+(RC readiness decision) remains pending and is NOT granted by this entry.
+
+Commit Readiness: Documentation changes are commit-ready pending user review;
+overall RC readiness is decided by the follow-up P20.9 re-sign-off.
+
+Next: Perform the independent read-only P20.9A documentation review, then
+proceed to P20.9 Final Release Re-Sign-Off. Do not start a new development
+phase.

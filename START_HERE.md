@@ -1,6 +1,6 @@
 # 🚀 Quick Start Guide - AIMS
 
-**Release contract:** schema 69, migrations `001`–`069`, latest `069_p20_5g_notification_platform`
+**Release contract:** schema 71, migrations `001`–`071`, latest `071_p20_7a_enterprise_ui_contracts`
 
 ---
 
@@ -19,7 +19,7 @@ Before starting, make sure you have:
 
 The supported local path uses the repository's Docker Compose service, creates
 the complete owner/migrator/application/Finance/Payment/document-worker role
-model, writes an ignored `.env.local`, validates all 69 immutable migration
+model, writes an ignored `.env.local`, validates all 71 immutable migration
 files, executes the production-safe schema portions with `ON_ERROR_STOP=1`,
 runs post-migration hardening and verifies the privilege
 manifest. Do not hand-create partial runtime roles or replay SQL over a
@@ -31,8 +31,8 @@ npm install
 npm run bootstrap
 ```
 
-The resulting database must report schema 69 and migration
-`069_p20_5g_notification_platform`. The local bootstrap then applies the
+The resulting database must report schema 71 and migration
+`071_p20_7a_enterprise_ui_contracts`. The local bootstrap then applies the
 separately isolated development fixture layer. Production uses
 `npm run migrate:production` and never invokes it.
 
@@ -59,7 +59,7 @@ DOCUMENT_WORKER_DATABASE_URL=postgresql://aims_document_worker_runtime:local_wor
 
 ### 3️⃣ Start the complete local application
 
-Run the canonical launcher. It verifies schema 69, Redis, ports and readiness,
+Run the canonical launcher. It verifies schema 71, Redis, ports and readiness,
 then starts the API, worker and frontend together.
 
 ```bash
@@ -105,7 +105,7 @@ For full testing, start with **`demo.requester`** to create a payment request, t
 After startup, verify:
 
 - [ ] PostgreSQL is running
-- [ ] All 69 migrations applied successfully; schema is 69 at `069_p20_5g_notification_platform`
+- [ ] All 71 migrations applied successfully; schema is 71 at `071_p20_7a_enterprise_ui_contracts`
 - [ ] API server running on port 3001
 - [ ] Web server running on port 3000
 - [ ] Can access http://localhost:3000

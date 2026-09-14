@@ -2,9 +2,9 @@
 
 ## Release contract
 
-The Enterprise release requires schema 69, all migration files `001`–`069`
+The Enterprise release requires schema 71, all migration files `001`–`071`
 present in exact lexical order, and latest migration
-`069_p20_5g_notification_platform`. Historical migrations remain immutable.
+`071_p20_7a_enterprise_ui_contracts`. Historical migrations remain immutable.
 
 Production deployment uses three separate layers:
 
@@ -21,7 +21,7 @@ Production deployment uses three separate layers:
    runs post-migration hardening and the privilege manifest, and verifies the
    schema, system roles, permissions, safe defaults and absence of fixtures.
 3. Runtime start: provide the normal, Finance, Payment and document-worker
-   credentials and require `/health/ready` to report schema 69 before traffic.
+   credentials and require `/health/ready` to report schema 71 before traffic.
 
 The production runner rejects a non-empty database, the common local and
 competition database names, a non-migrator login, loopback targets, and any
@@ -55,7 +55,7 @@ loopback-only and cannot target Production.
 
 Run `npm run verify:production-release`. The disposable proof creates an
 isolated PostgreSQL container, applies the role and production migration layers,
-checks schema 69, the privilege manifest, system defaults and zero fixture
+checks schema 71, the privilege manifest, system defaults and zero fixture
 records, then applies the development layer twice and proves it is populated and
 idempotent. The container and generated credentials are removed in `finally`.
 

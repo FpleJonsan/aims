@@ -96,7 +96,7 @@ retry behavior.
 ## Health/readiness
 
 API liveness remains process-only. API readiness checks database connectivity,
-schema 69, Finance/Payment executors, storage/scanner and explicitly enabled
+schema 71, Finance/Payment executors, storage/scanner and explicitly enabled
 integrations. Disabled AI and Telegram remain healthy and do not initialize a
 provider.
 

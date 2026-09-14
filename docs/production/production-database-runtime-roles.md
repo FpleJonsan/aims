@@ -2,9 +2,9 @@
 
 ## Status and scope
 
-P6 defines the provider-independent PostgreSQL deployment boundary and P7 extends it with the dedicated document-worker boundary. P12 adds recovery-generation fencing and Migration 061 adds exact storage-object identity to the worker boundary. Neither phase selects a database provider or implements HA/read replicas, Production backups, or centralized monitoring. Infrastructure SQL is under `apps/api/database/production`; the current frozen application chain is `001`–`069`, with schema readiness requiring version 69 and `069_p20_5g_notification_platform`.
+P6 defines the provider-independent PostgreSQL deployment boundary and P7 extends it with the dedicated document-worker boundary. P12 adds recovery-generation fencing and Migration 061 adds exact storage-object identity to the worker boundary. Neither phase selects a database provider or implements HA/read replicas, Production backups, or centralized monitoring. Infrastructure SQL is under `apps/api/database/production`; the current frozen application chain is `001`–`071`, with schema readiness requiring version 71 and `071_p20_7a_enterprise_ui_contracts`.
 
-The disposable proof is the authoritative executable model. The supported local bootstrap target is schema 69. Any manually managed database at an older checkpoint is not a current release target and must use only the explicitly supported forward path or a fresh isolated bootstrap; never replay the chain over a partially initialized database.
+The disposable proof is the authoritative executable model. The supported local bootstrap target is schema 71. Any manually managed database at an older checkpoint is not a current release target and must use only the explicitly supported forward path or a fresh isolated bootstrap; never replay the chain over a partially initialized database.
 
 ## Role and ownership model
 
@@ -35,13 +35,13 @@ After migrations, all `PUBLIC` table/sequence privileges and all application-fun
 
 ## Table and sequence privileges
 
-`aims_app` retains the explicitly accumulated per-table/per-column grants in the frozen migration chain through 069. These grants are broad only where current repositories require them; they are not replaced with `ALL TABLES` defaults. Protected Payment/ledger writes and final Finance Control are removed from normal runtime and mediated by trusted functions/guards. Audit and historical records retain append-only/immutability triggers.
+`aims_app` retains the explicitly accumulated per-table/per-column grants in the frozen migration chain through 071. These grants are broad only where current repositories require them; they are not replaced with `ALL TABLES` defaults. Protected Payment/ledger writes and final Finance Control are removed from normal runtime and mediated by trusted functions/guards. Audit and historical records retain append-only/immutability triggers.
 
 Finance executor receives direct Finance Control working-table privileges required by the existing service plus its trusted capabilities. It receives no Payment trusted function. Payment executor receives no Finance Control trusted function. Its document capability is limited to version-bound payment-slip attachment; it cannot claim or finalize scans. Recording the externally completed payment remains its separate trusted capability. Raw payment-slip security transitions remain rejected by the trusted-write guard, and the removed synchronous scan functions remain absent.
 
 The application uses UUIDs for nearly all identities. The one owned sequence is migration-created and remains owner-controlled; legitimate runtime operations depend on explicit migration grants rather than ownership or future blanket sequence defaults.
 
-## Current effective executor SECURITY DEFINER allowlists at schema 69
+## Current effective executor SECURITY DEFINER allowlists at schema 71
 
 Document-worker callable only:
 
@@ -97,12 +97,12 @@ New installation:
 
 1. Create an isolated database with the operational bootstrap identity.
 2. Run `bootstrap-roles.sql` with an explicit target database; assign generated credentials through the approved secret channel.
-3. Set `AIMS_ENVIRONMENT=production` and `AIMS_MIGRATION_DATABASE_URL` to the dedicated migrator connection, then run `npm run migrate:production`. The runner validates all 69 immutable files, defers fixture-only migrations, checksum-validates the fixture removal from mixed migrations 048 and 054, and executes every schema transition with `ON_ERROR_STOP`.
+3. Set `AIMS_ENVIRONMENT=production` and `AIMS_MIGRATION_DATABASE_URL` to the dedicated migrator connection, then run `npm run migrate:production`. The runner validates all 71 immutable files, defers fixture-only migrations, checksum-validates the fixture removal from mixed migrations 048 and 054, and executes every schema transition with `ON_ERROR_STOP`.
 4. The runner applies `post-migration-hardening.sql`, verifies `privilege-manifest.sql`, and fails if any demo/local/competition record exists.
-5. Verify singleton schema version 69 and exact migration ID `069_p20_5g_notification_platform` from the runtime readiness endpoint before enabling traffic.
+5. Verify singleton schema version 71 and exact migration ID `071_p20_7a_enterprise_ui_contracts` from the runtime readiness endpoint before enabling traffic.
 6. Start the API with its three existing runtime credentials and the independent worker with its dedicated document-worker credential; verify readiness and representative workflow.
 
-An existing installation must first prove its exact schema and migration identity, then use only the separately reviewed forward path to schema 69. It must not replay historical migrations, skip migrations, or import synthetic data. Production bootstrap/master-data strategy remains D-015/PG-026; the historical chain contains explicitly local synthetic fixtures and is therefore a proven schema artifact, not by itself an approved Production data-loading policy.
+An existing installation must first prove its exact schema and migration identity, then use only the separately reviewed forward path to schema 71. It must not replay historical migrations, skip migrations, or import synthetic data. Production bootstrap/master-data strategy remains D-015/PG-026; the historical chain contains explicitly local synthetic fixtures and is therefore a proven schema artifact, not by itself an approved Production data-loading policy.
 
 Application startup checks schema and configuration but never migrates or self-elevates. Migration credentials are absent from the runtime secret catalogue.
 

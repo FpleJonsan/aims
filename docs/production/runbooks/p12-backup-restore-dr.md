@@ -2,7 +2,7 @@
 
 ## Scope and authority
 
-This is the canonical provider-neutral recovery sequence for AIMS schema 69, with latest migration `069_p20_5g_notification_platform`. It does not configure backups, PITR, object replication, credentials, routing or a cloud provider. A backup is evidence from which recovery may be attempted; it is not proof that AIMS or an external payment system is reconciled.
+This is the canonical provider-neutral recovery sequence for AIMS schema 71, with latest migration `071_p20_7a_enterprise_ui_contracts`. It does not configure backups, PITR, object replication, credentials, routing or a cloud provider. A backup is evidence from which recovery may be attempted; it is not proof that AIMS or an external payment system is reconciled.
 
 The Incident Commander records the recovery authorization and keeps the API, document worker, notification dispatcher, AI and Telegram stopped. Production AI and Telegram remain OFF throughout validation. Preserve forensic evidence before selecting a trusted database recovery point, object recovery reference and compatible application release.
 
@@ -25,7 +25,7 @@ The required sequence is: **RESTORE → KEEP SERVICES FROZEN → ADVANCE RECOVER
 
 ## Recovery manifest and checker
 
-The JSON manifest contract is implemented in `apps/api/src/infrastructure/recovery/recovery-manifest.ts`. Version `1` binds the declared database/object recovery evidence, recovery point, application release, schema 69, latest migration `069_p20_5g_notification_platform`, and post-restore generation. Migration `059_p12_recovery_generation_fencing` remains the origin of the recovery-generation mechanism; migration 060 adds generation-bound corporate authentication transaction state, and migration 061 adds exact source/trusted storage backend, key and immutable-version identity. Migrations 062–069 retain the same recovery-generation and exact-version verification boundaries while extending the Enterprise schema. Old-generation transactions and claims are unusable after advancement without checker mutation or manual repair. Every operator/provider-supplied reference is bounded and rejects credential-bearing database URIs, generic URI userinfo and known secret assignments without echoing the value. It contains no secrets, financial values, payee/purpose, bank references, document bytes, raw SQL or raw provider data. Manifest existence is not authenticity; provider attestation/signing remains a future provider capability.
+The JSON manifest contract is implemented in `apps/api/src/infrastructure/recovery/recovery-manifest.ts`. Version `1` binds the declared database/object recovery evidence, recovery point, application release, schema 71, latest migration `071_p20_7a_enterprise_ui_contracts`, and post-restore generation. Migration `059_p12_recovery_generation_fencing` remains the origin of the recovery-generation mechanism; migration 060 adds generation-bound corporate authentication transaction state, and migration 061 adds exact source/trusted storage backend, key and immutable-version identity. Migrations 062–071 retain the same recovery-generation and exact-version verification boundaries while extending the Enterprise schema. Old-generation transactions and claims are unusable after advancement without checker mutation or manual repair. Every operator/provider-supplied reference is bounded and rejects credential-bearing database URIs, generic URI userinfo and known secret assignments without echoing the value. It contains no secrets, financial values, payee/purpose, bank references, document bytes, raw SQL or raw provider data. Manifest existence is not authenticity; provider attestation/signing remains a future provider capability.
 
 Build and invoke the offline checker from the API workspace:
 
@@ -63,7 +63,7 @@ Control upstream validation, Finance Context, risk-analysis and Policy identitie
 must agree. Cross-wired rows, stale terminal authority, currency divergence and
 Payment/ledger/commitment double reduction are failures.
 
-The financial cardinality established at schema 59 and retained by schema 69 is one-to-one in both directions: each
+The financial cardinality established at schema 59 and retained by schema 71 is one-to-one in both directions: each
 Payment identifies one unique PAYMENT ledger entry and one unique consumed
 commitment; each PAYMENT ledger entry references exactly that Payment, and each
 Payment-linked CONSUMED commitment references exactly that Payment. Reverse

@@ -4,10 +4,10 @@
 
 1. Provision PostgreSQL with the reviewed owner/migrator/application, Finance, Payment, and document-worker roles from `apps/api/database/production/bootstrap-roles.sql`.
 2. Load secrets through the deployment secret manager; never bake `.env` into an image.
-3. Run `npm run migrate:production` with `AIMS_ENVIRONMENT=production` and the dedicated `aims_migrator` URL. It validates all 69 immutable files, executes the production-safe schema plan, defers development fixtures, runs hardening and the privilege manifest, and verifies zero fixture records.
+3. Run `npm run migrate:production` with `AIMS_ENVIRONMENT=production` and the dedicated `aims_migrator` URL. It validates all 71 immutable files, executes the production-safe schema plan, defers development fixtures, runs hardening and the privilege manifest, and verifies zero fixture records.
 4. Start the API with `npm run build --workspace @aims/api` then `npm start --workspace @aims/api`.
 5. Start the web application after `npm run build`.
-6. Probe `/health/live` for process liveness and `/health/ready` for PostgreSQL, schema 69, executor, storage, AI, and Telegram configuration state. AI/Telegram disabled is healthy; an enabled but incomplete integration is not ready.
+6. Probe `/health/live` for process liveness and `/health/ready` for PostgreSQL, schema 71, executor, storage, AI, and Telegram configuration state. AI/Telegram disabled is healthy; an enabled but incomplete integration is not ready.
 
 Production startup requires trusted identity and both executor database URLs. The repository intentionally refuses local document storage in production. OpenAPI is disabled in production.
 
@@ -18,7 +18,7 @@ Production startup requires trusted identity and both executor database URLs. Th
 - Use an isolated empty database to test the complete chain before release.
 - Run migrations with an administrator unavailable to the runtime API.
 - Stop deployment on the first error. Do not mark an incomplete migration as applied.
-- Verify the singleton schema row is version 69 with migration ID `069_p20_5g_notification_platform` before starting runtime processes.
+- Verify the singleton schema row is version 71 with migration ID `071_p20_7a_enterprise_ui_contracts` before starting runtime processes.
 - A baseline/squash may be evaluated later for release ergonomics; keep the immutable chain and checksum record. No squash has been performed.
 
 ## AI operations

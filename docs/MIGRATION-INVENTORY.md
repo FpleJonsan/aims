@@ -1,6 +1,6 @@
 # AIMS Migration Inventory
 
-The repository contains all 69 immutable SQL files below in lexical order. Production uses `apps/api/scripts/production-migrate.mjs`: it validates all 69 names, defers 14 fixture-only files, checksum-validates and removes fixture inserts from mixed migrations 048 and 054, executes every schema-bearing migration with `ON_ERROR_STOP`, then runs hardening, privilege and no-fixture verification. Development applies the same production-safe schema/system layer before its separate fixture layer. The required schema is version 69 with latest migration `069_p20_5g_notification_platform`.
+The repository contains all 71 immutable SQL files below in lexical order. Production uses `apps/api/scripts/production-migrate.mjs`: it validates all 71 names, defers 14 fixture-only files, checksum-validates and removes fixture inserts from mixed migrations 048 and 054, executes every schema-bearing migration with `ON_ERROR_STOP`, then runs hardening, privilege and no-fixture verification. Development applies the same production-safe schema/system layer before its separate fixture layer. The required schema is version 71 with latest migration `071_p20_7a_enterprise_ui_contracts`.
 
 | Range | Purpose |
 | --- | --- |
@@ -28,6 +28,8 @@ The repository contains all 69 immutable SQL files below in lexical order. Produ
 | 067 | Multi-claim architecture |
 | 068 | Approval matrix and approval delegation |
 | 069 | Enterprise notification platform |
+| 070 | AI configuration authority (Business Configuration as single AI authority) |
+| 071 | Enterprise UI backend contracts |
 
 Exact files:
 
@@ -101,6 +103,8 @@ Exact files:
 067_p20_5e_multi_claim_architecture.sql
 068_p20_5f_approval_matrix_and_delegation.sql
 069_p20_5g_notification_platform.sql
+070_p20_5h_ai_configuration_authority.sql
+071_p20_7a_enterprise_ui_contracts.sql
 ```
 
 For a future production release, evaluate a checksum manifest and an optional baseline migration for deployment ergonomics. Preserve the full historical chain for audit and never destructively squash an already-used production database.
