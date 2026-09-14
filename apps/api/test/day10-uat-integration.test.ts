@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import pg from "pg";
 import { ApprovalService } from "../src/application/approval/approval.service.js";
+import { ApprovalMatrixService } from "../src/application/approval-matrix/approval-matrix.service.js";
+import { ApprovalDelegationService } from "../src/application/approval-delegation/approval-delegation.service.js";
 import { DashboardService } from "../src/application/dashboard/dashboard.service.js";
 import { FinanceContextService } from "../src/application/finance-context/finance-context.service.js";
 import { FinanceControlService } from "../src/application/finance-control/finance-control.service.js";
@@ -79,7 +81,7 @@ async function runScenario(db: Postgres, scenario: Scenario) {
       await new FinancialAnalysisService(db,requests,null).manual(request.id,assessment,finance,`${scenario.label}-manual-analysis`);
     }
     await policy.evaluate(request.id,finance,`${scenario.label}-policy`);
-    const approvals = new ApprovalService(db,requests), view = await approvals.create(request.id,finance,`${scenario.label}-approval`);
+    const approvals = new ApprovalService(db, requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)), view = await approvals.create(request.id,finance,`${scenario.label}-approval`);
     if (!scenario.automatic) {
       await assert.rejects(() => approvals.act(request.id,view.steps[1].id,{commandKey:randomUUID(),action:"APPROVE"},finance,`${scenario.label}-bypass`),/active|step|sequence/i);
       await approvals.act(request.id,view.steps[0].id,{commandKey:randomUUID(),action:"APPROVE"},approver,`${scenario.label}-am`);

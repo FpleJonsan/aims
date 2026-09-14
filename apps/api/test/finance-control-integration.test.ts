@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import pg from "pg";
 import { ApprovalService } from "../src/application/approval/approval.service.js";
+import { ApprovalMatrixService } from "../src/application/approval-matrix/approval-matrix.service.js";
+import { ApprovalDelegationService } from "../src/application/approval-delegation/approval-delegation.service.js";
 import { FinanceContextService } from "../src/application/finance-context/finance-context.service.js";
 import { FinanceControlService } from "../src/application/finance-control/finance-control.service.js";
 import type { FinanceConfirmationCode } from "../src/application/finance-control/finance-control.dto.js";
@@ -186,7 +188,7 @@ async function approved(
     "d7-analysis",
   );
   await policy.evaluate(request.id, finance, "d7-policy");
-  const approvals = new ApprovalService(db, requests),
+  const approvals = new ApprovalService(db, requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
     view = await approvals.create(request.id, finance, "d7-approval");
   if (!automatic && !options.leavePending)
     await approvals.act(

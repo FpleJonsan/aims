@@ -49,9 +49,10 @@ export class ApprovalOutboxService {
     const claimed=await this.db.transaction(async (c) => {
       const q = await c.query<any>(
         `SELECT * FROM notification_outbox
-         WHERE
+         WHERE event_type='APPROVAL_STEP_ACTIVATED' AND (
            (status IN('PENDING','FAILED_RETRYABLE') AND attempts<5 AND next_attempt_at<=now()) OR
            (status='PROCESSING' AND claimed_at<now()-interval '1 second' * $1)
+         )
          ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`,
         [leaseSeconds],
       );

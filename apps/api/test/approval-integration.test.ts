@@ -3,7 +3,15 @@ import { createHash, randomUUID } from "node:crypto";
 import test from "node:test";
 import pg from "pg";
 import { ApprovalService } from "../src/application/approval/approval.service.js";
+import { ApprovalMatrixService } from "../src/application/approval-matrix/approval-matrix.service.js";
+import { ApprovalDelegationService } from "../src/application/approval-delegation/approval-delegation.service.js";
 import { ApprovalOutboxService } from "../src/application/approval/approval-outbox.service.js";
+import { NotificationBindingService } from "../src/application/notification/notification-binding.service.js";
+import { TelegramInboundService } from "../src/application/notification/telegram-inbound.service.js";
+import { NotificationService } from "../src/application/notification/notification.service.js";
+import { NotificationDispatcherService } from "../src/application/notification/notification-dispatcher.service.js";
+import { ConfigurationService } from "../src/application/configuration/configuration.service.js";
+import type { Request } from "express";
 import { type ApprovalChannel, TelegramDeliveryError } from "../src/application/approval/telegram-approval.channel.js";
 import { FinanceContextService } from "../src/application/finance-context/finance-context.service.js";
 import { FinancialAnalysisService } from "../src/application/financial-analysis/financial-analysis.service.js";
@@ -14,6 +22,20 @@ import { ValidationService } from "../src/application/validation/validation.serv
 import type { Principal } from "../src/domain/payment-request.js";
 import { Postgres } from "../src/infrastructure/database/postgres.js";
 import {metrics} from "../src/infrastructure/observability/telemetry.js";
+
+
+/**
+ * P20.5G moved Telegram binding/webhook handling out of ApprovalService into
+ * NotificationBindingService/TelegramInboundService (same SQL, same recovery-
+ * generation checks). This test-local wrapper keeps every existing call site
+ * below working against an ApprovalService instance without restructuring
+ * each test's setup.
+ */
+function telegramServicesFor(db: Postgres, approvals: ApprovalService) {
+  const bindings = new NotificationBindingService(db);
+  const inbound = new TelegramInboundService(db, approvals, bindings);
+  return { bindings, inbound };
+}
 
 process.env.TELEGRAM_APPROVAL_ENABLED = "true";
 
@@ -215,7 +237,7 @@ test("barrier E: duplicate Approval Case creation is serialized", async () => {
   const db = new Postgres();
   try {
     const { r, requests } = await eligible(db),
-      service = new ApprovalService(db, requests);
+      service = new ApprovalService(db, requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db));
     const [a, b] = await behindRequestLock(db, r.id, () =>
       Promise.all([
         service.create(r.id, finance, "d6-create-a"),
@@ -317,7 +339,7 @@ test("barrier C: Approve versus Clarification has one serial outcome", async () 
   const db = new Postgres();
   try {
     const { r, requests } = await eligible(db),
-      service = new ApprovalService(db, requests),
+      service = new ApprovalService(db, requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(r.id, finance, "race-create"),
       step = view.steps[0];
     const outcomes = await behindRequestLock(db, r.id, () =>
@@ -358,7 +380,7 @@ test("barrier A: two authorized users cannot both act on one Approval step", asy
   const db = new Postgres();
   try {
     const fixture = await eligible(db),
-      service = new ApprovalService(db, fixture.requests),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(fixture.r.id, finance, "race-a-create"),
       step = view.steps[0];
     const outcomes = await behindRequestLock(db, fixture.r.id, () =>
@@ -398,7 +420,7 @@ test("barrier B: Approve versus Reject cannot produce mixed terminal state", asy
   const db = new Postgres();
   try {
     const fixture = await eligible(db),
-      service = new ApprovalService(db, fixture.requests),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(fixture.r.id, finance, "race-b-create"),
       step = view.steps[0];
     const outcomes = await behindRequestLock(db, fixture.r.id, () =>
@@ -442,7 +464,7 @@ test("barrier D: Approval action versus evidence revision serializes safely", as
   const db = new Postgres();
   try {
     const fixture = await eligible(db),
-      service = new ApprovalService(db, fixture.requests),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(fixture.r.id, finance, "race-d-create");
     await behindRequestLock(db, fixture.r.id, () =>
       Promise.allSettled([
@@ -476,7 +498,7 @@ test("evidence revision supersedes an active Approval case", async () => {
   const db = new Postgres();
   try {
     const { r, requests } = await eligible(db),
-      service = new ApprovalService(db, requests),
+      service = new ApprovalService(db, requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(r.id, finance, "stale-create");
     await db.pool.query(
       `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference,storage_binding_state,storage_backend_id,storage_object_version,trusted_storage_object_key,trusted_storage_object_version) VALUES($1,$2,$3,'changed.pdf',$4,'application/pdf',20,$5,'CONTRACT',1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean','VERSION_BOUND','test-fixture',gen_random_uuid()::text,$4,gen_random_uuid()::text)`,
@@ -543,7 +565,7 @@ test("barrier F: duplicate auto-approval creates one case and commitment", async
   const db = new Postgres();
   try {
     const { r, requests } = await eligible(db, "10.00", true),
-      service = new ApprovalService(db, requests);
+      service = new ApprovalService(db, requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db));
     const [a, b] = await behindRequestLock(db, r.id, () =>
       Promise.all([
         service.create(r.id, finance, "auto-a"),
@@ -638,7 +660,7 @@ test("direct DB material fields invalidate approved authorization and preserve n
     const db = new Postgres();
     try {
       const fixture = await eligible(db, "10.00", true),
-        service = new ApprovalService(db, fixture.requests),
+        service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
         view = await service.create(
           fixture.r.id,
           finance,
@@ -665,7 +687,7 @@ test("direct DB material fields invalidate approved authorization and preserve n
   const db = new Postgres();
   try {
     const fixture = await eligible(db, "10.00", true),
-      service = new ApprovalService(db, fixture.requests),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(fixture.r.id, finance, "nonmaterial"),
       before = await db.pool.query(
         "SELECT row_version FROM payment_requests WHERE id=$1",
@@ -706,7 +728,7 @@ test("direct material change while pending Approval revokes the active route", a
   const db = new Postgres();
   try {
     const fixture = await eligible(db),
-      service = new ApprovalService(db, fixture.requests),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(fixture.r.id, finance, "pending-material");
     await telegramToken(db, view, "APPROVE");
     await db.pool.query(
@@ -745,13 +767,13 @@ test("Telegram callbacks bind identity and route all actions through Approval co
     base = Date.now();
   try {
     const first = await eligible(db),
-      approveService = new ApprovalService(db, first.requests),
+      approveService = new ApprovalService(db, first.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       approveView = await approveService.create(
         first.r.id,
         finance,
         "tg-a-create",
       );
-    await approveService.bindTelegram(
+    await telegramServicesFor(db, approveService).bindings.bindTelegram(
       {
         userId: approver.id,
         telegramUserId: String(base + 1),
@@ -762,34 +784,34 @@ test("Telegram callbacks bind identity and route all actions through Approval co
     );
     const approveToken = await telegramToken(db, approveView, "APPROVE");
     await assert.rejects(() =>
-      approveService.telegramWebhook("d6-test-secret", {
+      telegramServicesFor(db, approveService).inbound.telegramWebhook("d6-test-secret", {
         update_id: base + 201,
         callback_query: { data: approveToken, from: { id: 999999 } },
       }),
     );
     await assert.rejects(() =>
-      approveService.telegramWebhook("d6-test-secret", {
+      telegramServicesFor(db, approveService).inbound.telegramWebhook("d6-test-secret", {
         update_id: base + 202,
         callback_query: { data: "forged", from: { id: base + 1 } },
       }),
     );
-    await approveService.telegramWebhook("d6-test-secret", {
+    await telegramServicesFor(db, approveService).inbound.telegramWebhook("d6-test-secret", {
       update_id: base + 203,
       callback_query: { data: approveToken, from: { id: base + 1 } },
     });
-    const duplicate = (await approveService.telegramWebhook("d6-test-secret", {
+    const duplicate = (await telegramServicesFor(db, approveService).inbound.telegramWebhook("d6-test-secret", {
       update_id: base + 204,
       callback_query: { data: approveToken, from: { id: base + 1 } },
     })) as { idempotent?: boolean };
     assert.equal(duplicate.idempotent, true);
     const second = await eligible(db),
-      rejectService = new ApprovalService(db, second.requests),
+      rejectService = new ApprovalService(db, second.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       rejectView = await rejectService.create(
         second.r.id,
         finance,
         "tg-r-create",
       );
-    await rejectService.bindTelegram(
+    await telegramServicesFor(db, rejectService).bindings.bindTelegram(
       {
         userId: approver.id,
         telegramUserId: String(base + 2),
@@ -799,7 +821,7 @@ test("Telegram callbacks bind identity and route all actions through Approval co
       "tg-bind-r",
     );
     const rejectToken = await telegramToken(db, rejectView, "REJECT");
-    const prompt = (await rejectService.telegramWebhook("d6-test-secret", {
+    const prompt = (await telegramServicesFor(db, rejectService).inbound.telegramWebhook("d6-test-secret", {
       update_id: base + 205,
       callback_query: {
         data: rejectToken,
@@ -808,7 +830,7 @@ test("Telegram callbacks bind identity and route all actions through Approval co
       },
     })) as { method: string };
     assert.equal(prompt.method, "sendMessage");
-    await rejectService.telegramWebhook("d6-test-secret", {
+    await telegramServicesFor(db, rejectService).inbound.telegramWebhook("d6-test-secret", {
       update_id: base + 206,
       message: {
         text: "Controlled rejection reason",
@@ -821,13 +843,13 @@ test("Telegram callbacks bind identity and route all actions through Approval co
       "REJECTED",
     );
     const third = await eligible(db),
-      clarifyService = new ApprovalService(db, third.requests),
+      clarifyService = new ApprovalService(db, third.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       clarifyView = await clarifyService.create(
         third.r.id,
         finance,
         "tg-c-create",
       );
-    await clarifyService.bindTelegram(
+    await telegramServicesFor(db, clarifyService).bindings.bindTelegram(
       {
         userId: approver.id,
         telegramUserId: String(base + 3),
@@ -841,7 +863,7 @@ test("Telegram callbacks bind identity and route all actions through Approval co
       clarifyView,
       "REQUEST_CLARIFICATION",
     );
-    await clarifyService.telegramWebhook("d6-test-secret", {
+    await telegramServicesFor(db, clarifyService).inbound.telegramWebhook("d6-test-secret", {
       update_id: base + 207,
       callback_query: {
         data: clarifyToken,
@@ -849,7 +871,7 @@ test("Telegram callbacks bind identity and route all actions through Approval co
         message: { chat: { id: base + 103 } },
       },
     });
-    await clarifyService.telegramWebhook("d6-test-secret", {
+    await telegramServicesFor(db, clarifyService).inbound.telegramWebhook("d6-test-secret", {
       update_id: base + 208,
       message: {
         text: "Provide procurement confirmation",
@@ -874,10 +896,10 @@ test("revoked Telegram identity can be rebound without reviving old authority", 
     base = Date.now();
   try {
     const fixture = await eligible(db),
-      service = new ApprovalService(db, fixture.requests),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       telegramUserId = String(base + 30001),
       telegramChatId = String(base + 30101);
-    await service.bindTelegram(
+    await telegramServicesFor(db, service).bindings.bindTelegram(
       { userId: approver.id, telegramUserId, telegramChatId },
       admin,
       "rebind-first",
@@ -885,7 +907,7 @@ test("revoked Telegram identity can be rebound without reviving old authority", 
     const view = await service.create(fixture.r.id, finance, "rebind-create"),
       oldToken = await telegramToken(db, view, "APPROVE");
     await assert.rejects(() =>
-      service.bindTelegram(
+      telegramServicesFor(db, service).bindings.bindTelegram(
         {
           userId: secondApprover.id,
           telegramUserId,
@@ -895,19 +917,19 @@ test("revoked Telegram identity can be rebound without reviving old authority", 
         "rebind-conflict",
       ),
     );
-    await service.bindTelegram(
+    await telegramServicesFor(db, service).bindings.bindTelegram(
       { userId: approver.id, telegramUserId, telegramChatId },
       admin,
       "rebind-second",
     );
     await assert.rejects(() =>
-      service.telegramWebhook("rebind-secret", {
+      telegramServicesFor(db, service).inbound.telegramWebhook("rebind-secret", {
         update_id: base + 30201,
         callback_query: { data: oldToken, from: { id: Number(telegramUserId) } },
       }),
     );
     const newToken = await telegramToken(db, view, "APPROVE");
-    await service.telegramWebhook("rebind-secret", {
+    await telegramServicesFor(db, service).inbound.telegramWebhook("rebind-secret", {
       update_id: base + 30202,
       callback_query: { data: newToken, from: { id: Number(telegramUserId) } },
     });
@@ -939,9 +961,9 @@ test("barrier H: Telegram callback versus upstream invalidation is serial", asyn
     base = Date.now();
   try {
     const fixture = await eligible(db),
-      service = new ApprovalService(db, fixture.requests),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(fixture.r.id, finance, "race-h-create");
-    await service.bindTelegram(
+    await telegramServicesFor(db, service).bindings.bindTelegram(
       {
         userId: approver.id,
         telegramUserId: String(base + 40001),
@@ -953,7 +975,7 @@ test("barrier H: Telegram callback versus upstream invalidation is serial", asyn
     const token = await telegramToken(db, view, "APPROVE");
     await behindRequestLock(db, fixture.r.id, () =>
       Promise.allSettled([
-        service.telegramWebhook("race-h-secret", {
+        telegramServicesFor(db, service).inbound.telegramWebhook("race-h-secret", {
           update_id: base + 40201,
           callback_query: { data: token, from: { id: base + 40001 } },
         }),
@@ -986,8 +1008,8 @@ test("barrier I: expired-token rotation and retry preserve one active set", asyn
     base = Date.now();
   try {
     const fixture = await eligible(db),
-      service = new ApprovalService(db, fixture.requests);
-    await service.bindTelegram(
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db));
+    await telegramServicesFor(db, service).bindings.bindTelegram(
       {
         userId: approver.id,
         telegramUserId: String(base + 501),
@@ -1071,8 +1093,8 @@ test("outbox lease recovery rejects stale workers and permits one reclaimer", as
   try {
     metrics.reset();
     const fixture = await eligible(db),
-      approval = new ApprovalService(db, fixture.requests);
-    await approval.bindTelegram(
+      approval = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db));
+    await telegramServicesFor(db, approval).bindings.bindTelegram(
       {
         userId: approver.id,
         telegramUserId: String(base + 20001),
@@ -1182,9 +1204,9 @@ test("webhook retry after a forced transient domain failure loses no action", as
     base = Date.now();
   try {
     const fixture = await eligible(db),
-      service = new ApprovalService(db, fixture.requests),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(fixture.r.id, finance, "retry-create");
-    await service.bindTelegram(
+    await telegramServicesFor(db, service).bindings.bindTelegram(
       {
         userId: approver.id,
         telegramUserId: String(base + 701),
@@ -1203,7 +1225,7 @@ test("webhook retry after a forced transient domain failure loses no action", as
       throw new Error("FORCED_TRANSIENT_FAILURE");
     };
     await assert.rejects(() =>
-      service.telegramWebhook("retry-secret", update),
+      telegramServicesFor(db, service).inbound.telegramWebhook("retry-secret", update),
     );
     assert.equal(
       (
@@ -1224,8 +1246,8 @@ test("webhook retry after a forced transient domain failure loses no action", as
       "ACTIVE",
     );
     (service as unknown as { act: ApprovalService["act"] }).act = originalAct;
-    await service.telegramWebhook("retry-secret", update);
-    const replay = await service.telegramWebhook("retry-secret", update);
+    await telegramServicesFor(db, service).inbound.telegramWebhook("retry-secret", update);
+    const replay = await telegramServicesFor(db, service).inbound.telegramWebhook("retry-secret", update);
     assert.equal((replay as { idempotent?: boolean }).idempotent, true);
     const state = await db.pool.query(
       "SELECT status,attempts FROM telegram_webhook_updates WHERE update_id=$1",
@@ -1246,9 +1268,9 @@ test("Telegram rejects invalid identities, authority, secret, and dead tokens", 
     base = Date.now();
   try {
     const fixture = await eligible(db, "100000.00"),
-      service = new ApprovalService(db, fixture.requests),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(fixture.r.id, finance, "security-create");
-    await service.bindTelegram(
+    await telegramServicesFor(db, service).bindings.bindTelegram(
       {
         userId: approver.id,
         telegramUserId: String(base + 1001),
@@ -1261,7 +1283,7 @@ test("Telegram rejects invalid identities, authority, secret, and dead tokens", 
       expired: true,
     });
     await assert.rejects(() =>
-      service.telegramWebhook("security-secret", {
+      telegramServicesFor(db, service).inbound.telegramWebhook("security-secret", {
         update_id: base + 1201,
         callback_query: { data: expired, from: { id: base + 1001 } },
       }),
@@ -1273,7 +1295,7 @@ test("Telegram rejects invalid identities, authority, secret, and dead tokens", 
     for (const status of ["REVOKED", "CONSUMED"] as const) {
       const dead = await telegramToken(db, view, "APPROVE", { status });
       await assert.rejects(() =>
-        service.telegramWebhook("security-secret", {
+        telegramServicesFor(db, service).inbound.telegramWebhook("security-secret", {
           update_id: base + (status === "REVOKED" ? 1202 : 1203),
           callback_query: { data: dead, from: { id: base + 1001 } },
         }),
@@ -1281,13 +1303,13 @@ test("Telegram rejects invalid identities, authority, secret, and dead tokens", 
     }
     const valid = await telegramToken(db, view, "APPROVE");
     await assert.rejects(() =>
-      service.telegramWebhook("wrong-secret", {
+      telegramServicesFor(db, service).inbound.telegramWebhook("wrong-secret", {
         update_id: base + 1204,
         callback_query: { data: valid, from: { id: base + 1001 } },
       }),
     );
     await assert.rejects(() =>
-      service.telegramWebhook("security-secret", {
+      telegramServicesFor(db, service).inbound.telegramWebhook("security-secret", {
         update_id: base + 1205,
         callback_query: { data: valid, from: { id: base + 1999 } },
       }),
@@ -1297,7 +1319,7 @@ test("Telegram rejects invalid identities, authority, secret, and dead tokens", 
       [wrongDepartment, base + 1003],
       [requester, base + 1004],
     ] as const) {
-      await service.bindTelegram(
+      await telegramServicesFor(db, service).bindings.bindTelegram(
         {
           userId: principal.id,
           telegramUserId: String(telegramId),
@@ -1311,7 +1333,7 @@ test("Telegram rejects invalid identities, authority, secret, and dead tokens", 
       });
       await assert.rejects(
         () =>
-          service.telegramWebhook("security-secret", {
+          telegramServicesFor(db, service).inbound.telegramWebhook("security-secret", {
             update_id: telegramId + 10000,
             callback_query: { data: token, from: { id: telegramId } },
           }),
@@ -1320,7 +1342,7 @@ test("Telegram rejects invalid identities, authority, secret, and dead tokens", 
       );
     }
     await assert.rejects(() =>
-      service.bindTelegram(
+      telegramServicesFor(db, service).bindings.bindTelegram(
         {
           userId: inactive.id,
           telegramUserId: String(base + 1005),
@@ -1352,9 +1374,9 @@ test("Telegram APPROVE denies wrong-step, evidence-stale, superseded, and materi
     base = Date.now() + 70000;
   try {
     const first = await eligible(db),
-      service = new ApprovalService(db, first.requests),
+      service = new ApprovalService(db, first.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(first.r.id, finance, "approve-wrong-step");
-    await service.bindTelegram(
+    await telegramServicesFor(db, service).bindings.bindTelegram(
       {
         userId: approver.id,
         telegramUserId: String(base + 1),
@@ -1367,7 +1389,7 @@ test("Telegram APPROVE denies wrong-step, evidence-stale, superseded, and materi
       stepIndex: 1,
     });
     await assert.rejects(() =>
-      service.telegramWebhook("approve-stale-secret", {
+      telegramServicesFor(db, service).inbound.telegramWebhook("approve-stale-secret", {
         update_id: base + 201,
         callback_query: { data: wrongStep, from: { id: base + 1 } },
       }),
@@ -1375,13 +1397,13 @@ test("Telegram APPROVE denies wrong-step, evidence-stale, superseded, and materi
     const evidenceToken = await telegramToken(db, view, "APPROVE");
     await addEvidence(db, first.r.id);
     await assert.rejects(() =>
-      service.telegramWebhook("approve-stale-secret", {
+      telegramServicesFor(db, service).inbound.telegramWebhook("approve-stale-secret", {
         update_id: base + 202,
         callback_query: { data: evidenceToken, from: { id: base + 1 } },
       }),
     );
     const second = await eligible(db),
-      materialService = new ApprovalService(db, second.requests),
+      materialService = new ApprovalService(db, second.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       materialView = await materialService.create(
         second.r.id,
         finance,
@@ -1393,7 +1415,7 @@ test("Telegram APPROVE denies wrong-step, evidence-stale, superseded, and materi
       [second.r.id],
     );
     await assert.rejects(() =>
-      materialService.telegramWebhook("approve-stale-secret", {
+      telegramServicesFor(db, materialService).inbound.telegramWebhook("approve-stale-secret", {
         update_id: base + 203,
         callback_query: { data: materialToken, from: { id: base + 1 } },
       }),
@@ -1414,9 +1436,9 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
     let updateId = base;
     try {
       const fixture = await eligible(db),
-        service = new ApprovalService(db, fixture.requests),
+        service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
         view = await service.create(fixture.r.id, finance, `matrix-${action}`);
-      await service.bindTelegram(
+      await telegramServicesFor(db, service).bindings.bindTelegram(
         {
           userId: approver.id,
           telegramUserId: String(base + 1),
@@ -1427,7 +1449,7 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
       );
       const expired = await telegramToken(db, view, action, { expired: true });
       await assert.rejects(() =>
-        service.telegramWebhook(secret, {
+        telegramServicesFor(db, service).inbound.telegramWebhook(secret, {
           update_id: ++updateId,
           callback_query: { data: expired, from: { id: base + 1 } },
         }),
@@ -1439,7 +1461,7 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
       for (const status of ["CONSUMED", "REVOKED"] as const) {
         const dead = await telegramToken(db, view, action, { status });
         await assert.rejects(() =>
-          service.telegramWebhook(secret, {
+          telegramServicesFor(db, service).inbound.telegramWebhook(secret, {
             update_id: ++updateId,
             callback_query: { data: dead, from: { id: base + 1 } },
           }),
@@ -1447,21 +1469,21 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
       }
       const valid = await telegramToken(db, view, action);
       await assert.rejects(() =>
-        service.telegramWebhook("invalid-secret", {
+        telegramServicesFor(db, service).inbound.telegramWebhook("invalid-secret", {
           update_id: ++updateId,
           callback_query: { data: valid, from: { id: base + 1 } },
         }),
       );
       for (const invalidData of ["malformed", `${valid}forged`])
         await assert.rejects(() =>
-          service.telegramWebhook(secret, {
+          telegramServicesFor(db, service).inbound.telegramWebhook(secret, {
             update_id: ++updateId,
             callback_query: { data: invalidData, from: { id: base + 1 } },
           }),
         );
       for (const identity of [base + 2, base + 3])
         await assert.rejects(() =>
-          service.telegramWebhook(secret, {
+          telegramServicesFor(db, service).inbound.telegramWebhook(secret, {
             update_id: ++updateId,
             callback_query: { data: valid, from: { id: identity } },
           }),
@@ -1471,7 +1493,7 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
         [wrongDepartment, base + 5],
         [requester, base + 6],
       ] as const) {
-        await service.bindTelegram(
+        await telegramServicesFor(db, service).bindings.bindTelegram(
           {
             userId: principal.id,
             telegramUserId: String(telegramId),
@@ -1483,7 +1505,7 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
         const authorityToken = await telegramToken(db, view, action, {
           recipient: principal,
         });
-        await service.telegramWebhook(secret, {
+        await telegramServicesFor(db, service).inbound.telegramWebhook(secret, {
           update_id: ++updateId,
           callback_query: {
             data: authorityToken,
@@ -1492,7 +1514,7 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
           },
         });
         await assert.rejects(() =>
-          service.telegramWebhook(secret, {
+          telegramServicesFor(db, service).inbound.telegramWebhook(secret, {
             update_id: ++updateId,
             message: {
               text: "Unauthorized response",
@@ -1507,7 +1529,7 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
         );
       }
       await assert.rejects(() =>
-        service.bindTelegram(
+        telegramServicesFor(db, service).bindings.bindTelegram(
           {
             userId: inactive.id,
             telegramUserId: String(base + 7),
@@ -1518,7 +1540,7 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
         ),
       );
       const wrongStep = await telegramToken(db, view, action, { stepIndex: 1 });
-      await service.telegramWebhook(secret, {
+      await telegramServicesFor(db, service).inbound.telegramWebhook(secret, {
         update_id: ++updateId,
         callback_query: {
           data: wrongStep,
@@ -1527,7 +1549,7 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
         },
       });
       await assert.rejects(() =>
-        service.telegramWebhook(secret, {
+        telegramServicesFor(db, service).inbound.telegramWebhook(secret, {
           update_id: ++updateId,
           message: {
             text: "Wrong step response",
@@ -1541,7 +1563,7 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
         [approver.id],
       );
       const promptUpdate = ++updateId;
-      await service.telegramWebhook(secret, {
+      await telegramServicesFor(db, service).inbound.telegramWebhook(secret, {
         update_id: promptUpdate,
         callback_query: {
           data: valid,
@@ -1558,8 +1580,8 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
             chat: { id: base + 101 },
           },
         };
-      await service.telegramWebhook(secret, reply);
-      const duplicate = await service.telegramWebhook(secret, reply);
+      await telegramServicesFor(db, service).inbound.telegramWebhook(secret, reply);
+      const duplicate = await telegramServicesFor(db, service).inbound.telegramWebhook(secret, reply);
       assert.equal((duplicate as { idempotent?: boolean }).idempotent, true);
       assert.equal(
         (
@@ -1573,7 +1595,7 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
       assert.equal(promptUpdate < replyUpdate, true);
 
       const evidenceFixture = await eligible(db),
-        evidenceService = new ApprovalService(db, evidenceFixture.requests),
+        evidenceService = new ApprovalService(db, evidenceFixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
         evidenceView = await evidenceService.create(
           evidenceFixture.r.id,
           finance,
@@ -1582,13 +1604,13 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
         evidenceToken = await telegramToken(db, evidenceView, action);
       await addEvidence(db, evidenceFixture.r.id);
       await assert.rejects(() =>
-        evidenceService.telegramWebhook(secret, {
+        telegramServicesFor(db, evidenceService).inbound.telegramWebhook(secret, {
           update_id: ++updateId,
           callback_query: { data: evidenceToken, from: { id: base + 1 } },
         }),
       );
       const materialFixture = await eligible(db),
-        materialService = new ApprovalService(db, materialFixture.requests),
+        materialService = new ApprovalService(db, materialFixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
         materialView = await materialService.create(
           materialFixture.r.id,
           finance,
@@ -1600,7 +1622,7 @@ for (const action of ["REJECT", "REQUEST_CLARIFICATION"] as const) {
         [materialFixture.r.id],
       );
       await assert.rejects(() =>
-        materialService.telegramWebhook(secret, {
+        telegramServicesFor(db, materialService).inbound.telegramWebhook(secret, {
           update_id: ++updateId,
           callback_query: { data: materialToken, from: { id: base + 1 } },
         }),
@@ -1616,7 +1638,7 @@ test("barrier G: final Approval and commitment versus invalidation stays consist
   const db = new Postgres();
   try {
     const fixture = await eligible(db),
-      service = new ApprovalService(db, fixture.requests),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(fixture.r.id, finance, "final-race-create");
     await service.act(
       fixture.r.id,
@@ -1667,16 +1689,16 @@ test("Telegram master OFF dominates stale secret, binding, and valid action toke
   const db = new Postgres(), base = Date.now();
   try {
     const fixture = await eligible(db),
-      service = new ApprovalService(db, fixture.requests),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
       view = await service.create(fixture.r.id, finance, "off-create"),
       telegramId = String(base + 81001);
-    await service.bindTelegram({ userId: approver.id, telegramUserId: telegramId, telegramChatId: telegramId }, admin, "off-bind");
+    await telegramServicesFor(db, service).bindings.bindTelegram({ userId: approver.id, telegramUserId: telegramId, telegramChatId: telegramId }, admin, "off-bind");
     const token = await telegramToken(db, view, "APPROVE");
     const webhookRowsBefore = Number((await db.pool.query("SELECT count(*) count FROM telegram_webhook_updates")).rows[0].count);
     process.env.TELEGRAM_APPROVAL_ENABLED = "false";
     let updateId = base;
     for (const secret of [undefined, "off-matrix-secret", "stale-secret"])
-      assert.deepEqual(await service.telegramWebhook(secret, {
+      assert.deepEqual(await telegramServicesFor(db, service).inbound.telegramWebhook(secret, {
         update_id: updateId++,
         callback_query: { data: token, from: { id: Number(telegramId) } },
       }), { ok: false, disabled: true });
@@ -1698,24 +1720,24 @@ test("verified private-chat challenge binds once and explicit revoke invalidates
   const db = new Postgres(), adminDb = new pg.Pool({ connectionString: process.env.AIMS_INTEGRATION_ADMIN_DATABASE_URL }), base = Date.now();
   try {
     await adminDb.query("INSERT INTO user_roles(user_id,role) VALUES($1,'ADMIN') ON CONFLICT DO NOTHING", [admin.id]);
-    const fixture = await eligible(db), service = new ApprovalService(db, fixture.requests),
-      challenge = await service.createTelegramBindingChallenge(approver.id, admin, "binding-challenge"),
+    const fixture = await eligible(db), service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),
+      challenge = await telegramServicesFor(db, service).bindings.createChallenge(approver.id, admin, "binding-challenge"),
       telegramId = base + 82001;
-    await assert.rejects(() => service.telegramWebhook("binding-webhook-secret", {
+    await assert.rejects(() => telegramServicesFor(db, service).inbound.telegramWebhook("binding-webhook-secret", {
       update_id: base + 1,
       message: { text: challenge.challenge, from: { id: telegramId }, chat: { id: telegramId, type: "group" } },
     }), /private/);
-    await service.telegramWebhook("binding-webhook-secret", {
+    await telegramServicesFor(db, service).inbound.telegramWebhook("binding-webhook-secret", {
       update_id: base + 2,
       message: { text: challenge.challenge, from: { id: telegramId }, chat: { id: telegramId, type: "private" } },
     });
-    await assert.rejects(() => service.telegramWebhook("binding-webhook-secret", {
+    await assert.rejects(() => telegramServicesFor(db, service).inbound.telegramWebhook("binding-webhook-secret", {
       update_id: base + 3,
       message: { text: challenge.challenge, from: { id: telegramId }, chat: { id: telegramId, type: "private" } },
     }), /already used/);
     const view = await service.create(fixture.r.id, finance, "binding-case"), token = await telegramToken(db, view, "APPROVE");
-    await service.revokeTelegram(approver.id, admin, "binding-revoke");
-    await assert.rejects(() => service.telegramWebhook("binding-webhook-secret", {
+    await telegramServicesFor(db, service).bindings.revoke(approver.id, admin, "binding-revoke");
+    await assert.rejects(() => telegramServicesFor(db, service).inbound.telegramWebhook("binding-webhook-secret", {
       update_id: base + 4,
       callback_query: { data: token, from: { id: telegramId }, message: { chat: { id: telegramId, type: "private" } } },
     }));
@@ -1735,12 +1757,12 @@ for (const change of ["REVOKED", "AMOUNT_REDUCED"] as const) test(`Telegram curr
   const db = new Postgres(), adminDb = new pg.Pool({ connectionString: process.env.AIMS_INTEGRATION_ADMIN_DATABASE_URL }), base = Date.now() + (change === "REVOKED" ? 83000 : 84000);
   try {
     await adminDb.query("UPDATE approval_authorities SET active=true,maximum_amount_minor=NULL WHERE user_id=$1", [approver.id]);
-    const fixture = await eligible(db), service = new ApprovalService(db, fixture.requests), view = await service.create(fixture.r.id, finance, `authority-${change}`), telegramId = String(base + 1);
-    await service.bindTelegram({ userId: approver.id, telegramUserId: telegramId, telegramChatId: telegramId }, admin, `authority-bind-${change}`);
+    const fixture = await eligible(db), service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)), view = await service.create(fixture.r.id, finance, `authority-${change}`), telegramId = String(base + 1);
+    await telegramServicesFor(db, service).bindings.bindTelegram({ userId: approver.id, telegramUserId: telegramId, telegramChatId: telegramId }, admin, `authority-bind-${change}`);
     const token = await telegramToken(db, view, "APPROVE");
     if (change === "REVOKED") await adminDb.query("UPDATE approval_authorities SET active=false WHERE user_id=$1", [approver.id]);
     else await adminDb.query("UPDATE approval_authorities SET maximum_amount_minor=1 WHERE user_id=$1", [approver.id]);
-    await assert.rejects(() => service.telegramWebhook("authority-current-secret", {
+    await assert.rejects(() => telegramServicesFor(db, service).inbound.telegramWebhook("authority-current-secret", {
       update_id: base + 2,
       callback_query: { data: token, from: { id: Number(telegramId) } },
     }), /authority|authorized/i);
@@ -1757,16 +1779,16 @@ for (const change of ["REVOKED", "AMOUNT_REDUCED"] as const) test(`Telegram curr
 test("Telegram webhook rejects unsafe identifiers, oversized fields, and deep structures before mutation", async () => {
   const oldSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   process.env.TELEGRAM_WEBHOOK_SECRET = "bounds-secret";
-  const db = new Postgres(), service = new ApprovalService(db, new PaymentRequestService(db));
+  const db = new Postgres(), service = new ApprovalService(db, new PaymentRequestService(db), new ApprovalMatrixService(db), new ApprovalDelegationService(db));
   try {
     for (const body of [
       { update_id: Number.MAX_SAFE_INTEGER + 1 },
       { update_id: 1, callback_query: { data: "x".repeat(65), from: { id: 1 } } },
       { update_id: 2, message: { text: "x".repeat(2001), from: { id: 1 }, chat: { id: 1, type: "private" } } },
       { update_id: 3, message: { text: "ok", from: { id: 1.5 }, chat: { id: 1, type: "private" } } },
-    ]) await assert.rejects(() => service.telegramWebhook("bounds-secret", body));
+    ]) await assert.rejects(() => telegramServicesFor(db, service).inbound.telegramWebhook("bounds-secret", body));
     let deep: unknown = { value: true }; for (let i = 0; i < 10; i++) deep = { child: deep };
-    await assert.rejects(() => service.telegramWebhook("bounds-secret", { update_id: 4, message: deep }));
+    await assert.rejects(() => telegramServicesFor(db, service).inbound.telegramWebhook("bounds-secret", { update_id: 4, message: deep }));
     assert.equal((await db.pool.query("SELECT count(*)::int count FROM telegram_webhook_updates WHERE update_id BETWEEN 1 AND 4")).rows[0].count, 0);
   } finally {
     process.env.TELEGRAM_WEBHOOK_SECRET = oldSecret;
@@ -1779,8 +1801,8 @@ test("Telegram 429 persists a bounded Retry-After without changing Approval", as
   process.env.TELEGRAM_CALLBACK_SECRET = "retry-after-callback-secret";
   const db = new Postgres(), base = Date.now();
   try {
-    const fixture = await eligible(db), service = new ApprovalService(db, fixture.requests), telegramId = String(base + 85001);
-    await service.bindTelegram({ userId: approver.id, telegramUserId: telegramId, telegramChatId: telegramId }, admin, "retry-after-bind");
+    const fixture = await eligible(db), service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)), telegramId = String(base + 85001);
+    await telegramServicesFor(db, service).bindings.bindTelegram({ userId: approver.id, telegramUserId: telegramId, telegramChatId: telegramId }, admin, "retry-after-bind");
     const view = await service.create(fixture.r.id, finance, "retry-after-create");
     await db.pool.query("UPDATE notification_outbox SET status='SENT' WHERE aggregate_id<>$1 AND status IN('PENDING','FAILED_RETRYABLE')", [view.steps[0].id]);
     const channel: ApprovalChannel = { send: async () => { throw new TelegramDeliveryError("TELEGRAM_RATE_LIMITED", true, 7); } },
@@ -1803,18 +1825,18 @@ test("recovery generation fences Approval tokens, Telegram interactions, and bin
   process.env.TELEGRAM_WEBHOOK_SECRET="p12-webhook-secret";process.env.TELEGRAM_CALLBACK_SECRET="p12-callback-secret";
   const db=new Postgres(),migrator=new pg.Pool({connectionString:process.env.AIMS_INTEGRATION_MIGRATOR_DATABASE_URL}),base=Date.now()+86000;
   try{
-    const fixture=await eligible(db),service=new ApprovalService(db,fixture.requests),telegramId=String(base+1);
-    const challenge=await service.createTelegramBindingChallenge(approver.id,admin,"p12-stale-challenge");
-    await service.bindTelegram({userId:approver.id,telegramUserId:telegramId,telegramChatId:telegramId},admin,"p12-bind");
+    const fixture=await eligible(db),service=new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db)),telegramId=String(base+1);
+    const challenge=await telegramServicesFor(db, service).bindings.createChallenge(approver.id,admin,"p12-stale-challenge");
+    await telegramServicesFor(db, service).bindings.bindTelegram({userId:approver.id,telegramUserId:telegramId,telegramChatId:telegramId},admin,"p12-bind");
     const view=await service.create(fixture.r.id,finance,"p12-case"),approveToken=await telegramToken(db,view,"APPROVE"),rejectToken=await telegramToken(db,view,"REJECT");
-    const pending=await service.telegramWebhook("p12-webhook-secret",{update_id:base+2,callback_query:{data:rejectToken,from:{id:Number(telegramId)},message:{chat:{id:Number(telegramId),type:"private"}}}});
+    const pending=await telegramServicesFor(db, service).inbound.telegramWebhook("p12-webhook-secret",{update_id:base+2,callback_query:{data:rejectToken,from:{id:Number(telegramId)},message:{chat:{id:Number(telegramId),type:"private"}}}});
     assert.equal((pending as {method?:string}).method,"sendMessage");
     await migrator.query("SELECT * FROM advance_aims_recovery_generation($1,$2)",["P12_APPROVAL_TELEGRAM_FENCE",randomUUID()]);
-    await assert.rejects(()=>service.telegramWebhook("p12-webhook-secret",{update_id:base+3,callback_query:{data:approveToken,from:{id:Number(telegramId)},message:{chat:{id:Number(telegramId),type:"private"}}}}),/invalid|expired|used/i);
-    await assert.rejects(()=>service.telegramWebhook("p12-webhook-secret",{update_id:base+4,message:{text:"stale reason",from:{id:Number(telegramId)},chat:{id:Number(telegramId),type:"private"}}}),/No active Telegram interaction/);
-    await assert.rejects(()=>service.telegramWebhook("p12-webhook-secret",{update_id:base+5,message:{text:challenge.challenge,from:{id:Number(telegramId)},chat:{id:Number(telegramId),type:"private"}}}),/expired/);
+    await assert.rejects(()=>telegramServicesFor(db, service).inbound.telegramWebhook("p12-webhook-secret",{update_id:base+3,callback_query:{data:approveToken,from:{id:Number(telegramId)},message:{chat:{id:Number(telegramId),type:"private"}}}}),/invalid|expired|used/i);
+    await assert.rejects(()=>telegramServicesFor(db, service).inbound.telegramWebhook("p12-webhook-secret",{update_id:base+4,message:{text:"stale reason",from:{id:Number(telegramId)},chat:{id:Number(telegramId),type:"private"}}}),/No active Telegram interaction/);
+    await assert.rejects(()=>telegramServicesFor(db, service).inbound.telegramWebhook("p12-webhook-secret",{update_id:base+5,message:{text:challenge.challenge,from:{id:Number(telegramId)},chat:{id:Number(telegramId),type:"private"}}}),/expired/);
     assert.equal((await db.pool.query("SELECT count(*)::int count FROM approval_actions WHERE approval_case_id=$1",[view.case.id])).rows[0].count,0);
-    const fresh=await service.createTelegramBindingChallenge(approver.id,admin,"p12-fresh-challenge");assert.notEqual(fresh.challenge,challenge.challenge);
+    const fresh=await telegramServicesFor(db, service).bindings.createChallenge(approver.id,admin,"p12-fresh-challenge");assert.notEqual(fresh.challenge,challenge.challenge);
   }finally{process.env.TELEGRAM_WEBHOOK_SECRET=oldWebhook;process.env.TELEGRAM_CALLBACK_SECRET=oldCallback;await migrator.end();await db.onModuleDestroy();}
 });
 
@@ -1822,7 +1844,7 @@ test('request cancellation closes pending approval steps and prevents later appr
   const db = new Postgres();
   try {
     const {r,requests} = await eligible(db);
-    const approval = new ApprovalService(db,requests);
+    const approval = new ApprovalService(db, requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db));
     const created = await approval.create(r.id,finance,'cancel-approval-create');
     await requests.cancel(r.id,{reason:'Requester withdrew request',commandKey:randomUUID()},requester,'cancel-approval');
     assert.equal((await db.pool.query('SELECT status,is_current FROM approval_cases WHERE id=$1',[created.case.id])).rows[0].status,'SUPERSEDED');
@@ -1836,7 +1858,7 @@ test('request cancellation closes pending approval steps and prevents later appr
 test('Approval command replay binds request, case, step, action, actor and payload',async()=>{
   const db=new Postgres();
   try{
-    const a=await eligible(db),b=await eligible(db),service=new ApprovalService(db,a.requests);
+    const a=await eligible(db),b=await eligible(db),service=new ApprovalService(db, a.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db));
     const av=await service.create(a.r.id,finance,'p165-a'),bv=await service.create(b.r.id,finance,'p165-b');
     const input={commandKey:randomUUID(),action:'APPROVE' as const,reason:'Reviewed original evidence'};
     await service.act(a.r.id,av.steps[0].id,input,approver,'p165-original');
@@ -1871,11 +1893,62 @@ test('Approval command replay binds request, case, step, action, actor and paylo
 test('concurrent exact Approval retries record one action and return its original result',async()=>{
  const db=new Postgres();
  try{
-  const fixture=await eligible(db),service=new ApprovalService(db,fixture.requests);
+  const fixture=await eligible(db),service=new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db));
   const view=await service.create(fixture.r.id,finance,'p165-concurrent-create');
   const input={commandKey:randomUUID(),action:'APPROVE' as const};
   const results=await Promise.all([service.act(fixture.r.id,view.steps[0].id,input,approver,'p165-one'),service.act(fixture.r.id,view.steps[0].id,input,approver,'p165-two')]);
   assert.equal(results.filter(result=>result.idempotent).length,1);
   assert.equal((await db.pool.query('SELECT 1 FROM approval_actions WHERE command_key=$1',[input.commandKey])).rowCount,1);
  }finally{await db.onModuleDestroy()}
+});
+
+function fakeRequest(overrides: Partial<Request> = {}): Request {
+  return ({ ip: "203.0.113.9", correlationId: "p20-5g-test", header: () => undefined, ...overrides }) as never;
+}
+
+test("P20.5G: approval outcomes publish generic notifications once Telegram delivery is enabled and bound, and never for a rejected outbox insert path already owned by the interactive channel", async () => {
+  const oldEnabled = process.env.TELEGRAM_APPROVAL_ENABLED;
+  process.env.TELEGRAM_APPROVAL_ENABLED = "true";
+  const db = new Postgres(), base = Date.now();
+  try {
+    const configuration = new ConfigurationService(db);
+    await configuration.saveDraft("notifications", { telegramEnabled: true, telegramReminderEnabled: false, telegramEscalationEnabled: false, notificationTemplates: [], reminderFrequencyHours: 24, escalationTimingHours: 72 }, admin, fakeRequest());
+    await configuration.publish("notifications", "p20-5g test enable", admin, fakeRequest());
+
+    const notifications = new NotificationService(db, configuration);
+    const requesterTelegramId = String(base + 91001);
+    await new NotificationBindingService(db).bindTelegram(
+      { userId: requester.id, telegramUserId: requesterTelegramId, telegramChatId: requesterTelegramId },
+      admin,
+      "p20-5g-bind-requester",
+    );
+
+    const fixture = await eligible(db),
+      service = new ApprovalService(db, fixture.requests, new ApprovalMatrixService(db), new ApprovalDelegationService(db), notifications),
+      view = await service.create(fixture.r.id, finance, "p20-5g-create");
+
+    await service.act(fixture.r.id, view.steps[0].id, { commandKey: randomUUID(), action: "APPROVE" }, approver, "p20-5g-step1");
+    const midway = await db.pool.query("SELECT 1 FROM notification_outbox WHERE aggregate_id=$1 AND event_type='APPROVAL_APPROVED'", [fixture.r.id]);
+    assert.equal(midway.rowCount, 0, "no APPROVAL_APPROVED notification before the case is fully approved");
+
+    await service.act(fixture.r.id, view.steps[1].id, { commandKey: randomUUID(), action: "APPROVE" }, finance, "p20-5g-step2");
+    const published = await db.pool.query<{ recipient_user_id: string; channel: string; payload: { renderedText: string } }>(
+      "SELECT recipient_user_id,channel,payload FROM notification_outbox WHERE aggregate_id=$1 AND event_type='APPROVAL_APPROVED'",
+      [fixture.r.id],
+    );
+    assert.equal(published.rowCount, 1);
+    assert.equal(published.rows[0].recipient_user_id, requester.id);
+    assert.equal(published.rows[0].channel, "TELEGRAM");
+    assert.match(published.rows[0].payload.renderedText, /was approved/);
+
+    const dispatcher = new NotificationDispatcherService(db, new Map([["TELEGRAM", { send: async () => {} }]]));
+    const result = await dispatcher.dispatch();
+    assert.equal(result.processed, 1);
+    assert.equal(result.results[0].status, "SENT");
+    const finalRow = await db.pool.query("SELECT status FROM notification_outbox WHERE aggregate_id=$1 AND event_type='APPROVAL_APPROVED'", [fixture.r.id]);
+    assert.equal(finalRow.rows[0].status, "SENT");
+  } finally {
+    process.env.TELEGRAM_APPROVAL_ENABLED = oldEnabled;
+    await db.onModuleDestroy();
+  }
 });

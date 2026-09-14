@@ -6,7 +6,6 @@ import {
   IsUUID,
   MaxLength,
   Max,
-  Matches,
   Min,
 } from "class-validator";
 import { Type } from "class-transformer";
@@ -35,14 +34,4 @@ export class ApprovalActionDto {
 }
 export class ApprovalClarificationResponseDto {
   @IsString() @IsNotEmpty() @MaxLength(4000) response!: string;
-}
-export class TelegramBindingDto {
-  @IsUUID() userId!: string;
-  @IsString() @IsNotEmpty() @MaxLength(16) @Matches(/^[1-9][0-9]{0,15}$/)
-  telegramUserId!: string;
-  @IsString() @IsNotEmpty() @MaxLength(16) @Matches(/^[1-9][0-9]{0,15}$/)
-  telegramChatId!: string;
-}
-export class TelegramBindingChallengeDto {
-  @IsUUID() userId!: string;
 }

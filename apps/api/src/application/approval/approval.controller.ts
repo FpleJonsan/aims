@@ -1,10 +1,8 @@
 import {
   Body,
   Controller,
-  Delete,
   ForbiddenException,
   Get,
-  Headers,
   Param,
   ParseUUIDPipe,
   Post,
@@ -18,7 +16,6 @@ import {
   ApprovalActionDto,
   ApprovalClarificationResponseDto,
   ApprovalInboxDto,
-  TelegramBindingChallengeDto,
 } from "./approval.dto.js";
 import { ApprovalOutboxService } from "./approval-outbox.service.js";
 import { ApprovalService } from "./approval.service.js";
@@ -69,36 +66,9 @@ export class ApprovalController {
       r.correlationId,
     );
   }
-  @Post("integrations/telegram/bindings") bind(
-    @Req() r: Request,
-    @Body() b: TelegramBindingChallengeDto,
-  ) {
-    return this.approvals.createTelegramBindingChallenge(
-      b.userId,
-      r.principal,
-      r.correlationId,
-    );
-  }
-  @Delete("integrations/telegram/bindings/:userId") revoke(
-    @Req() r: Request,
-    @Param("userId", ParseUUIDPipe) userId: string,
-  ) {
-    return this.approvals.revokeTelegram(userId, r.principal, r.correlationId);
-  }
   @Post("approval-notifications/dispatch") dispatch(@Req() r: Request) {
     if (!r.principal.roles.includes("FINANCE"))
       throw new ForbiddenException("Finance permission required");
     return this.outbox.dispatch();
-  }
-}
-
-@Controller("integrations/telegram")
-export class TelegramWebhookController {
-  constructor(private readonly approvals: ApprovalService) {}
-  @Post("webhook") webhook(
-    @Headers("x-telegram-bot-api-secret-token") secret: string | undefined,
-    @Body() body: unknown,
-  ) {
-    return observeOperation("TELEGRAM_WEBHOOK","TELEGRAM",undefined,()=>this.approvals.telegramWebhook(secret, body));
   }
 }

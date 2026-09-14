@@ -14,7 +14,7 @@ function serviceWithEligibleCount(total: number) {
       payment_request_id: `request-${offset + index + 1}`,
       total,
     })) };
-  } } } as never, {} as never);
+  } } } as never, {} as never, {} as never, {} as never);
 }
 
 test("57 authorized approvals are reachable across three authoritative pages", async () => {

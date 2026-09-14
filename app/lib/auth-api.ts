@@ -57,3 +57,7 @@ export function authApiPatch<T = unknown>(path: string, body?: unknown): Promise
 export function authApiPut<T = unknown>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: "PUT", body: JSON.stringify(body ?? {}) });
 }
+
+export function authApiDelete<T = unknown>(path: string): Promise<T> {
+  return request<T>(path, { method: "DELETE" });
+}

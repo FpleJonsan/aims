@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -10,20 +10,29 @@ import {
 import type { PoolClient } from "pg";
 import type { Principal } from "../../domain/payment-request.js";
 import { Postgres } from "../../infrastructure/database/postgres.js";
-import { classifyAimsEnvironment } from "../../infrastructure/configuration/aims-environment.js";
 import { PaymentRequestService } from "../payment-requests/payment-request.service.js";
 import { fingerprintEvidence } from "../policy/policy.service.js";
+import { ApprovalMatrixService } from "../approval-matrix/approval-matrix.service.js";
+import { ApprovalDelegationService } from "../approval-delegation/approval-delegation.service.js";
+import type { ApprovalMatrixFacts } from "../../domain/approval-matrix.js";
 import type {
   ApprovalActionDto,
   ApprovalClarificationResponseDto,
-  TelegramBindingDto,
 } from "./approval.dto.js";
+import type { NotificationService } from "../notification/notification.service.js";
 
 @Injectable()
 export class ApprovalService {
   constructor(
     private readonly db: Postgres,
     private readonly requests: PaymentRequestService,
+    private readonly matrix: ApprovalMatrixService,
+    private readonly delegations: ApprovalDelegationService,
+    // Optional: absent in existing unit/integration test constructions (which
+    // predate P20.5G and stay unchanged), always injected by Nest in the real
+    // app. publish() never throws, so a missing instance is a silent no-op —
+    // Approval's own state machine never depends on notification delivery.
+    private readonly notifications?: NotificationService,
   ) {}
   private finance(a: Principal) {
     if (!a.roles.includes("FINANCE"))
@@ -63,10 +72,20 @@ export class ApprovalService {
       const automatic = eligible.auto_approval_eligible && plan.length === 0;
       if (!automatic && plan.length === 0)
         throw new ConflictException("Approval route is unresolved");
+      // Policy stays the gate on whether approval applies at all (and on
+      // auto-approval eligibility); when it does, the published Approval
+      // Matrix — if any — is the Finance-Master-configurable source of how
+      // many levels, which roles, and sequential vs parallel, without
+      // Policy's own rule authoring changing. The winning matrix version is
+      // pinned on the case so a later republish never affects this request.
+      const matrixResolution =
+        !automatic && plan.length
+          ? await this.matrix.resolveForFacts(c, await this.matrixFacts(c, request, eligible))
+          : null;
       const caseId = randomUUID();
       await c.query(
-        `INSERT INTO approval_cases(id,payment_request_id,request_revision,validation_run_id,finance_context_snapshot_id,financial_analysis_run_id,policy_decision_run_id,policy_version_id,evidence_fingerprint,approval_plan,source,status,created_by,completed_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+        `INSERT INTO approval_cases(id,payment_request_id,request_revision,validation_run_id,finance_context_snapshot_id,financial_analysis_run_id,policy_decision_run_id,policy_version_id,evidence_fingerprint,approval_plan,source,status,created_by,completed_at,approval_matrix_version_id)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
         [
           caseId,
           id,
@@ -82,6 +101,7 @@ export class ApprovalService {
           automatic ? "APPROVED" : "PENDING",
           actor.id,
           automatic ? new Date() : null,
+          matrixResolution?.versionId ?? null,
         ],
       );
       await this.requests.audit(
@@ -120,6 +140,70 @@ export class ApprovalService {
           "APPROVED",
           correlationId,
           { approvalCaseId: caseId, deterministic: true },
+        );
+      } else if (matrixResolution) {
+        // Matrix-routed plan: steps carry their own sequence and an
+        // optional parallelGroup, so multiple steps can share one sequence
+        // and activate together (parallel approval). advance() below is the
+        // counterpart that waits for a group's threshold before progressing.
+        const steps = matrixResolution.steps;
+        const minSequence = Math.min(...steps.map((s) => s.sequence));
+        for (const s of steps) {
+          const stepId = randomUUID();
+          const isFirst = s.sequence === minSequence;
+          await c.query(
+            `INSERT INTO approval_steps(id,approval_case_id,sequence,required_role,authority_scope,department_scope,minimum_amount_minor,maximum_amount_minor,mandatory,reason,parallel_group,required_approvals,status,activated_at)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+            [
+              stepId,
+              caseId,
+              s.sequence,
+              s.requiredRole,
+              s.authorityScope,
+              s.departmentScope ?? null,
+              s.minimumAmountMinor ?? null,
+              s.maximumAmountMinor ?? null,
+              s.mandatory !== false,
+              s.reason ?? `Approval matrix rule ${matrixResolution.rule.code}`,
+              s.parallelGroup ?? null,
+              s.requiredApprovals ?? null,
+              isFirst ? "ACTIVE" : "WAITING",
+              isFirst ? new Date() : null,
+            ],
+          );
+          if (isFirst) {
+            await this.queueStep(
+              c,
+              id,
+              request.createdBy,
+              request.departmentId,
+              eligible.request_amount_minor,
+              {
+                id: stepId,
+                approval_case_id: caseId,
+                required_role: s.requiredRole,
+                authority_scope: s.authorityScope,
+                department_scope: s.departmentScope ?? null,
+                minimum_amount_minor: s.minimumAmountMinor ?? null,
+                maximum_amount_minor: s.maximumAmountMinor ?? null,
+              },
+              correlationId,
+            );
+            await this.requests.audit(
+              c,
+              actor.id,
+              "APPROVAL_STEP_ACTIVATED",
+              id,
+              "VALIDATING",
+              "PENDING_APPROVAL",
+              correlationId,
+              { approvalCaseId: caseId, stepId, matrixRuleCode: matrixResolution.rule.code },
+            );
+          }
+        }
+        await c.query(
+          "UPDATE payment_requests SET status='PENDING_APPROVAL',updated_at=now(),row_version=row_version+1 WHERE id=$1",
+          [id],
         );
       } else {
         for (let i = 0; i < plan.length; i++) {
@@ -255,7 +339,8 @@ export class ApprovalService {
           "Approval became stale and requires revalidation",
         );
       }
-      if (!(await this.authorized(c, actor, request, step)))
+      const authz = await this.authorized(c, actor, request, step);
+      if (!authz.authorized)
         throw new ForbiddenException(
           "Current approval authority is required; self-approval is prohibited",
         );
@@ -304,8 +389,17 @@ export class ApprovalService {
             approvalCaseId: step.approval_case_id,
             stepId,
             reason: input.reason,
+            delegatedFrom: authz.delegatedFrom,
           },
         );
+        void this.notifications?.publish({
+          eventType: "APPROVAL_REJECTED",
+          aggregateType: "PAYMENT_REQUEST",
+          aggregateId: id,
+          recipientUserId: request.createdBy,
+          correlationId,
+          variables: { ticketNumber: request.ticketNumber ?? "", reason: input.reason ?? "" },
+        });
       } else if (input.action === "REQUEST_CLARIFICATION") {
         const clarificationId = randomUUID();
         await c.query(
@@ -345,17 +439,28 @@ export class ApprovalService {
             stepId,
             clarificationId,
             clarificationType: "APPROVAL",
+            delegatedFrom: authz.delegatedFrom,
           },
         );
+        void this.notifications?.publish({
+          eventType: "NEED_CLARIFICATION",
+          aggregateType: "PAYMENT_REQUEST",
+          aggregateId: id,
+          recipientUserId: request.createdBy,
+          correlationId,
+          variables: { ticketNumber: request.ticketNumber ?? "", reason: input.reason ?? "" },
+        });
       } else
         await this.advance(
           c,
           id,
           request.createdBy,
           request.departmentId,
+          request.ticketNumber ?? "",
           step,
           actor,
           correlationId,
+          authz.delegatedFrom,
         );
       return {
         idempotent: false,
@@ -429,7 +534,8 @@ export class ApprovalService {
       `SELECT 1 FROM payment_requests pr WHERE pr.id=$1 AND
        (pr.created_by=$2 OR $3::boolean OR EXISTS(SELECT 1 FROM approval_cases ac JOIN approval_steps s ON s.approval_case_id=ac.id
         JOIN finance_context_snapshots fc ON fc.id=ac.finance_context_snapshot_id JOIN users u ON u.id=$2 AND u.active
-        JOIN approval_authorities aa ON aa.user_id=u.id AND aa.active AND aa.authority_role=s.required_role AND aa.authority_scope=s.authority_scope
+        JOIN approval_authorities aa ON aa.active AND aa.authority_role=s.required_role AND aa.authority_scope=s.authority_scope
+          AND (aa.user_id=u.id OR aa.user_id IN (SELECT d.delegate_from FROM approval_delegations d WHERE d.delegate_to=u.id AND d.status='ACTIVE' AND d.start_date<=current_date AND d.end_date>=current_date AND d.delegate_from<>pr.created_by))
         WHERE ac.payment_request_id=pr.id AND ac.is_current AND ac.status='PENDING' AND s.status='ACTIVE' AND pr.status='PENDING_APPROVAL' AND pr.created_by<>$2
           AND (aa.authority_scope='ORGANIZATION' OR aa.department_id=pr.department_id)
           AND (aa.minimum_amount_minor IS NULL OR aa.minimum_amount_minor<=fc.request_amount_minor) AND (aa.maximum_amount_minor IS NULL OR aa.maximum_amount_minor>=fc.request_amount_minor)
@@ -449,7 +555,8 @@ export class ApprovalService {
        FROM approval_cases ac JOIN payment_requests pr ON pr.id=ac.payment_request_id JOIN finance_context_snapshots fc ON fc.id=ac.finance_context_snapshot_id
        JOIN users actor_user ON actor_user.id=$1 AND actor_user.active
        JOIN financial_risk_assessments ra ON ra.analysis_run_id=ac.financial_analysis_run_id LEFT JOIN approval_steps s ON s.approval_case_id=ac.id
-       LEFT JOIN approval_authorities aa ON aa.user_id=actor_user.id AND aa.active AND aa.authority_role=s.required_role AND aa.authority_scope=s.authority_scope
+       LEFT JOIN approval_authorities aa ON aa.active AND aa.authority_role=s.required_role AND aa.authority_scope=s.authority_scope
+        AND (aa.user_id=actor_user.id OR aa.user_id IN (SELECT d.delegate_from FROM approval_delegations d WHERE d.delegate_to=actor_user.id AND d.status='ACTIVE' AND d.start_date<=current_date AND d.end_date>=current_date AND d.delegate_from<>pr.created_by))
         AND (aa.authority_scope='ORGANIZATION' OR aa.department_id=pr.department_id)
         AND (aa.minimum_amount_minor IS NULL OR aa.minimum_amount_minor<=fc.request_amount_minor) AND (aa.maximum_amount_minor IS NULL OR aa.maximum_amount_minor>=fc.request_amount_minor)
         AND (s.minimum_amount_minor IS NULL OR s.minimum_amount_minor<=fc.request_amount_minor) AND (s.maximum_amount_minor IS NULL OR s.maximum_amount_minor>=fc.request_amount_minor)
@@ -478,499 +585,6 @@ export class ApprovalService {
       hasPreviousPage: input.page > 1,
     };
   }
-  async bindTelegram(
-    input: TelegramBindingDto,
-    actor: Principal,
-    correlationId: string,
-  ) {
-    this.admin(actor);
-    assertTelegramId(input.telegramUserId);
-    assertTelegramId(input.telegramChatId);
-    if (
-      isProductionRuntime() &&
-      input.telegramUserId !== input.telegramChatId
-    )
-      throw new BadRequestException(
-        "Telegram approval bindings require the user's private chat",
-      );
-    return this.db.retryableTransaction(async (c) => {
-      const user = await c.query("SELECT 1 FROM users WHERE id=$1 AND active", [
-        input.userId,
-      ]);
-      if (!user.rowCount)
-        throw new BadRequestException("Active user not found");
-      const revoked = await c.query(
-        "UPDATE telegram_identity_bindings SET status='REVOKED',revoked_at=now() WHERE user_id=$1 AND status='ACTIVE' RETURNING id",
-        [input.userId],
-      );
-      for (const prior of revoked.rows) {
-        await c.query(
-          "UPDATE telegram_pending_interactions SET status='CANCELLED' WHERE telegram_binding_id=$1 AND status='PENDING'",
-          [prior.id],
-        );
-        await c.query(
-          `INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,correlation_id,safe_metadata) VALUES($1,$2,'TELEGRAM_IDENTITY_REVOKED','TELEGRAM_IDENTITY_BINDING',$3,$4,$5)`,
-          [
-            randomUUID(),
-            actor.id,
-            prior.id,
-            correlationId,
-            JSON.stringify({ userId: input.userId, replaced: true }),
-          ],
-        );
-      }
-      if (revoked.rowCount) {
-        await c.query(
-          "UPDATE approval_action_tokens SET status='REVOKED' WHERE recipient_user_id=$1 AND status='ACTIVE'",
-          [input.userId],
-        );
-        await c.query(
-          `UPDATE notification_outbox o SET status='FAILED_RETRYABLE',next_attempt_at=now(),
-           claimed_at=NULL,claim_token=NULL,claimed_by=NULL,last_error_code='IDENTITY_REBOUND'
-           FROM approval_steps s JOIN approval_cases ac ON ac.id=s.approval_case_id
-           WHERE o.aggregate_id=s.id AND o.recipient_user_id=$1 AND s.status='ACTIVE'
-             AND ac.is_current AND o.status IN('SENT','FAILED_RETRYABLE','PROCESSING')`,
-          [input.userId],
-        );
-      }
-      const id = randomUUID();
-      await c.query(
-        "INSERT INTO telegram_identity_bindings(id,user_id,telegram_user_id,telegram_chat_id,status,created_by) VALUES($1,$2,$3,$4,'ACTIVE',$5)",
-        [
-          id,
-          input.userId,
-          input.telegramUserId,
-          input.telegramChatId,
-          actor.id,
-        ],
-      );
-      await c.query(
-        `INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,correlation_id,safe_metadata)
-        VALUES($1,$2,'TELEGRAM_IDENTITY_BOUND','TELEGRAM_IDENTITY_BINDING',$3,$4,$5)`,
-        [
-          randomUUID(),
-          actor.id,
-          id,
-          correlationId,
-          JSON.stringify({ userId: input.userId }),
-        ],
-      );
-      await c.query(
-        `UPDATE notification_outbox o SET status='FAILED_RETRYABLE',next_attempt_at=now(),
-         claimed_at=NULL,claim_token=NULL,claimed_by=NULL,last_error_code='IDENTITY_REBOUND'
-         FROM approval_steps s JOIN approval_cases ac ON ac.id=s.approval_case_id
-         WHERE o.aggregate_id=s.id AND o.recipient_user_id=$1 AND s.status='ACTIVE'
-           AND ac.is_current AND o.status='FAILED_TERMINAL' AND o.last_error_code='IDENTITY_REVOKED'`,
-        [input.userId],
-      );
-      return { id, userId: input.userId, status: "ACTIVE" };
-    });
-  }
-
-  async createTelegramBindingChallenge(
-    userId: string,
-    actor: Principal,
-    correlationId: string,
-  ) {
-    this.admin(actor);
-    if (process.env.TELEGRAM_APPROVAL_ENABLED !== "true")
-      throw new ConflictException("Telegram approval channel is disabled");
-    const secret = process.env.TELEGRAM_CALLBACK_SECRET;
-    if (!secret)
-      throw new ConflictException("Telegram callback configuration is unavailable");
-    const id = randomUUID(),
-      token = `${id}.${createHmac("sha256", secret).update(id).digest("base64url").slice(0, 24)}`,
-      tokenHash = createHash("sha256").update(token).digest("hex"),
-      expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
-    await this.db.retryableTransaction(async(c)=>{
-      await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
-      const generation=await c.query<{generation:string}>("SELECT generation FROM aims_recovery_generation WHERE singleton");
-      const user=await c.query("SELECT 1 FROM users WHERE id=$1 AND active",[userId]);
-      if(!user.rowCount)throw new BadRequestException("Active user not found");
-      await c.query(
-        `INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,correlation_id,safe_metadata)
-         VALUES($1,$2,'TELEGRAM_BINDING_CHALLENGE_CREATED','TELEGRAM_IDENTITY_BINDING',$3,$4,$5)`,
-        [randomUUID(),actor.id,id,correlationId,JSON.stringify({userId,tokenHash,expiresAt,recoveryGeneration:generation.rows[0].generation})],
-      );
-    });
-    return { challenge: `/bind ${token}`, expiresAt };
-  }
-
-  async revokeTelegram(
-    userId: string,
-    actor: Principal,
-    correlationId: string,
-  ) {
-    this.admin(actor);
-    return this.db.retryableTransaction(async (c) => {
-      const revoked = await c.query<any>(
-        "UPDATE telegram_identity_bindings SET status='REVOKED',revoked_at=now() WHERE user_id=$1 AND status='ACTIVE' RETURNING id",
-        [userId],
-      );
-      if (!revoked.rowCount)
-        throw new NotFoundException("Active Telegram binding not found");
-      for (const binding of revoked.rows)
-        await c.query(
-          "UPDATE telegram_pending_interactions SET status='CANCELLED' WHERE telegram_binding_id=$1 AND status='PENDING'",
-          [binding.id],
-        );
-      await c.query(
-        "UPDATE approval_action_tokens SET status='REVOKED' WHERE recipient_user_id=$1 AND status='ACTIVE'",
-        [userId],
-      );
-      await c.query(
-        `UPDATE notification_outbox o SET status='FAILED_TERMINAL',last_error_code='IDENTITY_REVOKED',
-         claimed_at=NULL,claim_token=NULL,claimed_by=NULL
-         FROM approval_steps s JOIN approval_cases ac ON ac.id=s.approval_case_id
-         WHERE o.aggregate_id=s.id AND o.recipient_user_id=$1 AND s.status='ACTIVE'
-           AND ac.is_current AND o.status IN('PENDING','FAILED_RETRYABLE','PROCESSING')`,
-        [userId],
-      );
-      for (const binding of revoked.rows)
-        await c.query(
-          `INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,correlation_id,safe_metadata)
-           VALUES($1,$2,'TELEGRAM_IDENTITY_REVOKED','TELEGRAM_IDENTITY_BINDING',$3,$4,$5)`,
-          [
-            randomUUID(),
-            actor.id,
-            binding.id,
-            correlationId,
-            JSON.stringify({ userId, explicit: true }),
-          ],
-        );
-      return { userId, status: "REVOKED" };
-    });
-  }
-
-  async telegramWebhook(secret: string | undefined, body: unknown) {
-    if (process.env.TELEGRAM_APPROVAL_ENABLED !== "true")
-      return { ok: false, disabled: true };
-    const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
-    if (!expected || !secret || !safeEqual(secret, expected))
-      throw new ForbiddenException("Invalid Telegram webhook secret");
-    const update = validateTelegramUpdate(body),
-      updateId = update.update_id;
-    const claim = await this.db.retryableTransaction(async (c) => {
-      const existing = await c.query<any>(
-        "SELECT * FROM telegram_webhook_updates WHERE update_id=$1 FOR UPDATE",
-        [updateId],
-      );
-      if (!existing.rowCount) {
-        await c.query(
-          "INSERT INTO telegram_webhook_updates(update_id,status,attempts,locked_at)VALUES($1,'PROCESSING',1,now())",
-          [updateId],
-        );
-        return "CLAIMED";
-      }
-      const row = existing.rows[0];
-      if (row.status === "COMPLETED") return "COMPLETED";
-      if (row.status === "FAILED_TERMINAL") return "TERMINAL";
-      if (
-        row.status === "PROCESSING" &&
-        row.locked_at &&
-        Date.now() - new Date(row.locked_at).getTime() < 120000
-      )
-        return "PROCESSING";
-      await c.query(
-        "UPDATE telegram_webhook_updates SET status='PROCESSING',attempts=attempts+1,locked_at=now(),last_error_code=NULL WHERE update_id=$1",
-        [updateId],
-      );
-      return "CLAIMED";
-    });
-    if (claim === "COMPLETED") return { ok: true, idempotent: true };
-    if (claim === "TERMINAL") return { ok: false, terminal: true };
-    if (claim === "PROCESSING") return { ok: true, processing: true };
-    try {
-      const result = await this.processTelegramUpdate(update);
-      await this.db.pool.query(
-        "UPDATE telegram_webhook_updates SET status='COMPLETED',completed_at=now(),locked_at=NULL WHERE update_id=$1",
-        [updateId],
-      );
-      return result;
-    } catch (error) {
-      const terminal =
-        typeof (error as any)?.getStatus === "function" &&
-        (error as any).getStatus() < 500;
-      await this.db.pool.query(
-        "UPDATE telegram_webhook_updates SET status=$2,locked_at=NULL,last_error_code=$3 WHERE update_id=$1",
-        [
-          updateId,
-          terminal ? "FAILED_TERMINAL" : "FAILED_RETRYABLE",
-          (error instanceof Error ? error.name : "WEBHOOK_FAILURE").slice(
-            0,
-            64,
-          ),
-        ],
-      );
-      throw error;
-    }
-  }
-
-  private async processTelegramUpdate(update: any) {
-    const message = update?.message;
-    if (typeof message?.text === "string" && message.text.startsWith("/bind "))
-      return this.consumeTelegramBindingChallenge(message);
-    if (
-      typeof message?.text === "string" &&
-      typeof message?.from?.id === "number"
-    ) {
-      const pending = await this.db.retryableTransaction(async (c) => {
-        await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
-        const generation=await c.query<{generation:string}>("SELECT generation FROM aims_recovery_generation WHERE singleton");
-        const q = await c.query<any>(
-          `SELECT i.*,b.telegram_chat_id,u.department_id,ARRAY(SELECT ur.role FROM user_roles ur WHERE ur.user_id=u.id)roles,ac.payment_request_id FROM telegram_pending_interactions i JOIN telegram_identity_bindings b ON b.id=i.telegram_binding_id AND b.status='ACTIVE' JOIN users u ON u.id=i.recipient_user_id AND u.active JOIN approval_cases ac ON ac.id=i.approval_case_id WHERE b.telegram_user_id=$1 AND b.telegram_chat_id=$2 AND i.status='PENDING' AND i.expires_at>now() FOR UPDATE OF i`,
-          [message.from.id, message.chat?.id],
-        );
-        if (!q.rowCount)
-          throw new ConflictException("No active Telegram interaction");
-        const row = q.rows[0];
-        return {...row,recovery_generation:generation.rows[0].generation};
-      });
-      const result = await this.act(
-        pending.payment_request_id,
-        pending.approval_step_id,
-        {
-          commandKey: pending.id,
-          action: pending.action,
-          reason: message.text.trim(),
-          requiredResponse:
-            pending.action === "REQUEST_CLARIFICATION"
-              ? `Provide the requested information: ${message.text.trim()}`
-              : undefined,
-        },
-        {
-          id: pending.recipient_user_id,
-          departmentId: pending.department_id,
-          roles: pending.roles,
-        },
-        randomUUID(),
-        "TELEGRAM",
-        pending.recovery_generation,
-      );
-      await this.db.pool.query(
-        "UPDATE telegram_pending_interactions SET status='CONSUMED',consumed_at=now() WHERE id=$1 AND status='PENDING'",
-        [pending.id],
-      );
-      return result;
-    }
-    const callback = update?.callback_query;
-    if (
-      typeof callback?.data !== "string" ||
-      typeof callback?.from?.id !== "number"
-    )
-      return { ok: true, ignored: true };
-    const callbackChat = callback.message?.chat;
-    if (
-      isProductionRuntime() &&
-      (!callbackChat ||
-        callbackChat.type !== "private" ||
-        callbackChat.id !== callback.from.id)
-    )
-      throw new ForbiddenException(
-        "Telegram approval actions require the bound private chat",
-      );
-    const prepared = await this.db.retryableTransaction(async (c) => {
-      await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
-      const generation=await c.query<{generation:string}>("SELECT generation FROM aims_recovery_generation WHERE singleton");
-      const token = await c.query<any>(
-        `SELECT t.*,ac.payment_request_id,b.id binding_id,b.user_id,u.department_id,ARRAY(SELECT ur.role FROM user_roles ur WHERE ur.user_id=u.id) roles
-         FROM approval_action_tokens t JOIN approval_cases ac ON ac.id=t.approval_case_id
-         JOIN telegram_identity_bindings b ON b.telegram_user_id=$2 AND ($3::bigint IS NULL OR b.telegram_chat_id=$3) AND b.status='ACTIVE' AND b.user_id=t.recipient_user_id
-         JOIN users u ON u.id=b.user_id AND u.active
-         WHERE t.token_hash=$1 AND t.issued_generation=(SELECT generation FROM aims_recovery_generation WHERE singleton) FOR UPDATE OF t`,
-        [
-          createHash("sha256").update(callback.data).digest("hex"),
-          callback.from.id,
-          callbackChat?.id ?? null,
-        ],
-      );
-      if (!token.rowCount)
-        throw new ConflictException(
-          "Telegram action token is invalid, expired, or used",
-        );
-      const row = token.rows[0];
-      if (row.status === "CONSUMED" && row.action === "APPROVE") {
-        const completed = await c.query(
-          "SELECT 1 FROM approval_actions WHERE command_key=$1 AND actor_id=$2 AND action='APPROVE'",
-          [row.id, row.user_id],
-        );
-        if (!completed.rowCount)
-          throw new ConflictException(
-            "Telegram action token is invalid, expired, or used",
-          );
-        return {
-          duplicate: true,
-          requestId: row.payment_request_id,
-          stepId: row.approval_step_id,
-          tokenId: row.id,
-          action: row.action,
-          principal: {
-            id: row.user_id,
-            departmentId: row.department_id,
-            roles: row.roles,
-          } as Principal,
-          recoveryGeneration:generation.rows[0].generation,
-        };
-      }
-      if (row.status !== "ACTIVE" || new Date(row.expires_at) <= new Date())
-        throw new ConflictException(
-          "Telegram action token is invalid, expired, or used",
-        );
-      if (row.status !== "ACTIVE")
-        throw new ConflictException("Telegram action token is already used");
-      if (row.action !== "APPROVE") {
-        await c.query(
-          "UPDATE telegram_pending_interactions SET status='CANCELLED' WHERE telegram_binding_id=$1 AND status='PENDING'",
-          [row.binding_id],
-        );
-        await c.query(
-          "UPDATE approval_action_tokens SET used_at=now(),used_by=$2,status='CONSUMED' WHERE id=$1",
-          [row.id, row.user_id],
-        );
-        const interactionId = randomUUID();
-        await c.query(
-          "INSERT INTO telegram_pending_interactions(id,telegram_binding_id,recipient_user_id,approval_case_id,approval_step_id,action,status,expires_at)VALUES($1,$2,$3,$4,$5,$6,'PENDING',now()+interval '10 minutes')",
-          [
-            interactionId,
-            row.binding_id,
-            row.user_id,
-            row.approval_case_id,
-            row.approval_step_id,
-            row.action,
-          ],
-        );
-        return {
-          pending: true,
-          action: row.action,
-          interactionId,
-          chatId: callback.message?.chat?.id,
-        };
-      }
-      return {
-        requestId: row.payment_request_id,
-        stepId: row.approval_step_id,
-        tokenId: row.id,
-        action: row.action,
-        principal: {
-          id: row.user_id,
-          departmentId: row.department_id,
-          roles: row.roles,
-        } as Principal,
-        recoveryGeneration:generation.rows[0].generation,
-      };
-    });
-    if ((prepared as any).pending)
-      return {
-        method: "sendMessage",
-        chat_id: (prepared as any).chatId,
-        text:
-          (prepared as any).action === "REJECT"
-            ? "Reply with the rejection reason within 10 minutes."
-            : "Reply with the clarification reason and requested information within 10 minutes.",
-        reply_markup: { force_reply: true },
-      };
-    const command = prepared as {
-      requestId: string;
-      stepId: string;
-      tokenId: string;
-      principal: Principal;
-      recoveryGeneration:string;
-    };
-    const result = await this.act(
-      command.requestId,
-      command.stepId,
-      { commandKey: command.tokenId, action: "APPROVE" },
-      command.principal,
-      randomUUID(),
-      "TELEGRAM",
-      command.recoveryGeneration,
-    );
-    await this.db.pool.query(
-      "UPDATE approval_action_tokens SET used_at=COALESCE(used_at,now()),used_by=COALESCE(used_by,$2),status='CONSUMED' WHERE id=$1 AND status='ACTIVE'",
-      [command.tokenId, command.principal.id],
-    );
-    return result;
-  }
-
-  private async consumeTelegramBindingChallenge(message: any) {
-    if (
-      message.chat?.type !== "private" ||
-      message.chat?.id !== message.from?.id
-    )
-      throw new ForbiddenException("Telegram binding requires a private chat");
-    const token = message.text.slice(6).trim();
-    if (!/^[0-9a-f-]{36}\.[A-Za-z0-9_-]{24}$/.test(token))
-      throw new BadRequestException("Invalid Telegram binding challenge");
-    const [id, signature] = token.split("."),
-      secret = process.env.TELEGRAM_CALLBACK_SECRET,
-      expected = secret
-        ? createHmac("sha256", secret)
-            .update(id)
-            .digest("base64url")
-            .slice(0, 24)
-        : "";
-    if (!secret || !safeEqual(signature, expected))
-      throw new ForbiddenException("Invalid Telegram binding challenge");
-    const created = await this.db.retryableTransaction(async (c) => {
-      await c.query("SELECT pg_advisory_xact_lock(hashtext($1))", [id]);
-      await c.query("SELECT pg_advisory_xact_lock(hashtext('aims:recovery-generation'))");
-      const generation=await c.query<{generation:string}>("SELECT generation FROM aims_recovery_generation WHERE singleton");
-      const q = await c.query<any>(
-        `SELECT ae.actor_id,ae.correlation_id,ae.safe_metadata,u.department_id
-         FROM audit_events ae JOIN users u ON u.id=ae.actor_id AND u.active
-         WHERE ae.action='TELEGRAM_BINDING_CHALLENGE_CREATED' AND ae.entity_id=$1
-           AND EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id=u.id AND ur.role='ADMIN')
-         ORDER BY occurred_at DESC LIMIT 1`,
-        [id],
-      );
-      if (!q.rowCount)
-        throw new ConflictException("Telegram binding challenge is invalid");
-      const metadata = q.rows[0].safe_metadata;
-      if (
-        metadata?.tokenHash !== createHash("sha256").update(token).digest("hex") ||
-        metadata?.recoveryGeneration !== generation.rows[0].generation ||
-        new Date(metadata?.expiresAt).getTime() <= Date.now()
-      )
-        throw new ConflictException("Telegram binding challenge is expired");
-      const consumed = await c.query(
-        "SELECT 1 FROM audit_events WHERE action='TELEGRAM_BINDING_CHALLENGE_CONSUMED' AND entity_id=$1",
-        [id],
-      );
-      if (consumed.rowCount)
-        throw new ConflictException("Telegram binding challenge is already used");
-      await c.query(
-        `INSERT INTO audit_events(id,actor_id,action,entity_type,entity_id,correlation_id,safe_metadata)
-         VALUES($1,$2,'TELEGRAM_BINDING_CHALLENGE_CONSUMED','TELEGRAM_IDENTITY_BINDING',$3,$4,$5)`,
-        [
-          randomUUID(),
-          q.rows[0].actor_id,
-          id,
-          q.rows[0].correlation_id,
-          JSON.stringify({ userId: metadata.userId }),
-        ],
-      );
-      return {
-        userId: metadata.userId as string,
-        actorId: q.rows[0].actor_id as string,
-        actorDepartmentId: q.rows[0].department_id as string,
-        correlationId: q.rows[0].correlation_id as string,
-      };
-    });
-    return this.bindTelegram(
-      {
-        userId: created.userId,
-        telegramUserId: String(message.from.id),
-        telegramChatId: String(message.chat.id),
-      },
-      {
-        id: created.actorId,
-        departmentId: created.actorDepartmentId,
-        roles: ["ADMIN"],
-      },
-      created.correlationId,
-    );
-  }
-
   private async eligibility(c: PoolClient, id: string) {
     const q = await c.query<any>(
       `SELECT p.id,p.approval_plan,p.auto_approval_eligible,p.policy_version_id,p.evidence_fingerprint,p.validation_run_id,p.finance_context_snapshot_id,p.financial_analysis_run_id,f.request_amount_minor,e.id open_exception
@@ -983,6 +597,32 @@ export class ApprovalService {
     );
     return q.rows[0] ?? null;
   }
+  private async matrixFacts(c: PoolClient, request: any, eligible: any): Promise<ApprovalMatrixFacts> {
+    const risk =
+      (
+        await c.query<{ final_risk: string | null; final_priority: string | null }>(
+          "SELECT final_risk, final_priority FROM financial_risk_assessments WHERE analysis_run_id=$1",
+          [eligible.financial_analysis_run_id],
+        )
+      ).rows[0] ?? {};
+    const projects = await c.query<{ project_id: string }>(
+      "SELECT DISTINCT project_id FROM claim_items WHERE payment_request_id=$1 AND internal_status='ACTIVE' AND project_id IS NOT NULL",
+      [request.id],
+    );
+    const today = (await c.query<{ d: string }>("SELECT current_date::text d")).rows[0].d;
+    return {
+      amountMinor: BigInt(eligible.request_amount_minor),
+      currency: request.currency ?? "",
+      departmentId: request.departmentId,
+      category: request.category ?? "",
+      projectIds: projects.rows.map((row) => row.project_id),
+      paymentMethod: request.paymentMethod ?? "",
+      riskLevel: risk.final_risk ?? "",
+      priority: risk.final_priority ?? "",
+      claimCount: request.claimCount,
+      asOfDate: today,
+    };
+  }
   private async fingerprint(c: any, id: string) {
     const d = (
       await c.query(
@@ -992,26 +632,47 @@ export class ApprovalService {
     ).rows;
     return fingerprintEvidence(d);
   }
-  private async authorized(c: any, a: Principal, r: any, s: any) {
-    if (a.id === r.createdBy) return false;
-    const q = await c.query(
+  /**
+   * A user acts either because they directly hold matching approval_authorities,
+   * or because they are the current delegate of someone who does (an active
+   * Approval Delegation, checked with the same role/scope/amount/department
+   * matching rules as a direct grant). Self-approval is blocked for the
+   * requester in both directions: neither the acting user nor the delegator
+   * being substituted may be the request's own creator.
+   */
+  private async authorized(
+    c: any,
+    a: Principal,
+    r: any,
+    s: any,
+  ): Promise<{ authorized: boolean; delegatedFrom: string | null }> {
+    if (a.id === r.createdBy) return { authorized: false, delegatedFrom: null };
+    const amount = (
+      await c.query(
+        "SELECT request_amount_minor FROM finance_context_snapshots WHERE id=$1",
+        [s.finance_context_snapshot_id],
+      )
+    ).rows[0].request_amount_minor;
+    const direct = await c.query(
       `SELECT 1 FROM approval_authorities aa JOIN users u ON u.id=aa.user_id AND u.active WHERE aa.user_id=$1 AND aa.active AND aa.authority_role=$2 AND aa.authority_scope=$3 AND (aa.authority_scope='ORGANIZATION' OR aa.department_id=$4) AND (aa.minimum_amount_minor IS NULL OR aa.minimum_amount_minor<=$5) AND (aa.maximum_amount_minor IS NULL OR aa.maximum_amount_minor>=$5) AND ($6::bigint IS NULL OR $6<=$5) AND ($7::bigint IS NULL OR $7>=$5)`,
-      [
-        a.id,
-        s.required_role,
-        s.authority_scope,
-        r.departmentId,
-        (
-          await c.query(
-            "SELECT request_amount_minor FROM finance_context_snapshots WHERE id=$1",
-            [s.finance_context_snapshot_id],
-          )
-        ).rows[0].request_amount_minor,
-        s.minimum_amount_minor,
-        s.maximum_amount_minor,
-      ],
+      [a.id, s.required_role, s.authority_scope, r.departmentId, amount, s.minimum_amount_minor, s.maximum_amount_minor],
     );
-    return Boolean(q.rowCount);
+    if (direct.rowCount) return { authorized: true, delegatedFrom: null };
+    const today = (await c.query("SELECT current_date::text d")).rows[0].d;
+    const delegated = await c.query(
+      `SELECT d.delegate_from FROM approval_delegations d
+       JOIN approval_authorities aa ON aa.user_id=d.delegate_from AND aa.active AND aa.authority_role=$2 AND aa.authority_scope=$3
+         AND (aa.authority_scope='ORGANIZATION' OR aa.department_id=$4)
+         AND (aa.minimum_amount_minor IS NULL OR aa.minimum_amount_minor<=$5) AND (aa.maximum_amount_minor IS NULL OR aa.maximum_amount_minor>=$5)
+       JOIN users u ON u.id=d.delegate_from AND u.active
+       WHERE d.delegate_to=$1 AND d.status='ACTIVE' AND d.start_date<=$8 AND d.end_date>=$8
+         AND d.delegate_from<>$9 AND ($6::bigint IS NULL OR $6<=$5) AND ($7::bigint IS NULL OR $7>=$5)
+       LIMIT 1`,
+      [a.id, s.required_role, s.authority_scope, r.departmentId, amount, s.minimum_amount_minor, s.maximum_amount_minor, today, r.createdBy],
+    );
+    return delegated.rowCount
+      ? { authorized: true, delegatedFrom: delegated.rows[0].delegate_from }
+      : { authorized: false, delegatedFrom: null };
   }
   private async stillCurrent(c: any, r: any, s: any) {
     const e = await this.eligibility(c, r.id);
@@ -1060,32 +721,83 @@ export class ApprovalService {
     id: string,
     requesterId: string,
     departmentId: string,
+    ticketNumber: string,
     s: any,
     a: Principal,
     correlationId: string,
+    delegatedFrom: string | null = null,
   ) {
     await c.query(
       "UPDATE approval_steps SET status='APPROVED',completed_at=now() WHERE id=$1",
       [s.id],
     );
+    // Parallel group: wait for the group's threshold (default: every step
+    // in the group) before closing remaining siblings and progressing.
+    if (s.parallel_group !== null && s.parallel_group !== undefined) {
+      const group = await c.query(
+        "SELECT status FROM approval_steps WHERE approval_case_id=$1 AND sequence=$2 AND parallel_group=$3",
+        [s.approval_case_id, s.sequence, s.parallel_group],
+      );
+      const approvedCount = group.rows.filter((row: any) => row.status === "APPROVED").length;
+      const required = s.required_approvals ?? group.rowCount;
+      if (approvedCount < required) {
+        await this.requests.audit(
+          c,
+          a.id,
+          "APPROVAL_APPROVED",
+          id,
+          "PENDING_APPROVAL",
+          "PENDING_APPROVAL",
+          correlationId,
+          {
+            approvalCaseId: s.approval_case_id,
+            stepId: s.id,
+            parallelGroup: s.parallel_group,
+            approvedCount,
+            required,
+            awaitingMoreParallelApprovals: true,
+            delegatedFrom,
+          },
+        );
+        return;
+      }
+      await c.query(
+        "UPDATE approval_steps SET status='CLOSED',completed_at=now() WHERE approval_case_id=$1 AND sequence=$2 AND parallel_group=$3 AND status='ACTIVE'",
+        [s.approval_case_id, s.sequence, s.parallel_group],
+      );
+    }
     const next = (
       await c.query(
-        "SELECT * FROM approval_steps WHERE approval_case_id=$1 AND status='WAITING' ORDER BY sequence LIMIT 1 FOR UPDATE",
+        `SELECT * FROM approval_steps WHERE approval_case_id=$1 AND status='WAITING'
+         AND sequence=(SELECT min(sequence) FROM approval_steps WHERE approval_case_id=$1 AND status='WAITING')
+         ORDER BY id FOR UPDATE`,
         [s.approval_case_id],
       )
-    ).rows[0];
-    if (next) {
-      await c.query(
-        "UPDATE approval_steps SET status='ACTIVE',activated_at=now() WHERE id=$1",
-        [next.id],
-      );
+    ).rows;
+    if (next.length) {
       const amount = (
         await c.query(
           "SELECT request_amount_minor FROM finance_context_snapshots WHERE id=$1",
           [s.finance_context_snapshot_id],
         )
       ).rows[0].request_amount_minor;
-      await this.queueStep(c, id, requesterId, departmentId, amount, next, correlationId);
+      for (const nextStep of next) {
+        await c.query(
+          "UPDATE approval_steps SET status='ACTIVE',activated_at=now() WHERE id=$1",
+          [nextStep.id],
+        );
+        await this.queueStep(c, id, requesterId, departmentId, amount, nextStep, correlationId);
+        await this.requests.audit(
+          c,
+          a.id,
+          "APPROVAL_STEP_ACTIVATED",
+          id,
+          "PENDING_APPROVAL",
+          "PENDING_APPROVAL",
+          correlationId,
+          { approvalCaseId: s.approval_case_id, stepId: nextStep.id },
+        );
+      }
       await this.requests.audit(
         c,
         a.id,
@@ -1097,18 +809,9 @@ export class ApprovalService {
         {
           approvalCaseId: s.approval_case_id,
           stepId: s.id,
-          nextStepId: next.id,
+          nextStepIds: next.map((row: any) => row.id),
+          delegatedFrom,
         },
-      );
-      await this.requests.audit(
-        c,
-        a.id,
-        "APPROVAL_STEP_ACTIVATED",
-        id,
-        "PENDING_APPROVAL",
-        "PENDING_APPROVAL",
-        correlationId,
-        { approvalCaseId: s.approval_case_id, stepId: next.id },
       );
     } else {
       await this.finalizeApprovalAndCreateCommitment(
@@ -1127,8 +830,16 @@ export class ApprovalService {
         "PENDING_APPROVAL",
         "APPROVED",
         correlationId,
-        { approvalCaseId: s.approval_case_id, readyForFinanceControl: true },
+        { approvalCaseId: s.approval_case_id, readyForFinanceControl: true, delegatedFrom },
       );
+      void this.notifications?.publish({
+        eventType: "APPROVAL_APPROVED",
+        aggregateType: "PAYMENT_REQUEST",
+        aggregateId: id,
+        recipientUserId: requesterId,
+        correlationId,
+        variables: { ticketNumber },
+      });
     }
   }
   private async finalizeApprovalAndCreateCommitment(
@@ -1202,17 +913,30 @@ export class ApprovalService {
     s: any,
     correlationId: string,
   ) {
-    const users = await c.query(
-      `SELECT DISTINCT aa.user_id FROM approval_authorities aa JOIN users u ON u.id=aa.user_id AND u.active JOIN telegram_identity_bindings t ON t.user_id=u.id AND t.status='ACTIVE' WHERE aa.active AND aa.authority_role=$1 AND aa.authority_scope=$2 AND (aa.authority_scope='ORGANIZATION' OR aa.department_id=$3) AND aa.user_id<>$4 AND (aa.minimum_amount_minor IS NULL OR aa.minimum_amount_minor<=$5) AND (aa.maximum_amount_minor IS NULL OR aa.maximum_amount_minor>=$5)`,
+    const holders = await c.query(
+      `SELECT DISTINCT aa.user_id FROM approval_authorities aa JOIN users u ON u.id=aa.user_id AND u.active WHERE aa.active AND aa.authority_role=$1 AND aa.authority_scope=$2 AND (aa.authority_scope='ORGANIZATION' OR aa.department_id=$3) AND aa.user_id<>$4 AND (aa.minimum_amount_minor IS NULL OR aa.minimum_amount_minor<=$5) AND (aa.maximum_amount_minor IS NULL OR aa.maximum_amount_minor>=$5)`,
       [s.required_role, s.authority_scope, departmentId, requesterId, amount],
     );
-    for (const u of users.rows)
+    // Route notifications through any active delegation: a holder who has
+    // delegated away receives nothing; their delegate does instead.
+    const today = (await c.query("SELECT current_date::text d")).rows[0].d;
+    const recipients = new Set<string>();
+    for (const holder of holders.rows) {
+      const resolved = await this.delegations.resolveDelegate(c, holder.user_id, today);
+      if (resolved.userId !== requesterId) recipients.add(resolved.userId);
+    }
+    if (!recipients.size) return;
+    const bound = await c.query(
+      `SELECT u.id FROM users u JOIN telegram_identity_bindings t ON t.user_id=u.id AND t.status='ACTIVE' WHERE u.id = ANY($1::uuid[]) AND u.active`,
+      [[...recipients]],
+    );
+    for (const row of bound.rows)
       await c.query(
         "INSERT INTO notification_outbox(id,aggregate_type,aggregate_id,event_type,channel,recipient_user_id,payload) VALUES($1,'APPROVAL_STEP',$2,'APPROVAL_STEP_ACTIVATED','TELEGRAM',$3,$4) ON CONFLICT DO NOTHING",
         [
           randomUUID(),
           s.id,
-          u.user_id,
+          row.id,
           JSON.stringify({
             requestId,
             approvalCaseId: s.approval_case_id,
@@ -1292,108 +1016,4 @@ export class ApprovalService {
   }
 }
 
-function safeEqual(a: string, b: string) {
-  const aa = Buffer.from(a),
-    bb = Buffer.from(b);
-  return aa.length === bb.length && timingSafeEqual(aa, bb);
-}
-
-function assertTelegramId(value: string): void {
-  if (!/^[1-9][0-9]{0,15}$/.test(value))
-    throw new BadRequestException("Telegram identifier is invalid");
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0)
-    throw new BadRequestException("Telegram identifier is outside the safe range");
-}
-
-function validateTelegramUpdate(body: unknown): any {
-  assertBoundedStructure(body, 0, { nodes: 0 });
-  if (!isRecord(body))
-    throw new BadRequestException("Telegram update must be an object");
-  assertSafeTelegramNumber(body.update_id, "update ID", true);
-  const message = body.message;
-  const callback = body.callback_query;
-  if (message !== undefined) validateTelegramMessage(message);
-  if (callback !== undefined) {
-    if (!isRecord(callback))
-      throw new BadRequestException("Telegram callback is malformed");
-    if (typeof callback.data !== "string" || Buffer.byteLength(callback.data) > 64)
-      throw new BadRequestException("Telegram callback data is invalid");
-    validateTelegramIdentity(callback.from, "callback user");
-    if (
-      isProductionRuntime() &&
-      !isRecord(callback.message)
-    )
-      throw new BadRequestException("Telegram callback message is required");
-    if (isRecord(callback.message)) validateTelegramChat(callback.message.chat);
-  }
-  return body;
-}
-
-function validateTelegramMessage(value: unknown): void {
-  if (!isRecord(value))
-    throw new BadRequestException("Telegram message is malformed");
-  if (typeof value.text !== "string" || value.text.length < 1 || value.text.length > 2_000)
-    throw new BadRequestException("Telegram message text is invalid");
-  validateTelegramIdentity(value.from, "message user");
-  validateTelegramChat(value.chat);
-}
-
-function validateTelegramIdentity(value: unknown, label: string): void {
-  if (!isRecord(value))
-    throw new BadRequestException(`Telegram ${label} is malformed`);
-  assertSafeTelegramNumber(value.id, label, false);
-}
-
-function validateTelegramChat(value: unknown): void {
-  if (!isRecord(value))
-    throw new BadRequestException("Telegram chat is malformed");
-  assertSafeTelegramNumber(value.id, "chat ID", false);
-  if (
-    isProductionRuntime() &&
-    value.type !== "private"
-  )
-    throw new ForbiddenException("Telegram approval supports private chats only");
-}
-
-function assertSafeTelegramNumber(
-  value: unknown,
-  label: string,
-  allowZero: boolean,
-): void {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    (allowZero ? value < 0 : value <= 0)
-  )
-    throw new BadRequestException(`Telegram ${label} is invalid`);
-}
-
-function assertBoundedStructure(
-  value: unknown,
-  depth: number,
-  counter: { nodes: number },
-): void {
-  counter.nodes += 1;
-  if (depth > 8 || counter.nodes > 128)
-    throw new BadRequestException("Telegram update structure is too complex");
-  if (Array.isArray(value)) {
-    if (value.length > 32)
-      throw new BadRequestException("Telegram update array is too large");
-    for (const child of value) assertBoundedStructure(child, depth + 1, counter);
-  } else if (isRecord(value)) {
-    const entries = Object.entries(value);
-    if (entries.length > 32)
-      throw new BadRequestException("Telegram update object is too large");
-    for (const [, child] of entries)
-      assertBoundedStructure(child, depth + 1, counter);
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isProductionRuntime(): boolean {
-  return classifyAimsEnvironment().protected;
-}
+// Telegram binding/webhook helpers moved to application/notification/ (P20.5G).

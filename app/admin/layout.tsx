@@ -24,6 +24,9 @@ function AdminNav() {
         <li><Link href="/admin/permissions">Permission matrix</Link></li>
         <li><Link href="/admin/master-data">Master Data</Link></li>
         <li><Link href="/admin/settings">Business Configuration</Link></li>
+        <li><Link href="/admin/approval-matrix">Approval Matrix</Link></li>
+        <li><Link href="/admin/delegation">Approval Delegation</Link></li>
+        <li><Link href="/admin/notifications">Notifications</Link></li>
       </ul>
       <div style={{ marginTop: 32 }}>
         <Link href="/">&larr; Back to AIMS</Link>

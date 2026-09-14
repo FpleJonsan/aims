@@ -25,10 +25,7 @@ import { DashboardController } from "./application/dashboard/dashboard.controlle
 import { DashboardService } from "./application/dashboard/dashboard.service.js";
 import { FinanceIntelligenceController } from "./application/finance-intelligence/finance-intelligence.controller.js";
 import { FinanceIntelligenceService } from "./application/finance-intelligence/finance-intelligence.service.js";
-import {
-  ApprovalController,
-  TelegramWebhookController,
-} from "./application/approval/approval.controller.js";
+import { ApprovalController } from "./application/approval/approval.controller.js";
 import { ApprovalService } from "./application/approval/approval.service.js";
 import { ApprovalOutboxService } from "./application/approval/approval-outbox.service.js";
 import {
@@ -36,6 +33,20 @@ import {
   DisabledApprovalChannel,
   TelegramApprovalChannel,
 } from "./application/approval/telegram-approval.channel.js";
+import {
+  NotificationAdminController,
+  NotificationProfileController,
+  TelegramWebhookController,
+} from "./application/notification/notification.controller.js";
+import { NotificationBindingService } from "./application/notification/notification-binding.service.js";
+import { NotificationService } from "./application/notification/notification.service.js";
+import { NotificationDispatcherService } from "./application/notification/notification-dispatcher.service.js";
+import { TelegramInboundService } from "./application/notification/telegram-inbound.service.js";
+import {
+  DisabledNotificationChannel,
+  NOTIFICATION_CHANNELS,
+  TelegramNotificationChannel,
+} from "./application/notification/notification-channel.js";
 import { ValidationController } from "./application/validation/validation.controller.js";
 import {
   AI_PROVIDER,
@@ -75,6 +86,10 @@ import {
 import { MasterDataService } from "./application/master-data/master-data.service.js";
 import { ConfigurationController } from "./application/configuration/configuration.controller.js";
 import { ConfigurationService } from "./application/configuration/configuration.service.js";
+import { ApprovalMatrixController } from "./application/approval-matrix/approval-matrix.controller.js";
+import { ApprovalMatrixService } from "./application/approval-matrix/approval-matrix.service.js";
+import { ApprovalDelegationController } from "./application/approval-delegation/approval-delegation.controller.js";
+import { ApprovalDelegationService } from "./application/approval-delegation/approval-delegation.service.js";
 import {
   CATEGORIES_CONFIG,
   CATEGORIES_MASTER_DATA,
@@ -102,6 +117,8 @@ import {
     CurrenciesController,
     PaymentMethodsController,
     ConfigurationController,
+    ApprovalMatrixController,
+    ApprovalDelegationController,
     PaymentRequestController,
     ClaimItemController,
     ValidationController,
@@ -110,6 +127,8 @@ import {
     PolicyController,
     FinanceControlController,
     ApprovalController,
+    NotificationProfileController,
+    NotificationAdminController,
     TelegramWebhookController,
     PaymentController,
     DashboardController,
@@ -136,6 +155,8 @@ import {
     { provide: CURRENCIES_MASTER_DATA, useFactory: (postgres: Postgres) => new MasterDataService(postgres, CURRENCIES_CONFIG), inject: [Postgres] },
     { provide: PAYMENT_METHODS_MASTER_DATA, useFactory: (postgres: Postgres) => new MasterDataService(postgres, PAYMENT_METHODS_CONFIG), inject: [Postgres] },
     ConfigurationService,
+    ApprovalMatrixService,
+    ApprovalDelegationService,
     PaymentRequestService,
     ClaimItemService,
     PaymentDocumentService,
@@ -146,6 +167,22 @@ import {
     FinanceControlService,
     ApprovalService,
     ApprovalOutboxService,
+    NotificationBindingService,
+    NotificationService,
+    NotificationDispatcherService,
+    TelegramInboundService,
+    {
+      provide: NOTIFICATION_CHANNELS,
+      useFactory: () => {
+        const config = loadTelegramConfig(process.env);
+        const channels = new Map();
+        channels.set(
+          "TELEGRAM",
+          config.enabled ? new TelegramNotificationChannel(config.botToken!, config) : new DisabledNotificationChannel(),
+        );
+        return channels;
+      },
+    },
     PaymentService,
     DashboardService,
     FinanceIntelligenceService,
