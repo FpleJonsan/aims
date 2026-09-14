@@ -20,6 +20,7 @@ import { PaymentRequestService } from "../payment-requests/payment-request.servi
 import { assertAllowedDocumentExtension } from "../documents/payment-document.service.js";
 import type { PaymentListDto, RecordPaymentDto } from "./payment.dto.js";
 import type { PaymentTelemetryOutcome } from "../../infrastructure/observability/telemetry.js";
+import type { NotificationService } from "../notification/notification.service.js";
 
 @Injectable()
 export class PaymentService {
@@ -27,6 +28,9 @@ export class PaymentService {
     private readonly db: Postgres,
     private readonly requests: PaymentRequestService,
     @Inject(DOCUMENT_STORAGE) private readonly storage: DocumentStorage,
+    // Optional: see ApprovalService for the injection rationale. publish()
+    // never throws, so a missing instance is a silent no-op.
+    private readonly notifications?: NotificationService,
   ) {}
 
   private async authorize(
@@ -171,8 +175,36 @@ export class PaymentService {
           ]),
         input.commandKey,
       );
-      reportOutcome?.(q.rows[0].id === id ? "SUCCESS" : "IDEMPOTENT_REPLAY");
-      return this.get(q.rows[0].id, actor);
+      const isNewPayment = q.rows[0].id === id;
+      reportOutcome?.(isNewPayment ? "SUCCESS" : "IDEMPOTENT_REPLAY");
+      const result = await this.get(q.rows[0].id, actor);
+      if (isNewPayment) {
+        const owner = await this.db.pool.query<{ created_by: string; department_id: string }>(
+          "SELECT created_by, department_id FROM payment_requests WHERE id=$1",
+          [requestId],
+        );
+        const financeTeam = await this.db.pool.query<{ user_id: string }>(
+          `SELECT DISTINCT f.user_id FROM finance_control_authorities f
+           JOIN users u ON u.id=f.user_id AND u.active
+           WHERE f.active AND (f.scope='ORGANIZATION' OR f.department_id=$1)`,
+          [owner.rows[0].department_id],
+        );
+        const recipients = new Set<string>([
+          owner.rows[0].created_by,
+          ...financeTeam.rows.map((row) => row.user_id),
+        ]);
+        for (const recipientUserId of recipients) {
+          void this.notifications?.publish({
+            eventType: "PAYMENT_COMPLETED",
+            aggregateType: "PAYMENT_REQUEST",
+            aggregateId: requestId,
+            recipientUserId,
+            correlationId,
+            variables: { ticketNumber: result.ticketNumber ?? "" },
+          });
+        }
+      }
+      return result;
     } catch (error) {
       if(error instanceof Error&&error.message==="IDEMPOTENCY_CONFLICT")reportOutcome?.("PAYLOAD_MISMATCH");
       throw this.controlled(error);

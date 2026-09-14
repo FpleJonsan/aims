@@ -2,6 +2,10 @@ import "reflect-metadata";
 import path from "node:path";
 import {Pool} from "pg";
 import {ApprovalOutboxService} from "./application/approval/approval-outbox.service.js";
+import {ApprovalReminderService} from "./application/approval/approval-reminder.service.js";
+import {ApprovalDelegationService} from "./application/approval-delegation/approval-delegation.service.js";
+import {ConfigurationService} from "./application/configuration/configuration.service.js";
+import {NotificationService} from "./application/notification/notification.service.js";
 import {TelegramApprovalChannel} from "./application/approval/telegram-approval.channel.js";
 import {Postgres} from "./infrastructure/database/postgres.js";
 import {createDocumentScanner,createDocumentStorage} from "./infrastructure/configuration/provider-boundary.js";
@@ -16,7 +20,11 @@ import {EXPECTED_SCHEMA_VERSION} from "./infrastructure/configuration/schema-con
 async function main(){
   process.env.AIMS_PROCESS_TYPE="worker";
   const config=loadWorkerConfig(),workloads:PollWorkload[]=[];let outboxDb:Postgres|undefined,documents:DocumentScanWorker|undefined,telegram:TelegramApprovalChannel|undefined;
-  if(config.telegramEnabled){outboxDb=new Postgres();telegram=new TelegramApprovalChannel(process.env.TELEGRAM_BOT_TOKEN!,{requestTimeoutMs:config.telegramRequestTimeoutMs,responseMaxBytes:config.telegramResponseMaxBytes,retryMaxDelaySeconds:config.telegramRetryMaxDelaySeconds});const outbox=new ApprovalOutboxService(outboxDb,telegram);workloads.push({name:"telegram_outbox",poll:()=>outbox.dispatch(config.batchSize)})}
+  if(config.telegramEnabled){outboxDb=new Postgres();telegram=new TelegramApprovalChannel(process.env.TELEGRAM_BOT_TOKEN!,{requestTimeoutMs:config.telegramRequestTimeoutMs,responseMaxBytes:config.telegramResponseMaxBytes,retryMaxDelaySeconds:config.telegramRetryMaxDelaySeconds});const outbox=new ApprovalOutboxService(outboxDb,telegram);workloads.push({name:"telegram_outbox",poll:()=>outbox.dispatch(config.batchSize)});
+    const configuration=new ConfigurationService(outboxDb),delegations=new ApprovalDelegationService(outboxDb),notifications=new NotificationService(outboxDb,configuration);
+    const reminders=new ApprovalReminderService(outboxDb,delegations,configuration,notifications);
+    workloads.push({name:"approval_reminder",poll:()=>reminders.sweep()});
+  }
   if(config.scannerEnabled){
     const root=process.cwd().endsWith(`${path.sep}apps${path.sep}api`)?path.resolve(process.cwd(),"../.."):process.cwd();
     const pool=new Pool({connectionString:config.documentDatabaseUrl,max:loadDatabasePoolConfig().worker,connectionTimeoutMillis:5000,statement_timeout:10000,lock_timeout:5000,idle_in_transaction_session_timeout:15000});

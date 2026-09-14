@@ -10,6 +10,7 @@ import type { NotificationEventType } from "./notification.types.js";
  */
 export const DEFAULT_NOTIFICATION_TEMPLATES: Record<NotificationEventType, string> = {
   REQUEST_SUBMITTED: "Your payment request {{ticketNumber}} has been submitted.",
+  VALIDATION_STARTED: "Payment request {{ticketNumber}} has entered validation.",
   VALIDATION_COMPLETE: "Payment request {{ticketNumber}} passed validation.",
   NEED_CLARIFICATION: "Payment request {{ticketNumber}} needs clarification: {{reason}}",
   APPROVAL_REQUESTED: "A new approval is waiting on {{ticketNumber}} ({{currency}} {{amount}}).",
@@ -18,6 +19,7 @@ export const DEFAULT_NOTIFICATION_TEMPLATES: Record<NotificationEventType, strin
   APPROVAL_APPROVED: "Payment request {{ticketNumber}} was approved.",
   APPROVAL_REJECTED: "Payment request {{ticketNumber}} was rejected: {{reason}}",
   FINANCE_REVIEW: "Payment request {{ticketNumber}} is ready for Finance review.",
+  FINANCE_HOLD: "Payment request {{ticketNumber}} has been placed on Finance hold: {{reason}}",
   PAYMENT_READY: "Payment request {{ticketNumber}} is ready for payment.",
   PAYMENT_COMPLETED: "Payment for {{ticketNumber}} has been completed.",
   CANCELLATION_REQUESTED: "A cancellation was requested for {{ticketNumber}}: {{reason}}",

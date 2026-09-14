@@ -21,6 +21,7 @@ import type {
   FinanceFinalizeDto,
   FinanceHoldResolutionDto,
 } from "./finance-control.dto.js";
+import type { NotificationService } from "../notification/notification.service.js";
 
 type CheckResult = {
   code: FinanceControlCheckCode;
@@ -57,6 +58,9 @@ export class FinanceControlService {
   constructor(
     private readonly db: Postgres,
     private readonly requests: PaymentRequestService,
+    // Optional: see ApprovalService for the injection rationale. publish()
+    // never throws, so a missing instance is a silent no-op.
+    private readonly notifications?: NotificationService,
   ) {}
 
   private async authorize(c: any, actor: Principal, request: any) {
@@ -70,6 +74,16 @@ export class FinanceControlService {
       throw new ForbiddenException(
         "Finance Controller authority is required; self-control is prohibited",
       );
+  }
+
+  private async financeTeamUserIds(c: any, departmentId: string): Promise<string[]> {
+    const rows = await c.query(
+      `SELECT DISTINCT f.user_id FROM finance_control_authorities f
+       JOIN users u ON u.id=f.user_id AND u.active
+       WHERE f.active AND (f.scope='ORGANIZATION' OR f.department_id=$1)`,
+      [departmentId],
+    );
+    return rows.rows.map((row: { user_id: string }) => row.user_id);
   }
 
   async start(id: string, actor: Principal, correlationId: string) {
@@ -150,6 +164,16 @@ export class FinanceControlService {
           duplicateStatus,
         },
       );
+      for (const recipientUserId of await this.financeTeamUserIds(c, request.departmentId)) {
+        void this.notifications?.publish({
+          eventType: "FINANCE_REVIEW",
+          aggregateType: "PAYMENT_REQUEST",
+          aggregateId: id,
+          recipientUserId,
+          correlationId,
+          variables: { ticketNumber: request.ticketNumber ?? "" },
+        });
+      }
       return this.present(
         c,
         (
@@ -370,6 +394,17 @@ export class FinanceControlService {
             correlationId,
             { financeControlRunId: runId, result: "EXCEPTION" },
           );
+          void this.notifications?.publish({
+            eventType: "FINANCE_HOLD",
+            aggregateType: "PAYMENT_REQUEST",
+            aggregateId: request.id,
+            recipientUserId: request.createdBy,
+            correlationId,
+            variables: {
+              ticketNumber: request.ticketNumber ?? "",
+              reason: failed.map((x) => x.code).join(", "),
+            },
+          });
           return {
             idempotent: false,
             result: "EXCEPTION",
@@ -411,6 +446,20 @@ export class FinanceControlService {
           correlationId,
           { financeControlRunId: runId },
         );
+        const paymentReadyRecipients = new Set<string>([
+          request.createdBy,
+          ...(await this.financeTeamUserIds(c, request.departmentId)),
+        ]);
+        for (const recipientUserId of paymentReadyRecipients) {
+          void this.notifications?.publish({
+            eventType: "PAYMENT_READY",
+            aggregateType: "PAYMENT_REQUEST",
+            aggregateId: request.id,
+            recipientUserId,
+            correlationId,
+            variables: { ticketNumber: request.ticketNumber ?? "" },
+          });
+        }
         return { idempotent: false, result: "PASS", readyForPayment: true };
       },
       input.commandKey,

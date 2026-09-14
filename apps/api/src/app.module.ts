@@ -28,6 +28,7 @@ import { FinanceIntelligenceService } from "./application/finance-intelligence/f
 import { ApprovalController } from "./application/approval/approval.controller.js";
 import { ApprovalService } from "./application/approval/approval.service.js";
 import { ApprovalOutboxService } from "./application/approval/approval-outbox.service.js";
+import { ApprovalReminderService } from "./application/approval/approval-reminder.service.js";
 import {
   APPROVAL_CHANNEL,
   DisabledApprovalChannel,
@@ -167,6 +168,7 @@ import {
     FinanceControlService,
     ApprovalService,
     ApprovalOutboxService,
+    ApprovalReminderService,
     NotificationBindingService,
     NotificationService,
     NotificationDispatcherService,

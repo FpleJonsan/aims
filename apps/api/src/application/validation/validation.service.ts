@@ -28,6 +28,7 @@ import type {
   ClarificationResponseDto,
   ManualValidationDto,
 } from "./validation.dto.js";
+import type { NotificationService } from "../notification/notification.service.js";
 export const AI_PROVIDER = Symbol("AI_PROVIDER");
 
 @Injectable()
@@ -37,6 +38,9 @@ export class ValidationService {
     private readonly requests: PaymentRequestService,
     @Inject(DOCUMENT_STORAGE) private readonly storage: DocumentStorage,
     @Inject(AI_PROVIDER) private readonly provider: AiProvider | null,
+    // Optional: see ApprovalService for the injection rationale. publish()
+    // never throws, so a missing instance is a silent no-op.
+    private readonly notifications?: NotificationService,
   ) {}
   private validator(actor: Principal) {
     if (!actor.roles.includes("FINANCE"))
@@ -120,6 +124,14 @@ export class ValidationService {
               : "MANUAL",
         },
       );
+      void this.notifications?.publish({
+        eventType: "VALIDATION_STARTED",
+        aggregateType: "PAYMENT_REQUEST",
+        aggregateId: id,
+        recipientUserId: request.createdBy,
+        correlationId,
+        variables: { ticketNumber: request.ticketNumber ?? "" },
+      });
       return { runId, ai: Boolean(ai) };
     });
     if (run.ai) await this.runAi(id, run.runId, correlationId);
@@ -353,7 +365,18 @@ export class ValidationService {
           correlationId,
           { runId: run.rows[0].id, clarificationId },
         );
-      } else
+        void this.notifications?.publish({
+          eventType: "NEED_CLARIFICATION",
+          aggregateType: "PAYMENT_REQUEST",
+          aggregateId: id,
+          recipientUserId: request.createdBy,
+          correlationId,
+          variables: {
+            ticketNumber: request.ticketNumber ?? "",
+            reason: input.remarks,
+          },
+        });
+      } else {
         await this.requests.audit(
           client,
           actor.id,
@@ -370,6 +393,15 @@ export class ValidationService {
             readyForFinanceContext: true,
           },
         );
+        void this.notifications?.publish({
+          eventType: "VALIDATION_COMPLETE",
+          aggregateType: "PAYMENT_REQUEST",
+          aggregateId: id,
+          recipientUserId: request.createdBy,
+          correlationId,
+          variables: { ticketNumber: request.ticketNumber ?? "" },
+        });
+      }
       return {
         result: input.overallResult,
         readyForFinanceContext: input.overallResult === "PASS",

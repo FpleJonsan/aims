@@ -14,5 +14,5 @@ export class WorkerLoop{
   }
 }
 function safeClass(error:unknown){const code=typeof error==="object"&&error&&"code" in error?String((error as {code:unknown}).code):"WORKLOAD_FAILURE";return /^[A-Z0-9_]{1,64}$/.test(code)?code:"WORKLOAD_FAILURE"}
-function canonical(value:string){return value==="document_scan"?"DOCUMENT_SCAN":value==="telegram_outbox"?"TELEGRAM_DELIVERY":"UNKNOWN"}
+function canonical(value:string){return value==="document_scan"?"DOCUMENT_SCAN":value==="telegram_outbox"?"TELEGRAM_DELIVERY":value==="approval_reminder"?"APPROVAL_REMINDER":"UNKNOWN"}
 function processed(value:unknown){return typeof value==="object"&&value&&"processed" in value&&typeof (value as {processed:unknown}).processed==="number"?Math.max(1,(value as {processed:number}).processed):1}

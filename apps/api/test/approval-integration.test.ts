@@ -1931,6 +1931,15 @@ test("P20.5G: approval outcomes publish generic notifications once Telegram deli
     const midway = await db.pool.query("SELECT 1 FROM notification_outbox WHERE aggregate_id=$1 AND event_type='APPROVAL_APPROVED'", [fixture.r.id]);
     assert.equal(midway.rowCount, 0, "no APPROVAL_APPROVED notification before the case is fully approved");
 
+    // Step 1's approval activates step 2, which (P20.5G-2) now also publishes
+    // APPROVAL_REQUESTED to step 2's holder — a second, independent generic
+    // notification alongside the APPROVAL_APPROVED published below.
+    const requested = await db.pool.query(
+      "SELECT recipient_user_id FROM notification_outbox WHERE aggregate_id=$1 AND event_type='APPROVAL_REQUESTED'",
+      [fixture.r.id],
+    );
+    assert.equal(requested.rowCount, 1);
+
     await service.act(fixture.r.id, view.steps[1].id, { commandKey: randomUUID(), action: "APPROVE" }, finance, "p20-5g-step2");
     const published = await db.pool.query<{ recipient_user_id: string; channel: string; payload: { renderedText: string } }>(
       "SELECT recipient_user_id,channel,payload FROM notification_outbox WHERE aggregate_id=$1 AND event_type='APPROVAL_APPROVED'",
@@ -1943,8 +1952,8 @@ test("P20.5G: approval outcomes publish generic notifications once Telegram deli
 
     const dispatcher = new NotificationDispatcherService(db, new Map([["TELEGRAM", { send: async () => {} }]]));
     const result = await dispatcher.dispatch();
-    assert.equal(result.processed, 1);
-    assert.equal(result.results[0].status, "SENT");
+    assert.equal(result.processed, 2, "dispatches both the APPROVAL_REQUESTED and APPROVAL_APPROVED notifications");
+    assert.ok(result.results.every((r) => r.status === "SENT"));
     const finalRow = await db.pool.query("SELECT status FROM notification_outbox WHERE aggregate_id=$1 AND event_type='APPROVAL_APPROVED'", [fixture.r.id]);
     assert.equal(finalRow.rows[0].status, "SENT");
   } finally {

@@ -22,6 +22,7 @@ import type {
   CapturePaymentRequestDto,
   ListPaymentRequestsDto,
 } from "./payment-request.dto.js";
+import type { NotificationService } from "../notification/notification.service.js";
 
 type RequestRow = {
   id: string;
@@ -49,7 +50,14 @@ type RequestRow = {
 
 @Injectable()
 export class PaymentRequestService {
-  constructor(private readonly database: Postgres) {}
+  constructor(
+    private readonly database: Postgres,
+    // Optional: absent in existing unit/integration test constructions, always
+    // injected by Nest in the real app. publish() never throws, so a missing
+    // instance is a silent no-op — this service's state machine never depends
+    // on notification delivery. See ApprovalService for the same pattern.
+    private readonly notifications?: NotificationService,
+  ) {}
 
   async initiate(
     actor: Principal,
@@ -199,6 +207,36 @@ export class PaymentRequestService {
         "UPDATE budget_commitments SET status='RELEASED',released_at=now(),release_reason='REQUEST_CANCELLED',release_reference_type='PAYMENT_REQUEST',release_reference_id=$1 WHERE payment_request_id=$1 AND status='ACTIVE'", [id]);
       await this.audit(client, actor.id, "REQUEST_CANCELLED", id, current.status, "CANCELLED",
         correlationId, { reason: input.reason.trim(), commandKey: input.commandKey });
+      // cancel() is a single, immediate, authority-gated action (no separate
+      // approval step exists for cancellation): the request is simultaneously
+      // requested and resolved, so both events fire here. Finance is told a
+      // cancellation happened; the requester is told the outcome.
+      const reason = input.reason.trim();
+      const ticketNumber = current.ticketNumber ?? "";
+      const financeTeam = await client.query<{ user_id: string }>(
+        `SELECT DISTINCT f.user_id FROM finance_control_authorities f
+         JOIN users u ON u.id=f.user_id AND u.active
+         WHERE f.active AND (f.scope='ORGANIZATION' OR f.department_id=$1)`,
+        [current.departmentId],
+      );
+      for (const row of financeTeam.rows) {
+        void this.notifications?.publish({
+          eventType: "CANCELLATION_REQUESTED",
+          aggregateType: "PAYMENT_REQUEST",
+          aggregateId: id,
+          recipientUserId: row.user_id,
+          correlationId,
+          variables: { ticketNumber, reason },
+        });
+      }
+      void this.notifications?.publish({
+        eventType: "CANCELLATION_APPROVED",
+        aggregateType: "PAYMENT_REQUEST",
+        aggregateId: id,
+        recipientUserId: current.createdBy,
+        correlationId,
+        variables: { ticketNumber, reason },
+      });
       return mapRequest(result.rows[0]);
     });
   }
@@ -257,6 +295,14 @@ export class PaymentRequestService {
         correlationId,
         { ticketNumber },
       );
+      void this.notifications?.publish({
+        eventType: "REQUEST_SUBMITTED",
+        aggregateType: "PAYMENT_REQUEST",
+        aggregateId: id,
+        recipientUserId: actor.id,
+        correlationId,
+        variables: { ticketNumber },
+      });
       return mapRequest(result.rows[0]);
     });
   }

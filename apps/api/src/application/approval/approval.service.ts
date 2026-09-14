@@ -926,6 +926,25 @@ export class ApprovalService {
       if (resolved.userId !== requesterId) recipients.add(resolved.userId);
     }
     if (!recipients.size) return;
+    const requestInfo = (
+      await c.query(
+        "SELECT ticket_number, currency FROM payment_requests WHERE id=$1",
+        [requestId],
+      )
+    ).rows[0];
+    for (const recipientUserId of recipients)
+      void this.notifications?.publish({
+        eventType: "APPROVAL_REQUESTED",
+        aggregateType: "PAYMENT_REQUEST",
+        aggregateId: requestId,
+        recipientUserId,
+        correlationId,
+        variables: {
+          ticketNumber: requestInfo?.ticket_number ?? "",
+          currency: requestInfo?.currency ?? "",
+          amount: String(amount),
+        },
+      });
     const bound = await c.query(
       `SELECT u.id FROM users u JOIN telegram_identity_bindings t ON t.user_id=u.id AND t.status='ACTIVE' WHERE u.id = ANY($1::uuid[]) AND u.active`,
       [[...recipients]],
