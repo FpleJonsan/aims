@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PaymentRequestService } from '../src/application/payment-requests/payment-request.service.js';
+import { ClaimItemService } from '../src/application/claim-items/claim-item.service.js';
 import type { Principal } from '../src/domain/payment-request.js';
 import { Postgres } from '../src/infrastructure/database/postgres.js';
 
@@ -18,16 +19,20 @@ const outsider: Principal = {
 test('PostgreSQL request lifecycle is scoped, audited, atomic, and concurrency-safe', async () => {
   const database = new Postgres();
   const service = new PaymentRequestService(database);
+  const claimItems = new ClaimItemService(database, service);
   try {
     const draft = await service.initiate(requester, 'integration-init');
     assert.equal(draft.status, 'DRAFT');
     await assert.rejects(service.get(draft.id, outsider), /not found/i);
     const captured = await service.update(draft.id, {
-      payee: 'Synthetic Vendor', purpose: 'Synthetic Day 1 integration test', category: 'Operations',
-      amount: '100.00', currency: 'MYR', dueDate: '2026-09-30', paymentMethod: 'BANK_TRANSFER',
+      payee: 'Synthetic Vendor', purpose: 'Synthetic Day 1 integration test',
+      dueDate: '2026-09-30', paymentMethod: 'BANK_TRANSFER',
       paymentDetails: 'Synthetic account ending 0000', remark: 'No real financial data',
     }, requester, 'integration-update');
     assert.equal(captured.rowVersion, 2);
+    await claimItems.create(draft.id, {
+      category: 'Operations', departmentId: requester.departmentId, currency: 'MYR', amount: '100.00',
+    }, requester, 'integration-claim');
 
     const concurrent = await Promise.allSettled([
       service.submit(draft.id, requester, 'integration-submit-a'),
@@ -44,9 +49,12 @@ test('PostgreSQL request lifecycle is scoped, audited, atomic, and concurrency-s
 
     const second = await service.initiate(requester, 'integration-init-second');
     await service.update(second.id, {
-      payee: 'Second Synthetic Vendor', purpose: 'Ticket uniqueness test', category: 'Operations', amount: '1.00',
-      currency: 'MYR', dueDate: '2026-09-30', paymentMethod: 'BANK_TRANSFER', paymentDetails: 'Synthetic',
+      payee: 'Second Synthetic Vendor', purpose: 'Ticket uniqueness test',
+      dueDate: '2026-09-30', paymentMethod: 'BANK_TRANSFER', paymentDetails: 'Synthetic',
     }, requester, 'integration-update-second');
+    await claimItems.create(second.id, {
+      category: 'Operations', departmentId: requester.departmentId, currency: 'MYR', amount: '1.00',
+    }, requester, 'integration-claim-second');
     const secondSubmitted = await service.submit(second.id, requester, 'integration-submit-second');
     assert.notEqual(secondSubmitted.ticketNumber, detail.ticketNumber);
   } finally {
@@ -57,12 +65,14 @@ test('PostgreSQL request lifecycle is scoped, audited, atomic, and concurrency-s
 test('request cancellation validates authority and states, audits once under concurrency, and rolls back failures', async () => {
   const database = new Postgres();
   const service = new PaymentRequestService(database);
+  const claimItems = new ClaimItemService(database, service);
   const { randomUUID } = await import('node:crypto');
   try {
     for (const status of ['DRAFT','SUBMITTED','VALIDATING','NEEDS_CLARIFICATION','PENDING_APPROVAL','APPROVED','FINANCE_CHECK','FINANCE_HOLD']) {
       const draft = await service.initiate(requester, 'cancel-init');
       if (status !== 'DRAFT') {
-        await service.update(draft.id,{payee:'Cancellation fixture',purpose:'Cancellation acceptance',category:'Operations',amount:'1.00',currency:'MYR',dueDate:'2026-09-30',paymentMethod:'BANK_TRANSFER',paymentDetails:'Synthetic'},requester,'cancel-capture');
+        await service.update(draft.id,{payee:'Cancellation fixture',purpose:'Cancellation acceptance',dueDate:'2026-09-30',paymentMethod:'BANK_TRANSFER',paymentDetails:'Synthetic'},requester,'cancel-capture');
+        await claimItems.create(draft.id,{category:'Operations',departmentId:requester.departmentId,currency:'MYR',amount:'1.00'},requester,'cancel-claim');
         await service.submit(draft.id,requester,'cancel-submit');
       }
       await database.pool.query('UPDATE payment_requests SET status=$2 WHERE id=$1', [draft.id,status]);

@@ -37,6 +37,9 @@ type RequestRow = {
   payment_method: string | null;
   payment_details: string | null;
   remark: string | null;
+  total_tax_amount: string | null;
+  claim_count: number;
+  attachment_count: number;
   created_by: string;
   created_at: Date;
   updated_at: Date;
@@ -116,9 +119,6 @@ export class PaymentRequestService {
       const values = {
         payee: clean(input.payee, current.payee),
         purpose: clean(input.purpose, current.purpose),
-        category: clean(input.category, current.category),
-        amount: input.amount ?? current.amount,
-        currency: input.currency ?? current.currency,
         departmentId: nextDepartment,
         dueDate: input.dueDate ?? current.dueDate,
         paymentMethod: clean(input.paymentMethod, current.paymentMethod),
@@ -127,17 +127,14 @@ export class PaymentRequestService {
       };
       const result = await client.query<RequestRow>(
         `
-        UPDATE payment_requests SET payee=$2, purpose=$3, category=$4, amount=$5, currency=$6,
-          department_id=$7, due_date=$8, payment_method=$9, payment_details=$10, remark=$11,
+        UPDATE payment_requests SET payee=$2, purpose=$3,
+          department_id=$4, due_date=$5, payment_method=$6, payment_details=$7, remark=$8,
           updated_at=now(), row_version=row_version+1 WHERE id=$1 RETURNING *
       `,
         [
           id,
           values.payee,
           values.purpose,
-          values.category,
-          values.amount,
-          values.currency,
           values.departmentId,
           values.dueDate,
           values.paymentMethod,
@@ -267,7 +264,9 @@ export class PaymentRequestService {
   async get(
     id: string,
     actor: Principal,
-  ): Promise<PaymentRequest & { audit: unknown[]; documents: unknown[] }> {
+  ): Promise<
+    PaymentRequest & { audit: unknown[]; documents: unknown[]; claimItems: unknown[] }
+  > {
     const result = await this.database.pool.query<RequestRow>(
       "SELECT * FROM payment_requests WHERE id=$1",
       [id],
@@ -292,17 +291,28 @@ export class PaymentRequestService {
       if (!approvalAccess.rowCount)
         throw new NotFoundException("Payment request not found");
     }
-    const [audit, documents] = await Promise.all([
+    const [audit, documents, claimItems] = await Promise.all([
       this.database.pool.query(
         "SELECT id, actor_id, action, previous_state, new_state, occurred_at, correlation_id, safe_metadata FROM audit_events WHERE entity_type=$1 AND entity_id=$2 ORDER BY occurred_at",
         ["PAYMENT_REQUEST", id],
       ),
       this.database.pool.query(
-        "SELECT id, original_filename, mime_type, size_bytes, sha256, document_type, version, uploaded_by, uploaded_at,security_status FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL ORDER BY uploaded_at",
+        "SELECT id, original_filename, mime_type, size_bytes, sha256, document_type, version, uploaded_by, uploaded_at,security_status, claim_item_id FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL ORDER BY uploaded_at",
+        [id],
+      ),
+      this.database.pool.query(
+        `SELECT id, invoice_number, invoice_date, category, project_id, department_id, currency, amount,
+          tax_amount, description, remark, payment_method, display_order, row_version
+        FROM claim_items WHERE payment_request_id=$1 AND internal_status='ACTIVE' ORDER BY display_order, created_at`,
         [id],
       ),
     ]);
-    return { ...request, audit: audit.rows, documents: documents.rows };
+    return {
+      ...request,
+      audit: audit.rows,
+      documents: documents.rows,
+      claimItems: claimItems.rows,
+    };
   }
 
   async list(
@@ -400,6 +410,9 @@ function mapRequest(row: RequestRow): PaymentRequest {
     paymentMethod: row.payment_method,
     paymentDetails: row.payment_details,
     remark: row.remark,
+    totalTaxAmount: row.total_tax_amount,
+    claimCount: row.claim_count,
+    attachmentCount: row.attachment_count,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

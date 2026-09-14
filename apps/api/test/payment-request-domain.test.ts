@@ -45,7 +45,8 @@ function completeDraft(): PaymentRequest {
     id: 'request-a', ticketNumber: null, status: 'DRAFT', payee: 'Vendor', purpose: 'Office supplies',
     category: 'Operations', amount: '125.50', currency: 'MYR', departmentId: 'dept-a',
     dueDate: '2026-09-01', paymentMethod: 'BANK_TRANSFER', paymentDetails: 'Account ending 1234',
-    remark: null, createdBy: 'user-a', createdAt: now, updatedAt: now, submittedAt: null, rowVersion: 1,
+    remark: null, totalTaxAmount: null, claimCount: 1, attachmentCount: 0,
+    createdBy: 'user-a', createdAt: now, updatedAt: now, submittedAt: null, rowVersion: 1,
   };
 }
 

@@ -32,18 +32,18 @@ if(mode==='bootstrap'){
 }else if(mode==='migrate'){
  const versionTable=sql("SELECT to_regclass('public.aims_schema_version') IS NOT NULL")==='t';
  const version=versionTable?sql('SELECT version FROM aims_schema_version WHERE singleton'):'0';
- if(version!=='63'){
-  if(sql("SELECT count(*) FROM pg_tables WHERE schemaname='public'")!=='0')throw new Error('Database is not empty or at schema 63. Refusing to replay migrations over partial initialization. Preserve and inspect it before retrying.');
+ if(version!=='67'){
+  if(sql("SELECT count(*) FROM pg_tables WHERE schemaname='public'")!=='0')throw new Error('Database is not empty or at schema 67. Refusing to replay migrations over partial initialization. Preserve and inspect it before retrying.');
   const directory=path.join(root,'apps/api/migrations');
   const names=readdirSync(directory).filter(n=>/^\d{3}_.*\.sql$/.test(n)).sort();
-  if(names.length!==63||!names.at(-1).startsWith('063_'))throw new Error('Expected frozen migrations 001–063');
+  if(names.length!==67||!names.at(-1).startsWith('067_'))throw new Error('Expected frozen migrations 001–067');
   for(const name of names){sql('SET ROLE aims_owner;\n'+readFileSync(path.join(directory,name),'utf8'));console.log(`Applied ${name}`)}
  }
  sql(readFileSync(path.join(root,'apps/api/database/production/post-migration-hardening.sql'),'utf8'));
  sql(readFileSync(path.join(root,'apps/api/database/production/privilege-manifest.sql'),'utf8'));
- console.log('Schema 63 ready; existing P6 role separation verified.');
+ console.log('Schema 67 ready; existing P6 role separation verified.');
 }else{
- if(sql('SELECT version FROM aims_schema_version WHERE singleton')!=='63')throw new Error('Migrate first');
+ if(sql('SELECT version FROM aims_schema_version WHERE singleton')!=='67')throw new Error('Migrate first');
  const users=Number(sql('SELECT count(*) FROM users'));
  if(users===0)throw new Error('Expected synthetic seed identities from immutable migrations');
  console.log(`Synthetic seeds already applied by migrations; ${users} users present. No duplicate seed writes.`);

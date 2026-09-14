@@ -15,12 +15,32 @@ export const REQUEST_STATUSES = [
 
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 
+export interface ClaimItem {
+  id: string;
+  paymentRequestId: string;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  category: string;
+  projectId: string | null;
+  departmentId: string;
+  currency: string;
+  amount: string;
+  taxAmount: string | null;
+  description: string | null;
+  remark: string | null;
+  paymentMethod: string | null;
+  displayOrder: number;
+  rowVersion: number;
+}
+
 export interface PaymentRequestItem {
   id: string;
   ticketNumber: string | null;
   status: RequestStatus;
   payee: string | null;
   purpose: string | null;
+  // Derived from claimItems -- read-only. 'MIXED' when active claims don't
+  // all share one category (currency is enforced uniform at the API).
   category: string | null;
   amount: string | null;
   currency: string | null;
@@ -29,12 +49,17 @@ export interface PaymentRequestItem {
   paymentMethod: string | null;
   paymentDetails: string | null;
   remark: string | null;
+  totalTaxAmount?: string | null;
+  claimCount?: number;
+  attachmentCount?: number;
+  claimItems?: ClaimItem[];
   humanFinalRisk?: string;
   documents?: Array<{
     id: string;
     original_filename: string;
     size_bytes: string;
     version: number;
+    claim_item_id?: string | null;
   }>;
   audit?: Array<{
     id: string;

@@ -38,6 +38,9 @@ export interface PaymentRequest extends RequestCapture {
   id: string;
   ticketNumber: string | null;
   status: RequestStatus;
+  totalTaxAmount: string | null;
+  claimCount: number;
+  attachmentCount: number;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;

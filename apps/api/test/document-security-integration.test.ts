@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { PaymentDocumentService } from "../src/application/documents/payment-document.service.js";
 import { PaymentRequestService } from "../src/application/payment-requests/payment-request.service.js";
+import { ClaimItemService } from "../src/application/claim-items/claim-item.service.js";
 import type { Principal } from "../src/domain/payment-request.js";
 import { Postgres } from "../src/infrastructure/database/postgres.js";
 import { LocalDocumentStorage } from "../src/infrastructure/storage/local-document-storage.js";
@@ -50,7 +51,7 @@ test('historical evidence stays downloadable, immutable and excluded from active
   const finance:Principal={id:'10000000-0000-4000-8000-000000000002',departmentId:'00000000-0000-4000-8000-000000000002',roles:['FINANCE']};
   const outsider:Principal={id:'10000000-0000-4000-8000-000000000004',departmentId:requester.departmentId,roles:['REQUESTER']};
   const root=await mkdtemp(path.join(os.tmpdir(),'aims-historical-documents-'));
-  const db=new Postgres(),requests=new PaymentRequestService(db);
+  const db=new Postgres(),requests=new PaymentRequestService(db),claimItems=new ClaimItemService(db,requests);
   const storage=new LocalDocumentStorage({rootPath:root,maxUploadBytes:10485760,allowedContentTypes:new Set(['application/pdf']),demoMode:true});
   const documents=new PaymentDocumentService(db,requests,storage),validation=new ValidationService(db,requests,storage,null);
   const worker=new DocumentScanWorker(new pg.Pool({connectionString:process.env.DOCUMENT_WORKER_DATABASE_URL}),storage,new DeterministicLocalMalwareScanner(),{
@@ -59,7 +60,8 @@ test('historical evidence stays downloadable, immutable and excluded from active
   });
   try{
     const r=await requests.initiate(requester,'history-init');
-    await requests.update(r.id,{payee:'Vendor',purpose:'Evidence history',category:'Operations',amount:'10.00',currency:'MYR',dueDate:'2026-09-30',paymentMethod:'BANK_TRANSFER',paymentDetails:'Synthetic'},requester,'history-capture');
+    await requests.update(r.id,{payee:'Vendor',purpose:'Evidence history',dueDate:'2026-09-30',paymentMethod:'BANK_TRANSFER',paymentDetails:'Synthetic'},requester,'history-capture');
+    await claimItems.create(r.id,{category:'Operations',departmentId:requester.departmentId,currency:'MYR',amount:'10.00'},requester,'history-claim');
     const original=file('invoice.pdf','original invoice');
     const first=await documents.upload(r.id,original,'INVOICE',requester,'history-v1') as {id:string};
     await worker.pollBatch();

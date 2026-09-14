@@ -29,6 +29,7 @@ export class PaymentDocumentService {
     documentType: string | undefined,
     actor: Principal,
     correlationId: string,
+    claimItemId?: string,
   ): Promise<unknown> {
     const request = await this.requests.get(requestId, actor);
     const clarificationUpload = await this.canUploadClarification(requestId, request.status, request.createdBy, actor);
@@ -57,15 +58,23 @@ export class PaymentDocumentService {
           throw new ConflictException(
             "Request changed while the document was uploading",
           );
+        if (claimItemId) {
+          const claim = await client.query(
+            "SELECT 1 FROM claim_items WHERE id=$1 AND payment_request_id=$2 AND internal_status='ACTIVE'",
+            [claimItemId, requestId],
+          );
+          if (!claim.rowCount)
+            throw new BadRequestException("Claim item not found on this request");
+        }
         const prior = clarificationStillOpen ? await client.query<{logical_document_id:string;version:number}>("SELECT logical_document_id,version FROM payment_documents WHERE payment_request_id=$1 AND original_filename=$2 AND removed_at IS NULL ORDER BY version DESC LIMIT 1 FOR UPDATE", [requestId, safeName]) : null;
         const logicalId = prior?.rows[0]?.logical_document_id ?? logicalDocumentId;
         const version = (prior?.rows[0]?.version ?? 0) + 1;
         if (prior?.rowCount) await client.query("UPDATE payment_documents SET removed_at=now() WHERE payment_request_id=$1 AND logical_document_id=$2 AND removed_at IS NULL", [requestId, logicalId]);
         const result = await client.query(
           `INSERT INTO payment_documents
-          (id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,storage_binding_state,storage_backend_id,storage_object_version)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$15,$12,$6,'QUARANTINED','VERSION_BOUND',$13,$14)
-          RETURNING id, original_filename, mime_type, size_bytes, sha256, document_type, version, uploaded_by, uploaded_at,security_status`,
+          (id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,storage_binding_state,storage_backend_id,storage_object_version,claim_item_id)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$15,$12,$6,'QUARANTINED','VERSION_BOUND',$13,$14,$16)
+          RETURNING id, original_filename, mime_type, size_bytes, sha256, document_type, version, uploaded_by, uploaded_at,security_status, claim_item_id`,
           [
             documentId,
             requestId,
@@ -82,6 +91,7 @@ export class PaymentDocumentService {
             stored.backendId,
             stored.objectVersion,
             stored.provider,
+            claimItemId ?? null,
           ],
         );
         await this.requests.audit(

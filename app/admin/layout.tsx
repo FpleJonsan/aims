@@ -20,6 +20,10 @@ function AdminNav() {
       <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
         <li><Link href="/admin">Console</Link></li>
         <li><Link href="/admin/users">User Management</Link></li>
+        <li><Link href="/admin/roles">Roles</Link></li>
+        <li><Link href="/admin/permissions">Permission matrix</Link></li>
+        <li><Link href="/admin/master-data">Master Data</Link></li>
+        <li><Link href="/admin/settings">Business Configuration</Link></li>
       </ul>
       <div style={{ marginTop: 32 }}>
         <Link href="/">&larr; Back to AIMS</Link>

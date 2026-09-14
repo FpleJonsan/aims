@@ -9,6 +9,7 @@ import { FinanceControlService } from "../src/application/finance-control/financ
 import type { FinanceConfirmationCode } from "../src/application/finance-control/finance-control.dto.js";
 import { FinancialAnalysisService } from "../src/application/financial-analysis/financial-analysis.service.js";
 import { PaymentRequestService } from "../src/application/payment-requests/payment-request.service.js";
+import { ClaimItemService } from "../src/application/claim-items/claim-item.service.js";
 import { PaymentService } from "../src/application/payments/payment.service.js";
 import { PolicyService } from "../src/application/policy/policy.service.js";
 import { ValidationService } from "../src/application/validation/validation.service.js";
@@ -124,15 +125,18 @@ async function approved(
     {
       payee,
       purpose: "Final Finance Control",
-      category: "Operations",
-      amount: options.amount ?? "10.00",
-      currency: "MYR",
       dueDate: "2026-10-15",
       paymentMethod: "BANK_TRANSFER",
       paymentDetails: "Verified beneficiary reference",
     },
     requester,
     "d7-update",
+  );
+  await new ClaimItemService(db, requests).create(
+    draft.id,
+    { category: "Operations", departmentId: requester.departmentId, currency: "MYR", amount: options.amount ?? "10.00" },
+    requester,
+    "d7-claim",
   );
   const request = await requests.submit(draft.id, requester, "d7-submit");
   await db.pool.query(
@@ -242,15 +246,18 @@ async function draftWithEvidence(db: Postgres, hash: string) {
     {
       payee: `Concurrent ${randomUUID()}`,
       purpose: "Duplicate barrier",
-      category: "Operations",
-      amount: "987.65",
-      currency: "MYR",
       dueDate: "2026-10-20",
       paymentMethod: "BANK_TRANSFER",
       paymentDetails: "Verified beneficiary reference",
     },
     requester,
     "duplicate-draft-update",
+  );
+  await new ClaimItemService(db, requests).create(
+    draft.id,
+    { category: "Operations", departmentId: requester.departmentId, currency: "MYR", amount: "987.65" },
+    requester,
+    "duplicate-draft-claim",
   );
   await db.pool.query(
     `INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,document_type,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference,storage_binding_state,storage_backend_id,storage_object_version,trusted_storage_object_key,trusted_storage_object_version)
@@ -2012,15 +2019,23 @@ test("PAYMENT_RACE_G_DUPLICATE_CANDIDATE_INSERTION", async () => {
       {
         payee: String(f.fixture.request.payee),
         purpose: "New duplicate candidate",
-        category: String(f.fixture.request.category),
-        amount: String(f.fixture.request.amount),
-        currency: String(f.fixture.request.currency),
         dueDate: "2030-01-01",
         paymentMethod: String(f.fixture.request.paymentMethod),
         paymentDetails: "Candidate",
       },
       requester,
       "race-g-capture",
+    );
+    await new ClaimItemService(db, f.fixture.requests).create(
+      candidate.id,
+      {
+        category: String(f.fixture.request.category),
+        departmentId: requester.departmentId,
+        currency: String(f.fixture.request.currency),
+        amount: String(f.fixture.request.amount),
+      },
+      requester,
+      "race-g-claim",
     );
     await blocker.query("BEGIN");
     await blocker.query(

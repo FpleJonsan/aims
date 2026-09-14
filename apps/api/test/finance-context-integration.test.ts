@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { FinanceContextService } from "../src/application/finance-context/finance-context.service.js";
 import { PaymentRequestService } from "../src/application/payment-requests/payment-request.service.js";
+import { ClaimItemService } from "../src/application/claim-items/claim-item.service.js";
 import { ValidationService } from "../src/application/validation/validation.service.js";
 import type { Principal } from "../src/domain/payment-request.js";
 import { Postgres } from "../src/infrastructure/database/postgres.js";
@@ -29,15 +30,18 @@ async function validated(
     {
       payee: "Synthetic Vendor",
       purpose: "Day 3 deterministic test",
-      category,
-      amount: "10.00",
-      currency,
       dueDate: "2026-09-30",
       paymentMethod: "BANK_TRANSFER",
       paymentDetails: "Synthetic",
     },
     requester,
     "d3-update",
+  );
+  await new ClaimItemService(db, requests).create(
+    draft.id,
+    { category, departmentId: requester.departmentId, currency, amount: "10.00" },
+    requester,
+    "d3-claim",
   );
   const request = await requests.submit(draft.id, requester, "d3-submit");
   await db.pool.query(
@@ -154,14 +158,17 @@ test("unvalidated requests cannot produce financial truth", async () => {
     contexts = new FinanceContextService(db, requests);
   try {
     const draft = await requests.initiate(requester, "d3-unvalidated");
+    await new ClaimItemService(db, requests).create(
+      draft.id,
+      { category: "Operations", departmentId: requester.departmentId, currency: "MYR", amount: "1.00" },
+      requester,
+      "d3-unvalidated-claim",
+    );
     await requests.update(
       draft.id,
       {
         payee: "Vendor",
         purpose: "Eligibility",
-        category: "Operations",
-        amount: "1.00",
-        currency: "MYR",
         dueDate: "2026-09-30",
         paymentMethod: "BANK_TRANSFER",
         paymentDetails: "Synthetic",

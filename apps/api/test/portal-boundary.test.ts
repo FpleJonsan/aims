@@ -71,6 +71,7 @@ test("requester projection is owner scoped and excludes finance internals",async
     if(sql.includes("FROM validation_clarifications"))return{rowCount:0,rows:[]};
     if(sql.includes("FROM audit_events"))return{rowCount:0,rows:[{action:"REQUEST_PAID",previous_state:"READY_FOR_PAYMENT",new_state:"PAID",occurred_at:new Date()}]};
     if(sql.includes("FROM payments"))return{rowCount:1,rows:[{payment_date:"2026-08-27",status:"PAID",amount_minor:"1000",currency:"MYR",payment_method:"BANK_TRANSFER",recorded_at:new Date()}]};
+    if(sql.includes("FROM claim_items"))return{rowCount:0,rows:[]};
     throw Error("Unexpected query");
   }}};
   const result=await new PortalService(db as never).requesterDetail(requester,"20000000-0000-4000-8000-000000000001");

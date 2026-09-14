@@ -9,6 +9,8 @@ import {
 } from "./application/documents/tokens.js";
 import { PaymentRequestController } from "./application/payment-requests/payment-request.controller.js";
 import { PaymentRequestService } from "./application/payment-requests/payment-request.service.js";
+import { ClaimItemController } from "./application/claim-items/claim-item.controller.js";
+import { ClaimItemService } from "./application/claim-items/claim-item.service.js";
 import { FinanceContextController } from "./application/finance-context/finance-context.controller.js";
 import { FinanceContextService } from "./application/finance-context/finance-context.service.js";
 import { FinancialAnalysisController } from "./application/financial-analysis/financial-analysis.controller.js";
@@ -58,8 +60,33 @@ import { PasswordAuthController } from "./application/auth/password-auth.control
 import { PasswordAuthService } from "./application/auth/password-auth.service.js";
 import { EMAIL_SENDER, createEmailSender } from "./infrastructure/email/email-sender.js";
 import { FinanceMasterGuard } from "./application/auth/finance-master.guard.js";
+import { PermissionGuard } from "./application/auth/permission.guard.js";
 import { UserManagementController } from "./application/user-management/user-management.controller.js";
 import { UserManagementService } from "./application/user-management/user-management.service.js";
+import { PermissionCatalogController, RoleController } from "./application/role-permission/role-permission.controller.js";
+import { RolePermissionService } from "./application/role-permission/role-permission.service.js";
+import {
+  CategoriesController,
+  CurrenciesController,
+  MasterDataDepartmentsController,
+  PaymentMethodsController,
+  ProjectsController,
+} from "./application/master-data/master-data.controller.js";
+import { MasterDataService } from "./application/master-data/master-data.service.js";
+import { ConfigurationController } from "./application/configuration/configuration.controller.js";
+import { ConfigurationService } from "./application/configuration/configuration.service.js";
+import {
+  CATEGORIES_CONFIG,
+  CATEGORIES_MASTER_DATA,
+  CURRENCIES_CONFIG,
+  CURRENCIES_MASTER_DATA,
+  DEPARTMENTS_CONFIG,
+  DEPARTMENTS_MASTER_DATA,
+  PAYMENT_METHODS_CONFIG,
+  PAYMENT_METHODS_MASTER_DATA,
+  PROJECTS_CONFIG,
+  PROJECTS_MASTER_DATA,
+} from "./application/master-data/master-data.domains.js";
 
 @Module({
   controllers: [
@@ -67,7 +94,16 @@ import { UserManagementService } from "./application/user-management/user-manage
     CorporateAuthController,
     PasswordAuthController,
     UserManagementController,
+    RoleController,
+    PermissionCatalogController,
+    CategoriesController,
+    MasterDataDepartmentsController,
+    ProjectsController,
+    CurrenciesController,
+    PaymentMethodsController,
+    ConfigurationController,
     PaymentRequestController,
+    ClaimItemController,
     ValidationController,
     FinanceContextController,
     FinancialAnalysisController,
@@ -91,8 +127,17 @@ import { UserManagementService } from "./application/user-management/user-manage
     PasswordAuthService,
     { provide: EMAIL_SENDER, useFactory: () => createEmailSender(process.env) },
     FinanceMasterGuard,
+    PermissionGuard,
     UserManagementService,
+    RolePermissionService,
+    { provide: CATEGORIES_MASTER_DATA, useFactory: (postgres: Postgres) => new MasterDataService(postgres, CATEGORIES_CONFIG), inject: [Postgres] },
+    { provide: DEPARTMENTS_MASTER_DATA, useFactory: (postgres: Postgres) => new MasterDataService(postgres, DEPARTMENTS_CONFIG), inject: [Postgres] },
+    { provide: PROJECTS_MASTER_DATA, useFactory: (postgres: Postgres) => new MasterDataService(postgres, PROJECTS_CONFIG), inject: [Postgres] },
+    { provide: CURRENCIES_MASTER_DATA, useFactory: (postgres: Postgres) => new MasterDataService(postgres, CURRENCIES_CONFIG), inject: [Postgres] },
+    { provide: PAYMENT_METHODS_MASTER_DATA, useFactory: (postgres: Postgres) => new MasterDataService(postgres, PAYMENT_METHODS_CONFIG), inject: [Postgres] },
+    ConfigurationService,
     PaymentRequestService,
+    ClaimItemService,
     PaymentDocumentService,
     ValidationService,
     FinanceContextService,

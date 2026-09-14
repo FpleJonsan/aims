@@ -87,11 +87,12 @@ export class PortalService {
   async requesterDetail(actor: Principal, id: string) {
     this.requester(actor);
     const request=await this.db.pool.query(
-      `SELECT id,ticket_number,status,payee,purpose,category,amount,currency,department_id,due_date,payment_method,remark,created_at,updated_at,submitted_at
+      `SELECT id,ticket_number,status,payee,purpose,category,amount,currency,department_id,due_date,payment_method,remark,
+        total_tax_amount,claim_count,attachment_count,created_at,updated_at,submitted_at
        FROM payment_requests WHERE id=$1 AND created_by=$2 AND department_id=$3`,[id,actor.id,actor.departmentId]);
     if(!request.rowCount) throw new NotFoundException("Payment request not found");
-    const [documents,clarifications,activity,payment]=await Promise.all([
-      this.db.pool.query(`SELECT id,original_filename,mime_type,size_bytes,document_type,version,uploaded_at,security_status FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL ORDER BY uploaded_at`,[id]),
+    const [documents,clarifications,activity,payment,claimItems]=await Promise.all([
+      this.db.pool.query(`SELECT id,original_filename,mime_type,size_bytes,document_type,version,uploaded_at,security_status,claim_item_id FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL ORDER BY uploaded_at`,[id]),
       this.db.pool.query(`SELECT * FROM (
         SELECT id,clarification_type,COALESCE(required_response,reason) question,status,requested_at,response,responded_at FROM validation_clarifications WHERE payment_request_id=$1
         UNION ALL SELECT id,clarification_type,required_response question,status,requested_at,response,responded_at FROM approval_clarifications WHERE payment_request_id=$1
@@ -99,7 +100,10 @@ export class PortalService {
        ) requester_clarifications ORDER BY requested_at`,[id]),
       this.db.pool.query(`SELECT action,previous_state,new_state,occurred_at FROM audit_events WHERE entity_type='PAYMENT_REQUEST' AND entity_id=$1 ORDER BY occurred_at`,[id]),
       this.db.pool.query(`SELECT payment_date,status,amount_minor,currency,payment_method,recorded_at FROM payments WHERE payment_request_id=$1`,[id]),
+      this.db.pool.query(
+        `SELECT id,invoice_number,invoice_date,category,project_id,department_id,currency,amount,tax_amount,description,remark,payment_method,display_order,row_version
+         FROM claim_items WHERE payment_request_id=$1 AND internal_status='ACTIVE' ORDER BY display_order,created_at`,[id]),
     ]);
-    return {request:request.rows[0],documents:documents.rows,clarifications:clarifications.rows,activity:activity.rows,payment:payment.rows[0]??null};
+    return {request:request.rows[0],documents:documents.rows,clarifications:clarifications.rows,activity:activity.rows,payment:payment.rows[0]??null,claimItems:claimItems.rows};
   }
 }

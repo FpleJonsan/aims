@@ -35,6 +35,22 @@ const stages = [
   "Finance Dashboard",
   "AI Finance Intelligence",
 ];
+type ClaimItemRow = {
+  id: string;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  category: string;
+  projectId: string | null;
+  departmentId: string;
+  currency: string;
+  amount: string;
+  taxAmount: string | null;
+  description: string | null;
+  remark: string | null;
+  paymentMethod: string | null;
+  displayOrder: number;
+  rowVersion: number;
+};
 type Item = {
   id: string;
   ticketNumber: string | null;
@@ -61,6 +77,10 @@ type Item = {
   paymentMethod: string | null;
   paymentDetails: string | null;
   remark: string | null;
+  totalTaxAmount?: string | null;
+  claimCount?: number;
+  attachmentCount?: number;
+  claimItems?: ClaimItemRow[];
   humanFinalRisk?: string;
   submittedAt?: string | null;
   createdAt?: string | null;
@@ -75,6 +95,7 @@ type Item = {
     document_type?: string;
     uploaded_at?: string;
     security_status?: "QUARANTINED"|"SCANNING"|"CLEAN"|"REJECTED"|"SCAN_FAILED";
+    claim_item_id?: string | null;
   }>;
   audit?: Array<{ id: string; action: string; occurred_at: string }>;
 };
@@ -1364,6 +1385,219 @@ function List({
   );
 }
 
+const CLAIM_CURRENCIES = ["MYR", "USD", "SGD", "EUR", "GBP"];
+type ClaimDraftForm = {
+  invoiceNumber: string;
+  invoiceDate: string;
+  category: string;
+  currency: string;
+  amount: string;
+  taxAmount: string;
+  description: string;
+  remark: string;
+  paymentMethod: string;
+};
+function emptyClaimDraft(lockedCurrency?: string): ClaimDraftForm {
+  return { invoiceNumber: "", invoiceDate: "", category: "", currency: lockedCurrency ?? "", amount: "", taxAmount: "", description: "", remark: "", paymentMethod: "" };
+}
+function claimToDraft(claim: ClaimItemRow): ClaimDraftForm {
+  return { invoiceNumber: claim.invoiceNumber ?? "", invoiceDate: claim.invoiceDate ?? "", category: claim.category, currency: claim.currency, amount: claim.amount, taxAmount: claim.taxAmount ?? "", description: claim.description ?? "", remark: claim.remark ?? "", paymentMethod: claim.paymentMethod ?? "" };
+}
+/**
+ * Dynamic list of Claim Items for the Request Editor (P20.5E). Payment
+ * Request stays the aggregate root: amount/currency/category are derived
+ * server-side from these claims (see claim_items_sync_request_aggregates
+ * in migration 067), never entered here directly. Currency is locked to
+ * whatever the request's other active claims already use, since there is
+ * still exactly one Payment per request.
+ */
+function ClaimItemsEditor({ item, api, editable, changed, departmentId }: { item: Item; api: Api; editable: boolean; changed: () => Promise<void>; departmentId: string }) {
+  const claims = (item.claimItems ?? []).slice().sort((a, b) => a.displayOrder - b.displayOrder);
+  const lockedCurrency = claims[0]?.currency;
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftForm, setDraftForm] = useState<ClaimDraftForm>(emptyClaimDraft());
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  function openAdd() { setDraftForm(emptyClaimDraft(lockedCurrency)); setErrors({}); setEditingId("new"); }
+  function openEdit(claim: ClaimItemRow) { setDraftForm(claimToDraft(claim)); setErrors({}); setEditingId(claim.id); }
+  function toggleExpanded(id: string) { setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
+  function draftField(name: keyof ClaimDraftForm, value: string) { setDraftForm((current) => ({ ...current, [name]: value })); }
+  async function submitClaim(event: FormEvent) {
+    event.preventDefault();
+    const next: Record<string, string> = {};
+    if (!draftForm.category.trim()) next.category = "Enter a claim category.";
+    if (!draftForm.currency) next.currency = "Select a currency.";
+    if (!draftForm.amount.trim() || !/^\d+(\.\d{1,4})?$/.test(draftForm.amount) || Number(draftForm.amount) <= 0) next.amount = "Enter a valid claim amount greater than zero.";
+    if (draftForm.taxAmount.trim() && (!/^\d+(\.\d{1,4})?$/.test(draftForm.taxAmount) || Number(draftForm.taxAmount) < 0)) next.taxAmount = "Enter a valid tax amount.";
+    setErrors(next);
+    if (Object.keys(next).length) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      const body = {
+        invoiceNumber: draftForm.invoiceNumber.trim() || undefined,
+        invoiceDate: draftForm.invoiceDate || undefined,
+        category: draftForm.category.trim(),
+        departmentId,
+        currency: draftForm.currency,
+        amount: draftForm.amount,
+        taxAmount: draftForm.taxAmount.trim() || undefined,
+        description: draftForm.description.trim() || undefined,
+        remark: draftForm.remark.trim() || undefined,
+        paymentMethod: draftForm.paymentMethod || undefined,
+      };
+      if (editingId === "new") await api(`/payment-requests/${item.id}/claim-items`, { method: "POST", body: JSON.stringify(body) });
+      else await api(`/payment-requests/${item.id}/claim-items/${editingId}`, { method: "PATCH", body: JSON.stringify(body) });
+      await changed();
+      setEditingId(null);
+    } catch (error) {
+      setNotice(msg(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function removeClaim(id: string) {
+    if (!confirm("Remove this claim item?")) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      await api(`/payment-requests/${item.id}/claim-items/${id}`, { method: "DELETE" });
+      await changed();
+    } catch (error) {
+      setNotice(msg(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function move(id: string, direction: -1 | 1) {
+    const index = claims.findIndex((claim) => claim.id === id);
+    const swapIndex = index + direction;
+    if (index < 0 || swapIndex < 0 || swapIndex >= claims.length) return;
+    const reordered = claims.slice();
+    [reordered[index], reordered[swapIndex]] = [reordered[swapIndex], reordered[index]];
+    setBusy(true);
+    setNotice("");
+    try {
+      await api(`/payment-requests/${item.id}/claim-items/reorder`, { method: "PATCH", body: JSON.stringify({ items: reordered.map((claim, position) => ({ id: claim.id, displayOrder: position })) }) });
+      await changed();
+    } catch (error) {
+      setNotice(msg(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function uploadClaimAttachment(claimId: string, event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const target = event.currentTarget;
+    const formData = new FormData(target);
+    formData.set("claimItemId", claimId);
+    setBusy(true);
+    setNotice("");
+    try {
+      await api(`/payment-requests/${item.id}/documents`, { method: "POST", body: formData });
+      await changed();
+      target.reset();
+    } catch (error) {
+      setNotice(msg(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <UiCard className="claimItemsEditor">
+      <UiCardBody>
+        <div className="sectionHeading">
+          <div>
+            <UiTypography as="span" variant="metadata">CLAIM ITEMS</UiTypography>
+            <UiTypography as="h3" variant="section">Per-invoice breakdown</UiTypography>
+          </div>
+          <div className="claimTotals">
+            <span><small>Total claim amount</small><b>{formatMoney(item.currency, item.amount)}</b></span>
+            <span><small>Total tax</small><b>{formatMoney(item.currency, item.totalTaxAmount ?? null)}</b></span>
+            <span><small>Claims</small><b>{item.claimCount ?? claims.length}</b></span>
+            <span><small>Attachments</small><b>{item.attachmentCount ?? 0}</b></span>
+          </div>
+        </div>
+        {notice && <UiAlert tone="danger" role="alert">{notice}</UiAlert>}
+        {editable && <UiButton onClick={openAdd} variant="secondary" type="button" disabled={busy}>+ Add claim</UiButton>}
+        {claims.map((claim, index) => {
+          const attachments = (item.documents ?? []).filter((document) => document.claim_item_id === claim.id);
+          const isExpanded = expanded.has(claim.id);
+          return (
+            <article className="claimItem" key={claim.id}>
+              <header>
+                <div>
+                  <b>{claim.category}</b>
+                  <small>{claim.invoiceNumber ? `Invoice ${claim.invoiceNumber}` : "No invoice number"}{claim.invoiceDate ? ` · ${formatDate(claim.invoiceDate)}` : ""}</small>
+                </div>
+                <div className="claimAmount">
+                  <b>{formatMoney(claim.currency, claim.amount)}</b>
+                  {claim.taxAmount && <small>+{formatMoney(claim.currency, claim.taxAmount)} tax</small>}
+                </div>
+                <div className="claimActions">
+                  {editable && <UiButton onClick={() => void move(claim.id, -1)} disabled={busy || index === 0} aria-label={`Move ${claim.category} claim earlier`} type="button">↑</UiButton>}
+                  {editable && <UiButton onClick={() => void move(claim.id, 1)} disabled={busy || index === claims.length - 1} aria-label={`Move ${claim.category} claim later`} type="button">↓</UiButton>}
+                  <UiButton onClick={() => toggleExpanded(claim.id)} type="button" aria-expanded={isExpanded}>{isExpanded ? "Collapse" : "Expand"}</UiButton>
+                  {editable && <UiButton onClick={() => openEdit(claim)} type="button" disabled={busy}>Edit</UiButton>}
+                  {editable && <UiButton onClick={() => void removeClaim(claim.id)} variant="danger" type="button" disabled={busy}>Remove</UiButton>}
+                </div>
+              </header>
+              {isExpanded && (
+                <div className="claimDetail">
+                  {claim.description && <p><b>Description:</b> {claim.description}</p>}
+                  {claim.remark && <p><b>Remark:</b> {claim.remark}</p>}
+                  {claim.paymentMethod && <p><b>Payment method:</b> {claim.paymentMethod.replaceAll("_", " ")}</p>}
+                  <div className="claimAttachments">
+                    <small>ATTACHMENTS</small>
+                    {attachments.map((document) => <div className="document" key={document.id}><span>DOC</span><p><b>{document.original_filename}</b></p></div>)}
+                    {!attachments.length && <p className="muted">No documents attached to this claim.</p>}
+                    {editable && (
+                      <form className="upload" onSubmit={(event) => void uploadClaimAttachment(claim.id, event)}>
+                        <label>Attach document<input name="file" type="file" accept="application/pdf,image/jpeg,image/png" required /></label>
+                        <button disabled={busy}>Attach to this claim</button>
+                      </form>
+                    )}
+                  </div>
+                </div>
+              )}
+            </article>
+          );
+        })}
+        {!claims.length && <UiEmptyState title="No claim items yet"><span>Add at least one claim item before submitting this request.</span></UiEmptyState>}
+      </UiCardBody>
+      {editingId && (
+        <UiDialog className="claimItemDialog" labelledBy="claim-dialog-title" dismissible={!busy} onClose={() => setEditingId(null)}>
+          <form onSubmit={submitClaim} className="claimDialogForm">
+            <UiTypography id="claim-dialog-title" as="h2" variant="section">{editingId === "new" ? "Add claim" : "Edit claim"}</UiTypography>
+            <UiInput id="claim-category" label="Category" required value={draftForm.category} onChange={(event) => draftField("category", event.target.value)} error={errors.category} />
+            <UiInput id="claim-invoiceNumber" label="Invoice number" helper="Optional" value={draftForm.invoiceNumber} onChange={(event) => draftField("invoiceNumber", event.target.value)} />
+            <UiInput id="claim-invoiceDate" type="date" label="Invoice date" helper="Optional" value={draftForm.invoiceDate} onChange={(event) => draftField("invoiceDate", event.target.value)} />
+            <UiSelect id="claim-currency" label="Currency" required value={draftForm.currency} onChange={(event) => draftField("currency", event.target.value)} error={errors.currency} disabled={Boolean(lockedCurrency)} helper={lockedCurrency ? "All claims on this request share one currency." : undefined}>
+              <option value="">Select</option>
+              {CLAIM_CURRENCIES.map((code) => <option key={code}>{code}</option>)}
+            </UiSelect>
+            <UiInput id="claim-amount" label="Amount" required value={draftForm.amount} onChange={(event) => draftField("amount", event.target.value)} error={errors.amount} />
+            <UiInput id="claim-taxAmount" label="Tax amount" helper="Optional" value={draftForm.taxAmount} onChange={(event) => draftField("taxAmount", event.target.value)} error={errors.taxAmount} />
+            <UiSelect id="claim-paymentMethod" label="Payment method" helper="Optional" value={draftForm.paymentMethod} onChange={(event) => draftField("paymentMethod", event.target.value)}>
+              <option value="">Select</option>
+              <option value="BANK_TRANSFER">Bank transfer</option>
+              <option value="CARD">Corporate card</option>
+              <option value="CASH">Cash</option>
+            </UiSelect>
+            <UiTextarea id="claim-description" label="Description" helper="Optional" value={draftForm.description} onChange={(event) => draftField("description", event.target.value)} />
+            <UiTextarea id="claim-remark" label="Remark" helper="Optional" value={draftForm.remark} onChange={(event) => draftField("remark", event.target.value)} />
+            <div className="claimDialogActions">
+              <UiButton type="button" variant="secondary" onClick={() => setEditingId(null)} disabled={busy}>Cancel</UiButton>
+              <UiButton type="submit" variant="primary" busy={busy}>Save claim</UiButton>
+            </div>
+          </form>
+        </UiDialog>
+      )}
+    </UiCard>
+  );
+}
 function Editor({
   item,
   user,
@@ -1416,9 +1650,6 @@ function Editor({
       const {
         payee,
         purpose,
-        category,
-        amount,
-        currency,
         dueDate,
         paymentMethod,
         paymentDetails,
@@ -1429,9 +1660,6 @@ function Editor({
         body: JSON.stringify({
           payee,
           purpose,
-          category,
-          amount,
-          currency,
           dueDate,
           paymentMethod,
           paymentDetails,
@@ -1476,18 +1704,18 @@ function Editor({
     });
   }
   function reviewRequesterSubmission(){
-    const required:Record<string,string>={payee:"Enter the person or organization to be paid.",purpose:"Explain what this payment is for.",category:"Enter a payment category.",amount:"Enter a valid payment amount.",currency:"Select a currency.",dueDate:"Select when Finance should complete the payment.",paymentMethod:"Select a payment method.",paymentDetails:"Provide the information Finance needs to complete the payment."};
+    const required:Record<string,string>={payee:"Enter the person or organization to be paid.",purpose:"Explain what this payment is for.",dueDate:"Select when Finance should complete the payment.",paymentMethod:"Select a payment method.",paymentDetails:"Provide the information Finance needs to complete the payment."};
     const next=Object.fromEntries(Object.entries(required).filter(([name])=>!String(form[name as keyof Item]??"").trim()));
-    if(form.amount&&!/^\d+(\.\d{1,4})?$/.test(form.amount)||Number(form.amount)<=0)next.amount="Enter a valid payment amount greater than zero.";
+    if(!item.claimItems?.length)next.claimItems="Add at least one claim item before reviewing your request.";
     setFieldErrors(next);
-    if(Object.keys(next).length){setNotice("Complete the highlighted fields before reviewing your request.");requestAnimationFrame(()=>document.getElementById(`request-${Object.keys(next)[0]}`)?.focus());return;}
+    if(Object.keys(next).length){setNotice("Complete the highlighted fields before reviewing your request.");if(!next.claimItems)requestAnimationFrame(()=>document.getElementById(`request-${Object.keys(next)[0]}`)?.focus());return;}
     setNotice("");setConfirming(true);
   }
   async function confirmRequesterSubmission(){
     setConfirming(false);
     await act(async()=>{
-      const {payee,purpose,category,amount,currency,dueDate,paymentMethod,paymentDetails,remark}=form;
-      await api(`/payment-requests/${item.id}`,{method:"PATCH",body:JSON.stringify({payee,purpose,category,amount,currency,dueDate,paymentMethod,paymentDetails,remark})});
+      const {payee,purpose,dueDate,paymentMethod,paymentDetails,remark}=form;
+      await api(`/payment-requests/${item.id}`,{method:"PATCH",body:JSON.stringify({payee,purpose,dueDate,paymentMethod,paymentDetails,remark})});
       const submitted=await api(`/payment-requests/${item.id}/submit`,{method:"POST",body:"{}"}) as Item;
       setSubmittedTicket(submitted.ticketNumber??"Submitted request");await changed();
     });
@@ -1600,14 +1828,6 @@ function Editor({
               required
             />
             <Field
-              id="capture-category"
-              label="Category"
-              value={form.category}
-              set={(v) => field("category", v)}
-              disabled={!draft}
-              required
-            />
-            <Field
               id="capture-purpose"
               label="Purpose"
               value={form.purpose}
@@ -1616,29 +1836,6 @@ function Editor({
               wide
               required
             />
-            <Field
-              id="capture-amount"
-              label="Amount"
-              value={form.amount}
-              set={(v) => field("amount", v)}
-              disabled={!draft}
-              required
-            />
-            <label htmlFor="capture-currency">
-              Currency <b>Required</b>
-              <select
-                id="capture-currency"
-                value={form.currency ?? ""}
-                onChange={(e) => field("currency", e.target.value)}
-                disabled={!draft}
-                required
-              >
-                <option value="">Select</option>
-                {["MYR", "USD", "SGD", "EUR", "GBP"].map((x) => (
-                  <option key={x}>{x}</option>
-                ))}
-              </select>
-            </label>
             <label htmlFor="capture-dueDate">
               Due date <b>Required</b>
               <input
@@ -1697,6 +1894,7 @@ function Editor({
             </footer>
           )}
         </form>
+        <ClaimItemsEditor item={item} api={api} editable={draft} changed={changed} departmentId={item.departmentId} />
         <aside className="right">
           <section id="supporting-documents">
             <small>SUPPORTING DOCUMENTS</small>
@@ -1773,14 +1971,17 @@ function RequesterRequestExperience({ item, form, field, fieldErrors, busy, noti
       <form className="p1832-requesterDraftForm" onSubmit={save} noValidate>
         <UiCard><UiCardBody><div className="p1832-sectionHeading"><UiBadge>1</UiBadge><div><UiTypography as="span" variant="metadata">PAYMENT DETAILS</UiTypography><UiTypography as="h3" variant="section">What is this payment for?</UiTypography></div></div><div className="p1832-fields">
           <div><UiInput id={"request-payee"} label={"Payee / Payer"} helper={undefined} value={form.payee ?? ""} onChange={event => (value => field("payee", value))(event.target.value)} disabled={false} required={true} error={fieldErrors.payee}/></div>
-          <div><UiInput id={"request-category"} label={"Category"} helper={undefined} value={form.category ?? ""} onChange={event => (value => field("category", value))(event.target.value)} disabled={false} required={true} error={fieldErrors.category}/></div>
           <div className="p1832-wide"><UiTextarea id={"request-purpose"} label={"Purpose"} helper={"Explain what this payment is for."} value={form.purpose ?? ""} onChange={event => (value => field("purpose", value))(event.target.value)} disabled={false} required={true} error={fieldErrors.purpose}/></div>
-          <div><UiInput id={"request-amount"} label={"Amount"} helper={undefined} value={form.amount ?? ""} onChange={event => (value => field("amount", value))(event.target.value)} disabled={false} required={true} error={fieldErrors.amount}/></div>
-          <UiSelect id="request-currency" value={form.currency ?? ""} onChange={event => field("currency", event.target.value)} label="Currency" required={true} error={fieldErrors.currency}><option value="">Select currency</option>{["MYR", "USD", "SGD", "EUR", "GBP"].map(value => <option key={value}>{value}</option>)}</UiSelect>
           <UiInput id="request-dueDate" type="date" value={form.dueDate ?? ""} onChange={event => field("dueDate", event.target.value)} label="Due Date" helper="When should Finance complete this payment?" required={true} error={fieldErrors.dueDate}/>
           <UiInput value="Your assigned department" disabled label="Department" helper="Your assigned department will be used."/>
         </div></UiCardBody></UiCard>
-        <UiCard><UiCardBody><div className="p1832-sectionHeading"><UiBadge>2</UiBadge><div><UiTypography as="span" variant="metadata">PAYMENT METHOD</UiTypography><UiTypography as="h3" variant="section">How should Finance complete it?</UiTypography></div></div><div className="p1832-fields">
+      </form>
+      <div id="request-claimItems">
+        {fieldErrors.claimItems && <UiAlert tone="danger" role="alert">{fieldErrors.claimItems}</UiAlert>}
+        <ClaimItemsEditor item={item} api={api} editable={draft} changed={changed} departmentId={item.departmentId} />
+      </div>
+      <form className="p1832-requesterDraftForm" onSubmit={save} noValidate>
+        <UiCard><UiCardBody><div className="p1832-sectionHeading"><UiBadge>3</UiBadge><div><UiTypography as="span" variant="metadata">PAYMENT METHOD</UiTypography><UiTypography as="h3" variant="section">How should Finance complete it?</UiTypography></div></div><div className="p1832-fields">
           <UiSelect id="request-paymentMethod" value={form.paymentMethod ?? ""} onChange={event => field("paymentMethod", event.target.value)} label="Payment Method" required={true} error={fieldErrors.paymentMethod}><option value="">Select payment method</option><option value="BANK_TRANSFER">Bank transfer</option><option value="CARD">Corporate card</option><option value="CASH">Cash</option></UiSelect>
           <div className="p1832-wide"><UiTextarea id={"request-paymentDetails"} label={"Payment Details"} helper={"Provide the information Finance needs to complete the external payment."} value={form.paymentDetails ?? ""} onChange={event => (value => field("paymentDetails", value))(event.target.value)} disabled={false} required={true} error={fieldErrors.paymentDetails}/></div>
           <div className="p1832-wide"><UiTextarea id={"request-remark"} label={"Remark"} helper={"Optional. Add any additional context for Finance."} value={form.remark ?? ""} onChange={event => (value => field("remark", value))(event.target.value)} disabled={false} required={false} error={undefined}/></div>
@@ -1788,14 +1989,14 @@ function RequesterRequestExperience({ item, form, field, fieldErrors, busy, noti
         <UiCard><UiCardBody className="p1832-actions"><UiButton disabled={busy} variant="secondary" type="submit" busy={busy}>Save Draft</UiButton><span>Saving a draft does not submit it to Finance.</span></UiCardBody></UiCard>
       </form>
       <RequesterDocuments item={item} editable upload={upload} remove={remove} busy={busy}/>
-      <UiCard className="p1832-requestReview"><UiCardBody><div className="p1832-sectionHeading"><UiBadge>4</UiBadge><div><UiTypography as="span" variant="metadata">REVIEW & SUBMIT</UiTypography><UiTypography as="h3" variant="section">Check your request</UiTypography></div></div><div className="p1832-reviewSummary"><UiTypography as="p" variant="body"><span>Payee</span><UiTypography as="span" variant="label">{form.payee || "Not added"}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Purpose</span><UiTypography as="span" variant="label">{form.purpose || "Not added"}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Amount</span><UiTypography as="span" variant="label">{formatMoney(form.currency, form.amount)}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Due date</span><UiTypography as="span" variant="label">{formatDate(form.dueDate)}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Documents</span><UiTypography as="span" variant="label">{item.documents?.length ?? 0} attached</UiTypography></UiTypography></div><UiButton disabled={busy} onClick={reviewSubmission} variant="primary" type="button" busy={busy}>Review and Submit →</UiButton></UiCardBody></UiCard>
+      <UiCard className="p1832-requestReview"><UiCardBody><div className="p1832-sectionHeading"><UiBadge>5</UiBadge><div><UiTypography as="span" variant="metadata">REVIEW & SUBMIT</UiTypography><UiTypography as="h3" variant="section">Check your request</UiTypography></div></div><div className="p1832-reviewSummary"><UiTypography as="p" variant="body"><span>Payee</span><UiTypography as="span" variant="label">{form.payee || "Not added"}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Purpose</span><UiTypography as="span" variant="label">{form.purpose || "Not added"}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Claim total</span><UiTypography as="span" variant="label">{formatMoney(item.currency, item.amount)} · {item.claimCount ?? item.claimItems?.length ?? 0} claim(s)</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Due date</span><UiTypography as="span" variant="label">{formatDate(form.dueDate)}</UiTypography></UiTypography><UiTypography as="p" variant="body"><span>Documents</span><UiTypography as="span" variant="label">{item.documents?.length ?? 0} attached</UiTypography></UiTypography></div><UiButton disabled={busy} onClick={reviewSubmission} variant="primary" type="button" busy={busy}>Review and Submit →</UiButton></UiCardBody></UiCard>
       {confirming && <UiDialog className="p1832-submitConfirmation" labelledBy="submit-title" describedBy="submit-description" dismissible={!busy} onClose={() => setConfirming(false)}><UiCard><UiCardBody><UiTypography as="span" variant="metadata">FINAL CONFIRMATION</UiTypography><UiTypography id="submit-title" as="h2" variant="section">Submit this request?</UiTypography><UiTypography id="submit-description" as="p" variant="body">After submission, Finance will begin reviewing the request. Editing becomes restricted. If corrections are needed later, Finance may request clarification or revised information.</UiTypography><span role="status" aria-live="polite" className="aims-visually-hidden">{busy?"Submitting request…":""}</span><div><UiButton disabled={busy} onClick={() => setConfirming(false)} variant="secondary" type="button">Continue Editing</UiButton><UiButton disabled={busy} onClick={() => void confirmSubmission()} variant="primary" type="button" busy={busy}>Submit Request</UiButton></div></UiCardBody></UiCard></UiDialog>}
     </> : <RequesterSubmittedDetail item={item} api={api} changed={changed} upload={upload} busy={busy}/>}
   </div>;
 }
 
 function RequesterDocuments({item,editable,upload,remove,busy}:{item:Item;editable:boolean;upload:(event:FormEvent<HTMLFormElement>)=>Promise<void>;remove?:(id:string)=>Promise<void>;busy:boolean}){
-    return <UiCard className="p1832-requesterDocuments" id="supporting-documents"><UiCardBody><div className="p1832-sectionHeading"><UiBadge>3</UiBadge><div><UiTypography as="span" variant="metadata">SUPPORTING DOCUMENTS</UiTypography><UiTypography as="h3" variant="section">Invoices and supporting files</UiTypography><UiTypography as="p" variant="body">Uploaded files are checked before AIMS accepts them as supporting evidence.</UiTypography></div></div>{editable && <form className="p1832-upload" onSubmit={upload}><UiInput name="file" type="file" accept="application/pdf,image/jpeg,image/png" required label="Choose document"/><UiInput name="documentType" placeholder="Invoice, quotation, contract…" label="Document type" helper="Optional"/><UiButton disabled={busy} variant="secondary" type="submit" busy={busy}>{busy ? "Checking document…" : "Upload Document"}</UiButton><UiTypography as="span" variant="metadata">PDF, JPG or PNG · maximum 10 MB · private security check required</UiTypography></form>}<div className="p1832-requesterDocumentList">{item.documents?.map(document => <article key={document.id}><span>DOC</span><div><UiTypography as="span" variant="label">{document.original_filename}</UiTypography><UiTypography as="span" variant="metadata">{document.document_type || "Supporting document"} · {Math.ceil(Number(document.size_bytes) / 1024)} KB{document.uploaded_at ? ` · ${formatDate(document.uploaded_at)}` : ""}</UiTypography><UiStatusChip status={document.security_status ?? "QUARANTINED"} role="status"/></div>{editable && remove && <UiButton aria-label={`Remove ${document.original_filename}`} onClick={() => void remove(document.id)} variant="danger" type="button">Remove</UiButton>}</article>)}</div>{!item.documents?.length && <UiEmptyState title="No documents attached"><span>Add the files Finance needs to review this payment.</span></UiEmptyState>}{!editable && <UiTypography className="p1832-documentLock" as="p" variant="body">Only documents marked Ready are trusted supporting evidence. Documents are locked after submission unless Finance requests a replacement.</UiTypography>}</UiCardBody></UiCard>;
+    return <UiCard className="p1832-requesterDocuments" id="supporting-documents"><UiCardBody><div className="p1832-sectionHeading"><UiBadge>4</UiBadge><div><UiTypography as="span" variant="metadata">SUPPORTING DOCUMENTS</UiTypography><UiTypography as="h3" variant="section">Invoices and supporting files</UiTypography><UiTypography as="p" variant="body">Uploaded files are checked before AIMS accepts them as supporting evidence.</UiTypography></div></div>{editable && <form className="p1832-upload" onSubmit={upload}><UiInput name="file" type="file" accept="application/pdf,image/jpeg,image/png" required label="Choose document"/><UiInput name="documentType" placeholder="Invoice, quotation, contract…" label="Document type" helper="Optional"/><UiButton disabled={busy} variant="secondary" type="submit" busy={busy}>{busy ? "Checking document…" : "Upload Document"}</UiButton><UiTypography as="span" variant="metadata">PDF, JPG or PNG · maximum 10 MB · private security check required</UiTypography></form>}<div className="p1832-requesterDocumentList">{item.documents?.map(document => <article key={document.id}><span>DOC</span><div><UiTypography as="span" variant="label">{document.original_filename}</UiTypography><UiTypography as="span" variant="metadata">{document.document_type || "Supporting document"} · {Math.ceil(Number(document.size_bytes) / 1024)} KB{document.uploaded_at ? ` · ${formatDate(document.uploaded_at)}` : ""}</UiTypography><UiStatusChip status={document.security_status ?? "QUARANTINED"} role="status"/></div>{editable && remove && <UiButton aria-label={`Remove ${document.original_filename}`} onClick={() => void remove(document.id)} variant="danger" type="button">Remove</UiButton>}</article>)}</div>{!item.documents?.length && <UiEmptyState title="No documents attached"><span>Add the files Finance needs to review this payment.</span></UiEmptyState>}{!editable && <UiTypography className="p1832-documentLock" as="p" variant="body">Only documents marked Ready are trusted supporting evidence. Documents are locked after submission unless Finance requests a replacement.</UiTypography>}</UiCardBody></UiCard>;
 }
 
 function DocumentSecurityStatus({status}:{status?:"QUARANTINED"|"SCANNING"|"CLEAN"|"REJECTED"|"SCAN_FAILED"}){
@@ -1809,6 +2010,7 @@ function RequesterSubmittedDetail({item,api,changed,upload,busy}:{item:Item;api:
   async function respond(){if(!active||!response.trim())return;setResponding(true);setResponseNotice("");try{const path=active.type==="APPROVAL"?`/payment-requests/${item.id}/approval-clarifications/${active.id}/respond`:active.type==="POLICY"?`/payment-requests/${item.id}/policy-clarifications/${active.id}/respond`:`/payment-requests/${item.id}/clarifications/${active.id}/respond`;await api(path,{method:"POST",body:JSON.stringify(active.type==="POLICY"?{justification:response.trim()}:{response:response.trim()})});setResponseNotice("Your response was submitted. Finance can continue reviewing the request.");setResponse("");await changed()}catch(error){setResponseNotice(humanizeRequestError(error))}finally{setResponding(false)}}
     return <div className="p1832-requesterSubmittedDetail"><RequesterDetailOverview item={item}/>{active && <UiCard className="p1832-clarificationPanel" aria-labelledby="clarification-title"><UiCardBody><UiTypography as="span" variant="metadata">ACTION REQUIRED</UiTypography><UiTypography id="clarification-title" as="h2" variant="section">Finance needs information from you</UiTypography><UiTypography as="p" variant="body">Your request cannot continue until you respond.</UiTypography><dl><div><dt>Requested by</dt><dd>{active.type === "APPROVAL" ? "Approval team" : active.type === "POLICY" ? "Finance policy review" : "Finance"}</dd></div><div><dt>Requested</dt><dd>{formatDate(active.requestedAt)}</dd></div><div><dt>Information needed</dt><dd>{active.question}</dd></div></dl><UiTextarea label="Your response" required id="clarification-response" value={response} onChange={event => setResponse(event.target.value)} placeholder="Provide the requested information" maxLength={4000}/>{item.status === "NEEDS_CLARIFICATION" && <RequesterDocuments item={item} editable upload={upload} busy={busy}/>}<UiButton disabled={responding || !response.trim()} onClick={() => void respond()} variant="primary" type="button" busy={responding}>Submit Response</UiButton>{responseNotice && <UiAlert className="" role="status">{responseNotice}</UiAlert>}</UiCardBody></UiCard>}
     <UiCard className="p1832-requestDetailsCard"><UiCardBody><div className="p1832-sectionHeading"><div><UiTypography as="span" variant="metadata">REQUEST DETAILS</UiTypography><UiTypography as="h3" variant="section">Payment request</UiTypography></div></div><dl><div><dt>Ticket</dt><dd>{item.ticketNumber}</dd></div><div><dt>Payee</dt><dd>{item.payee}</dd></div><div><dt>Purpose</dt><dd>{item.purpose}</dd></div><div><dt>Category</dt><dd>{item.category}</dd></div><div><dt>Amount</dt><dd>{formatMoney(item.currency, item.amount)}</dd></div><div><dt>Due date</dt><dd>{formatDate(item.dueDate)}</dd></div><div><dt>Payment method</dt><dd>{item.paymentMethod?.replaceAll("_", " ")}</dd></div><div><dt>Submitted</dt><dd>{formatDate(item.submittedAt)}</dd></div></dl></UiCardBody></UiCard>
+    <ClaimItemsEditor item={item} api={api} editable={false} changed={changed} departmentId={item.departmentId}/>
     {!active && <RequesterDocuments item={item} editable={false} upload={upload} busy={busy}/>}
     <UiCard className="p1832-requesterStatusCard"><UiCardBody><UiTypography as="span" variant="metadata">APPROVAL & FINANCE STATUS</UiTypography><UiTypography as="h3" variant="section">{requesterStatusPresentation[item.status].label}</UiTypography><UiTypography as="p" variant="body">{item.status === "READY_FOR_PAYMENT" ? "All required approval and Finance checks are complete. Payment has not yet been recorded." : item.status === "PAID" ? "Finance has recorded the completed external payment in AIMS." : item.status === "REJECTED" ? "This request was not approved. Review the requester-visible activity below for available information." : requesterStatusPresentation[item.status].action}</UiTypography></UiCardBody></UiCard>
     {history.length > 0 && <UiCard className="p1832-clarificationHistory"><UiCardBody><UiTypography as="span" variant="metadata">CLARIFICATION HISTORY</UiTypography><UiTypography as="h3" variant="section">Conversation</UiTypography>{history.map(entry => <article key={entry.id}><div><UiTypography as="span" variant="label">{entry.type === "APPROVAL" ? "Approval team" : entry.type === "POLICY" ? "Finance policy review" : "Finance"}</UiTypography><UiTypography as="span" variant="metadata">{formatDate(entry.requestedAt)}</UiTypography><UiTypography as="p" variant="body">{entry.question}</UiTypography></div>{entry.response && <div className="p1832-requesterReply"><UiTypography as="span" variant="label">You</UiTypography><UiTypography as="span" variant="metadata">{formatDate(entry.respondedAt)}</UiTypography><UiTypography as="p" variant="body">{entry.response}</UiTypography></div>}{entry.status !== "OPEN" && !entry.response && <UiTypography className="p1832-staleClarification" as="p" variant="body">This clarification is no longer active.</UiTypography>}</article>)}</UiCardBody></UiCard>}
@@ -3703,9 +3905,9 @@ function financeQueueItem(x: Record<string, unknown>): Item {
 function requesterListItem(x:Record<string,unknown>):Item{
   return {id:String(x.id),ticketNumber:x.ticket_number?String(x.ticket_number):null,status:String(x.status) as Item["status"],payee:x.payee?String(x.payee):null,purpose:x.purpose?String(x.purpose):null,category:null,amount:x.amount?String(x.amount):null,currency:x.currency?String(x.currency):null,departmentId:"",dueDate:x.due_date?String(x.due_date):null,paymentMethod:null,paymentDetails:null,remark:null,submittedAt:x.submitted_at?String(x.submitted_at):null,createdAt:x.created_at?String(x.created_at):null,updatedAt:x.updated_at?String(x.updated_at):null};
 }
-function requesterDetailItem(safe:{request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>;clarifications?:Array<Record<string,unknown>>;payment?:Record<string,unknown>|null}):Item{
+function requesterDetailItem(safe:{request:Record<string,unknown>;documents:Array<Record<string,unknown>>;activity:Array<Record<string,unknown>>;clarifications?:Array<Record<string,unknown>>;payment?:Record<string,unknown>|null;claimItems?:Array<Record<string,unknown>>}):Item{
   const x=safe.request;
-  return {...requesterListItem(x),category:x.category?String(x.category):null,departmentId:String(x.department_id),paymentMethod:x.payment_method?String(x.payment_method):null,paymentDetails:x.payment_details?String(x.payment_details):null,remark:x.remark?String(x.remark):null,documents:safe.documents.map(d=>({id:String(d.id),original_filename:String(d.original_filename),size_bytes:String(d.size_bytes),version:Number(d.version),document_type:d.document_type?String(d.document_type):undefined,uploaded_at:d.uploaded_at?String(d.uploaded_at):undefined,security_status:d.security_status?String(d.security_status) as "QUARANTINED"|"SCANNING"|"CLEAN"|"REJECTED"|"SCAN_FAILED":undefined})),audit:safe.activity.map(a=>({id:`${String(a.occurred_at)}-${String(a.action)}`,action:String(a.action),occurred_at:String(a.occurred_at)})),clarifications:(safe.clarifications??[]).map(c=>({id:String(c.id),type:String(c.clarification_type),question:String(c.question),status:String(c.status),requestedAt:String(c.requested_at),response:c.response?String(c.response):null,respondedAt:c.responded_at?String(c.responded_at):null})),paymentSummary:safe.payment?{paymentDate:String(safe.payment.payment_date),status:String(safe.payment.status),amountMinor:String(safe.payment.amount_minor),currency:String(safe.payment.currency),paymentMethod:String(safe.payment.payment_method),recordedAt:String(safe.payment.recorded_at)}:null};
+  return {...requesterListItem(x),category:x.category?String(x.category):null,departmentId:String(x.department_id),paymentMethod:x.payment_method?String(x.payment_method):null,paymentDetails:x.payment_details?String(x.payment_details):null,remark:x.remark?String(x.remark):null,totalTaxAmount:x.total_tax_amount?String(x.total_tax_amount):null,claimCount:x.claim_count!==undefined?Number(x.claim_count):undefined,attachmentCount:x.attachment_count!==undefined?Number(x.attachment_count):undefined,claimItems:(safe.claimItems??[]).map(c=>({id:String(c.id),invoiceNumber:c.invoice_number?String(c.invoice_number):null,invoiceDate:c.invoice_date?String(c.invoice_date):null,category:String(c.category),projectId:c.project_id?String(c.project_id):null,departmentId:String(c.department_id),currency:String(c.currency),amount:String(c.amount),taxAmount:c.tax_amount?String(c.tax_amount):null,description:c.description?String(c.description):null,remark:c.remark?String(c.remark):null,paymentMethod:c.payment_method?String(c.payment_method):null,displayOrder:Number(c.display_order),rowVersion:Number(c.row_version)})),documents:safe.documents.map(d=>({id:String(d.id),original_filename:String(d.original_filename),size_bytes:String(d.size_bytes),version:Number(d.version),document_type:d.document_type?String(d.document_type):undefined,uploaded_at:d.uploaded_at?String(d.uploaded_at):undefined,security_status:d.security_status?String(d.security_status) as "QUARANTINED"|"SCANNING"|"CLEAN"|"REJECTED"|"SCAN_FAILED":undefined,claim_item_id:d.claim_item_id?String(d.claim_item_id):null})),audit:safe.activity.map(a=>({id:`${String(a.occurred_at)}-${String(a.action)}`,action:String(a.action),occurred_at:String(a.occurred_at)})),clarifications:(safe.clarifications??[]).map(c=>({id:String(c.id),type:String(c.clarification_type),question:String(c.question),status:String(c.status),requestedAt:String(c.requested_at),response:c.response?String(c.response):null,respondedAt:c.responded_at?String(c.responded_at):null})),paymentSummary:safe.payment?{paymentDate:String(safe.payment.payment_date),status:String(safe.payment.status),amountMinor:String(safe.payment.amount_minor),currency:String(safe.payment.currency),paymentMethod:String(safe.payment.payment_method),recordedAt:String(safe.payment.recorded_at)}:null};
 }
 
 function paymentQueueItem(x: Record<string, unknown>): Item {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {Postgres} from '../src/infrastructure/database/postgres.js';
 import {PaymentRequestService} from '../src/application/payment-requests/payment-request.service.js';
+import {ClaimItemService} from '../src/application/claim-items/claim-item.service.js';
 import {PortalService} from '../src/application/portal/portal.service.js';
 import type {Principal} from '../src/domain/payment-request.js';
 const actor:Principal={id:'10000000-0000-4000-8000-000000000001',departmentId:'00000000-0000-4000-8000-000000000001',roles:['REQUESTER']};
@@ -17,10 +18,11 @@ test('DATE stays date-only across pools and timezones; timestamp parsing is unch
  }}finally{if(original===undefined)delete process.env.TZ;else process.env.TZ=original;await db.onModuleDestroy();}
 });
 test('save, update, submit, portal detail and request history retain the calendar date',async()=>{
- const db=new Postgres(),requests=new PaymentRequestService(db),portal=new PortalService(db),original=process.env.TZ;process.env.TZ='Asia/Kuala_Lumpur';
+ const db=new Postgres(),requests=new PaymentRequestService(db),claimItems=new ClaimItemService(db,requests),portal=new PortalService(db),original=process.env.TZ;process.env.TZ='Asia/Kuala_Lumpur';
  try{
   const draft=await requests.initiate(actor,'date-only-init');
-  await requests.update(draft.id,{payee:'Date-only synthetic vendor',purpose:'Date-only integration',category:'Operations',amount:'12.34',currency:'MYR',dueDate:'2026-09-30',paymentMethod:'BANK_TRANSFER',paymentDetails:'Synthetic'},actor,'date-only-save');
+  await requests.update(draft.id,{payee:'Date-only synthetic vendor',purpose:'Date-only integration',dueDate:'2026-09-30',paymentMethod:'BANK_TRANSFER',paymentDetails:'Synthetic'},actor,'date-only-save');
+  await claimItems.create(draft.id,{category:'Operations',departmentId:actor.departmentId,currency:'MYR',amount:'12.34'},actor,'date-only-claim');
   async function verify(date:string){
    assert.equal((await requests.get(draft.id,actor)).dueDate,date);
    const detail=JSON.parse(JSON.stringify(await portal.requesterDetail(actor,draft.id)));assert.equal(detail.request.due_date,date);

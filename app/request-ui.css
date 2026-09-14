@@ -38,3 +38,22 @@
 .p1832-activity i { width:var(--aims-space-8); height:var(--aims-space-8); border-radius:var(--aims-radius-pill); background:var(--aims-color-neutral); margin-top:var(--aims-space-8); }
 @media(max-width:900px) { .p1832-upload,.p1832-requesterSnapshot > .aims-card-body,.p1832-request dl { grid-template-columns:repeat(2,minmax(0,1fr)); } .p1832-compactJourney { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 @media(max-width:600px) { .p1832-fields,.p1832-upload,.p1832-reviewSummary,.p1832-request dl,.p1832-requesterSnapshot > .aims-card-body,.p1832-requesterRequestHeader .aims-card-body { grid-template-columns:1fr; } .p1832-journeySummary { grid-template-columns:repeat(3,minmax(0,1fr)); } .p1832-requesterDocumentList article { grid-template-columns:auto minmax(0,1fr); } .p1832-requesterDocumentList article > button { grid-column:1 / -1; } }
+
+/* P20.5E: Claim Items (shared by the finance Editor and the requester
+   experience -- ClaimItemsEditor is one component, styled once here). */
+.claimItemsEditor .sectionHeading { justify-content:space-between; align-items:start; gap:var(--aims-space-16); flex-wrap:wrap; }
+.claimTotals { display:flex; gap:var(--aims-space-16); flex-wrap:wrap; }
+.claimTotals span { display:grid; gap:var(--aims-space-4); }
+.claimTotals small { font-size:var(--aims-font-size-12); color:var(--aims-color-text-secondary); }
+.claimItem { border:1px solid var(--aims-color-border); border-radius:var(--aims-radius-medium); padding:var(--aims-space-16); margin-top:var(--aims-space-16); display:grid; gap:var(--aims-space-12); }
+.claimItem > header { display:flex; align-items:center; justify-content:space-between; gap:var(--aims-space-16); flex-wrap:wrap; }
+.claimItem > header > div:first-child { display:grid; gap:var(--aims-space-4); }
+.claimAmount { display:grid; gap:var(--aims-space-4); text-align:right; }
+.claimActions { display:flex; gap:var(--aims-space-8); flex-wrap:wrap; }
+.claimDetail { display:grid; gap:var(--aims-space-8); border-top:1px solid var(--aims-color-border); padding-top:var(--aims-space-12); }
+.claimAttachments { display:grid; gap:var(--aims-space-8); }
+.claimItemDialog { position:fixed; inset:var(--aims-space-0); z-index:var(--aims-layer-dialog); background:color-mix(in srgb,var(--aims-color-neutral) 60%,transparent); display:grid; place-items:center; padding:var(--aims-space-24); overflow:auto; }
+.claimDialogForm { background:var(--aims-color-surface,#fff); border-radius:var(--aims-radius-medium); padding:var(--aims-space-24); width:min(100%,calc(var(--aims-space-64) * 8)); max-height:100%; overflow:auto; display:grid; gap:var(--aims-space-16); }
+.claimDialogActions { display:flex; justify-content:flex-end; gap:var(--aims-space-12); }
+@media(max-width:600px) { .claimItem > header { flex-direction:column; align-items:flex-start; } .claimAmount { text-align:left; } }
+.editorGrid > .claimItemsEditor { grid-column:1 / -1; }

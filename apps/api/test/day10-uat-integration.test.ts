@@ -10,6 +10,7 @@ import { FinanceControlService } from "../src/application/finance-control/financ
 import type { FinanceConfirmationCode } from "../src/application/finance-control/finance-control.dto.js";
 import { FinancialAnalysisService } from "../src/application/financial-analysis/financial-analysis.service.js";
 import { PaymentRequestService } from "../src/application/payment-requests/payment-request.service.js";
+import { ClaimItemService } from "../src/application/claim-items/claim-item.service.js";
 import { PaymentService } from "../src/application/payments/payment.service.js";
 import { PolicyService } from "../src/application/policy/policy.service.js";
 import { ValidationService } from "../src/application/validation/validation.service.js";
@@ -54,7 +55,8 @@ async function runScenario(db: Postgres, scenario: Scenario) {
     context = new FinanceContextService(db,requests), policy = await configurePolicy(db,scenario),
     dashboard = new DashboardService(db), beforeSummary = await dashboard.summary(finance,{page:1,pageSize:25});
   const draft = await requests.initiate(requester,`${scenario.label}-init`);
-  await requests.update(draft.id,{ payee:`UAT ${scenario.label} ${randomUUID()}`,purpose:`Day 10.1 ${scenario.label}`,category:"Operations",amount:scenario.amount??"10.00",currency:"MYR",dueDate:"2026-10-30",paymentMethod:"BANK_TRANSFER",paymentDetails:"Synthetic UAT beneficiary" },requester,`${scenario.label}-capture`);
+  await requests.update(draft.id,{ payee:`UAT ${scenario.label} ${randomUUID()}`,purpose:`Day 10.1 ${scenario.label}`,dueDate:"2026-10-30",paymentMethod:"BANK_TRANSFER",paymentDetails:"Synthetic UAT beneficiary" },requester,`${scenario.label}-capture`);
+  await new ClaimItemService(db,requests).create(draft.id,{ category:"Operations",departmentId:requester.departmentId,currency:"MYR",amount:scenario.amount??"10.00" },requester,`${scenario.label}-claim`);
   const request = await requests.submit(draft.id,requester,`${scenario.label}-submit`);
   await addDocument(db,request.id,`${scenario.label}-invoice.pdf`);
 

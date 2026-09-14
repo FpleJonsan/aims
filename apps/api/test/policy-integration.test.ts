@@ -4,6 +4,7 @@ import test from "node:test";
 import { FinanceContextService } from "../src/application/finance-context/finance-context.service.js";
 import { FinancialAnalysisService } from "../src/application/financial-analysis/financial-analysis.service.js";
 import { PaymentRequestService } from "../src/application/payment-requests/payment-request.service.js";
+import { ClaimItemService } from "../src/application/claim-items/claim-item.service.js";
 import {
   PolicyService,
   fingerprintEvidence,
@@ -104,15 +105,18 @@ async function eligible(
     {
       payee: "Vendor",
       purpose: "Policy test",
-      category: "Operations",
-      amount: "10.00",
-      currency: "MYR",
       dueDate: "2026-09-30",
       paymentMethod: "BANK_TRANSFER",
       paymentDetails: "Synthetic",
     },
     requester,
     "d5-u",
+  );
+  await new ClaimItemService(db, requests).create(
+    d.id,
+    { category: "Operations", departmentId: requester.departmentId, currency: "MYR", amount: "10.00" },
+    requester,
+    "d5-claim",
   );
   const r = await requests.submit(d.id, requester, "d5-s");
   await db.pool.query(

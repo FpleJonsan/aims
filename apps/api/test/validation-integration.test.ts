@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { ConflictException } from "@nestjs/common";
 import { PaymentRequestService } from "../src/application/payment-requests/payment-request.service.js";
+import { ClaimItemService } from "../src/application/claim-items/claim-item.service.js";
 import { ValidationService } from "../src/application/validation/validation.service.js";
 import type { Principal } from "../src/domain/payment-request.js";
 import { Postgres } from "../src/infrastructure/database/postgres.js";
@@ -23,15 +24,18 @@ async function submitted(requests: PaymentRequestService, db: Postgres) {
     {
       payee: "Synthetic Vendor",
       purpose: "Day 2 test",
-      category: "Operations",
-      amount: "10.00",
-      currency: "MYR",
       dueDate: "2026-09-30",
       paymentMethod: "BANK_TRANSFER",
       paymentDetails: "Synthetic",
     },
     requester,
     "d2-update",
+  );
+  await new ClaimItemService(db, requests).create(
+    d.id,
+    { category: "Operations", departmentId: requester.departmentId, currency: "MYR", amount: "10.00" },
+    requester,
+    "d2-claim",
   );
   const submittedRequest = await requests.submit(d.id, requester, "d2-submit");
   await db.pool.query(`INSERT INTO payment_documents(id,payment_request_id,logical_document_id,original_filename,storage_object_key,mime_type,size_bytes,sha256,version,uploaded_by,storage_provider,declared_mime_type,detected_mime_type,security_status,scan_attempt,scan_started_at,scan_completed_at,scan_engine,scan_reference,storage_binding_state,storage_backend_id,storage_object_version,trusted_storage_object_key,trusted_storage_object_version) VALUES($1,$2,$3,'synthetic.pdf',$4,'application/pdf',20,$5,1,$6,'LOCAL','application/pdf','application/pdf','CLEAN',1,now(),now(),'test-scanner','test-clean','VERSION_BOUND','test-fixture',gen_random_uuid()::text,$4,gen_random_uuid()::text)`, [randomUUID(), d.id, randomUUID(), `active/tests/${randomUUID()}`, "0".repeat(64), requester.id]);

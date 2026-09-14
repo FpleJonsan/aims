@@ -8,6 +8,7 @@ import { type ApprovalChannel, TelegramDeliveryError } from "../src/application/
 import { FinanceContextService } from "../src/application/finance-context/finance-context.service.js";
 import { FinancialAnalysisService } from "../src/application/financial-analysis/financial-analysis.service.js";
 import { PaymentRequestService } from "../src/application/payment-requests/payment-request.service.js";
+import { ClaimItemService } from "../src/application/claim-items/claim-item.service.js";
 import { PolicyService } from "../src/application/policy/policy.service.js";
 import { ValidationService } from "../src/application/validation/validation.service.js";
 import type { Principal } from "../src/domain/payment-request.js";
@@ -110,15 +111,18 @@ async function eligible(db: Postgres, amount = "20000.00", automatic = false) {
     {
       payee: "Synthetic Vendor",
       purpose: "Approval integration",
-      category: "Operations",
-      amount,
-      currency: "MYR",
       dueDate: "2026-09-30",
       paymentMethod: "BANK_TRANSFER",
       paymentDetails: "Synthetic",
     },
     requester,
     "d6-u",
+  );
+  await new ClaimItemService(db, requests).create(
+    d.id,
+    { category: "Operations", departmentId: requester.departmentId, currency: "MYR", amount },
+    requester,
+    "d6-claim",
   );
   const r = await requests.submit(d.id, requester, "d6-s");
   await db.pool.query(

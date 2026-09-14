@@ -48,9 +48,9 @@ export class PaymentRequestController {
   @Post(':id/documents')
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10_485_760, files: 1 } }))
-  upload(@Req() request: Request, @Param('id', ParseUUIDPipe) id: string, @UploadedFile() file: Express.Multer.File, @Body('documentType') documentType?: string) {
+  upload(@Req() request: Request, @Param('id', ParseUUIDPipe) id: string, @UploadedFile() file: Express.Multer.File, @Body('documentType') documentType?: string, @Body('claimItemId') claimItemId?: string) {
     if (!file) throw new BadRequestException('A document file is required');
-    return this.documents.upload(id, file, documentType, request.principal, request.correlationId);
+    return this.documents.upload(id, file, documentType, request.principal, request.correlationId, claimItemId);
   }
 
   @Delete(':id/documents/:documentId')

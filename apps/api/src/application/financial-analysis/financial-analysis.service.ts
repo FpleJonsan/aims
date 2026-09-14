@@ -301,10 +301,15 @@ export class FinancialAnalysisService {
       throw new ConflictException(
         "Current Validation and Finance Context are required",
       );
+    const claimItems = await reader.query<any>(
+      "SELECT category, department_id, currency, amount, tax_amount FROM claim_items WHERE payment_request_id=$1 AND internal_status='ACTIVE' ORDER BY display_order, created_at",
+      [id],
+    );
     return {
       request: request.rows[0],
       validation: validation.rows[0],
       context: context.rows[0],
+      claimItems: claimItems.rows,
     };
   }
   private authoritativeInput(e: any) {
@@ -320,6 +325,17 @@ export class FinancialAnalysisService {
         currency: e.request.currency,
         dueDate: e.request.due_date,
       },
+      // The AI receives the request summary plus a per-claim breakdown --
+      // category/department/currency/amount only, no invoice numbers,
+      // descriptions, or remarks (those are accounting detail, not signal
+      // the risk agents need, and keep the deterministic input bounded).
+      claimBreakdown: (e.claimItems ?? []).map((claim: any) => ({
+        category: claim.category,
+        departmentId: claim.department_id,
+        currency: claim.currency,
+        amount: claim.amount,
+        taxAmount: claim.tax_amount,
+      })),
       financeContext: {
         id: c.id,
         version: c.finance_context_version,
