@@ -11,7 +11,11 @@ import {
 import {
   AiProviderError,
   OpenAiCompatibleProvider,
+  resolveTemperature,
+  supportsCustomTemperature,
 } from "../src/infrastructure/ai/openai-compatible-provider.js";
+import { loadPublishedAiConfig } from "../src/application/configuration/ai-runtime-config.js";
+import type { Queryable } from "../src/application/configuration/configuration.types.js";
 const ok = () =>
   new Response(
     JSON.stringify({
@@ -333,4 +337,95 @@ test("document provider input enforces count, per-document, aggregate, and text 
     /Request facts/,
   );
   assert.equal(calls, 0);
+});
+
+// P20.9 RC1 blocker correction — reproduces the confirmed live-preflight
+// failure: OpenAI's reasoning-tier models (gpt-5-mini, the RC's published
+// default) reject an explicit `temperature` with HTTP 400 "Unsupported
+// parameter", so every runtime call that forwarded Business Configuration's
+// temperature unconditionally failed 100% of the time in production, while
+// the standalone smoke tests (which never pass a runtime override) never
+// exercised this path and falsely appeared to prove the integration worked.
+test("supportsCustomTemperature classifies known model families; unrecognized models fail safe (omit)", () => {
+  for (const reasoning of ["gpt-5-mini", "gpt-5", "gpt-5.1-preview", "o1-mini", "o1", "o3", "o3-mini", "o4-mini"])
+    assert.equal(supportsCustomTemperature(reasoning), false, reasoning);
+  for (const chat of ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"])
+    assert.equal(supportsCustomTemperature(chat), true, chat);
+  for (const unknown of ["some-future-model", "claude-3", ""])
+    assert.equal(supportsCustomTemperature(unknown), false, unknown);
+});
+test("resolveTemperature omits for unsupported models and an absent configured value, preserves for supported models, and never mutates its input", () => {
+  assert.equal(resolveTemperature("gpt-5-mini", 0.2), undefined);
+  assert.equal(resolveTemperature("gpt-4o-mini", undefined), undefined);
+  assert.equal(resolveTemperature("gpt-4o-mini", 0.2), 0.2);
+  const overrides = { model: "gpt-5-mini", temperature: 0.2, maxOutputTokens: 4096 };
+  resolveTemperature(overrides.model, overrides.temperature);
+  assert.deepEqual(overrides, { model: "gpt-5-mini", temperature: 0.2, maxOutputTokens: 4096 });
+});
+test("runtime override temperature is capability-gated on the actual outbound Responses API request: omitted for gpt-5-mini (A), preserved for a known temperature-supporting model (B), maxOutputTokens/model untouched", async () => {
+  const bodies: Array<Record<string, unknown>> = [];
+  const captor = (payload: unknown) => async (..._args: Parameters<typeof fetch>) => {
+    bodies.push(JSON.parse((_args[1]?.body as string) ?? "{}"));
+    return new Response(JSON.stringify(payload), { status: 200 });
+  };
+  const documentPayload = {
+    output_text: JSON.stringify({ extractions: [], checks: [], missingInformation: [], overallResult: "PASS", confidence: 1 }),
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+  };
+  const request = { payee: null, amount: null, currency: null, dueDate: null };
+  // A: gpt-5-mini — the RC's published model — must not receive `temperature` at all.
+  const reasoning = new OpenAiCompatibleProvider("key", "gpt-5-mini", "https://provider.test/v1", undefined, {
+    fetch: captor(documentPayload), sleep: async () => {}, random: () => 0,
+  });
+  await reasoning.analyzeDocuments({ request, documents: [] }, { model: "gpt-5-mini", temperature: 0.2, maxOutputTokens: 4096 });
+  const reasoningBody = bodies.at(-1)!;
+  assert.equal("temperature" in reasoningBody, false, "gpt-5-mini must not receive temperature");
+  assert.equal(reasoningBody.model, "gpt-5-mini");
+  assert.equal(reasoningBody.max_output_tokens, 4096, "max_output_tokens is not model-restricted and must pass through unchanged");
+  // B: a known temperature-supporting chat model must receive the configured value unchanged.
+  const chat = new OpenAiCompatibleProvider("key", "gpt-4o-mini", "https://provider.test/v1", undefined, {
+    fetch: captor(documentPayload), sleep: async () => {}, random: () => 0,
+  });
+  await chat.analyzeDocuments({ request, documents: [] }, { model: "gpt-4o-mini", temperature: 0.2, maxOutputTokens: 4096 });
+  const chatBody = bodies.at(-1)!;
+  assert.equal(chatBody.temperature, 0.2, "a temperature-supporting model must still receive the configured value");
+});
+test("Business Configuration's stored temperature survives the runtime path unchanged: loadPublishedAiConfig -> runtime overrides -> capability-gated provider request, with no billable call", async () => {
+  const publishedPayload = {
+    enabled: true, provider: "openai-compatible", model: "gpt-5-mini", temperature: 0.2, maxTokens: 4096,
+    validationAiEnabled: true, documentExtractionEnabled: true, documentValidationEnabled: true,
+    financialAnalysisAiEnabled: false, financialRiskAnalysisEnabled: false, spendingPatternAnalysisEnabled: false,
+    complianceAnalysisEnabled: false, financeWatchEnabled: false, askAimsEnabled: false, manualModeAlwaysAvailable: true,
+  };
+  const fakeClient: Queryable = {
+    query: async <T = unknown>() => ({ rows: [{ payload: publishedPayload }] as T[], rowCount: 1 }),
+  };
+  const aiConfig = await loadPublishedAiConfig(fakeClient);
+  assert.equal(aiConfig.temperature, 0.2, "the runtime config loader must not alter the published value");
+  assert.equal(aiConfig.model, "gpt-5-mini");
+  let called = false;
+  const bodies: Array<Record<string, unknown>> = [];
+  const provider = new OpenAiCompatibleProvider("key", aiConfig.model, "https://provider.test/v1", undefined, {
+    fetch: async (...args: Parameters<typeof fetch>) => {
+      called = true;
+      bodies.push(JSON.parse((args[1]?.body as string) ?? "{}"));
+      return new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({ extractions: [], checks: [], missingInformation: [], overallResult: "PASS", confidence: 1 }),
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        }),
+        { status: 200 },
+      );
+    },
+    sleep: async () => {},
+    random: () => 0,
+  });
+  // The exact overrides shape ValidationService/FinancialAnalysisService build from the loaded config.
+  await provider.analyzeDocuments(
+    { request: { payee: null, amount: null, currency: null, dueDate: null }, documents: [] },
+    { model: aiConfig.model, temperature: aiConfig.temperature, maxOutputTokens: aiConfig.maxTokens },
+  );
+  assert.equal(called, true, "the runtime path must reach the provider (no fetch mocking is a stand-in for a billable call)");
+  assert.equal("temperature" in bodies.at(-1)!, false, "gpt-5-mini's outbound request must omit temperature even though Business Configuration publishes 0.2");
+  assert.equal(publishedPayload.temperature, 0.2, "the published configuration payload itself is never mutated by the runtime path");
 });
