@@ -17,6 +17,8 @@ type AiConfig = {
   financialRiskAnalysisEnabled: boolean;
   spendingPatternAnalysisEnabled: boolean;
   complianceAnalysisEnabled: boolean;
+  financeWatchEnabled: boolean;
+  askAimsEnabled: boolean;
   manualModeAlwaysAvailable: true;
 };
 
@@ -34,6 +36,8 @@ const DEFAULT_VALUE: AiConfig = {
   financialRiskAnalysisEnabled: false,
   spendingPatternAnalysisEnabled: false,
   complianceAnalysisEnabled: false,
+  financeWatchEnabled: false,
+  askAimsEnabled: false,
   manualModeAlwaysAvailable: true,
 };
 
@@ -126,6 +130,15 @@ export default function AiSettingsPage() {
               Compliance analysis
             </label>
           </div>
+          <UiTypography variant="label">AI Finance Intelligence</UiTypography>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" disabled={disabled || !value.enabled} checked={value.financeWatchEnabled} onChange={() => setValue((v) => ({ ...v, financeWatchEnabled: !v.financeWatchEnabled }))} />
+            Finance Watch
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" disabled={disabled || !value.enabled} checked={value.askAimsEnabled} onChange={() => setValue((v) => ({ ...v, askAimsEnabled: !v.askAimsEnabled }))} />
+            Ask AIMS
+          </label>
           <UiSelect label="Manual mode" disabled value="always">
             <option value="always">Always available (cannot be disabled)</option>
           </UiSelect>
