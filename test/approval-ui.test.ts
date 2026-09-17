@@ -35,14 +35,14 @@ const states=(overrides:Record<string,unknown> = {})=>{
  return [merged.policy,merged.data,merged.loading,merged.notice,merged.reason,merged.busy];
 };
 test('loading state shows a named status and hides both the create action and the empty state',()=>{
- const html=render(view(states({loading:true}),{item,user:'demo.finance',api:()=>{throw Error('must not call API while loading')},changed:async()=>{}}));
+ const html=render(view(states({loading:true}),{item,capabilities:{financeAnalysis:true},api:()=>{throw Error('must not call API while loading')},changed:async()=>{}}));
  assert.match(html,/role="status" aria-label="Loading approval…"/);
  assert.doesNotMatch(html,/Create Approval case/);
  assert.doesNotMatch(html,/has not started yet/);
 });
 test('not-started outcome badge, and Create Approval case triggers the exact same POST as before migration',()=>{
  const calls:Array<[string,unknown]>=[];
- const tree=view(states(),{item,user:'demo.finance',api:(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})},changed:async()=>{}});
+ const tree=view(states(),{item,capabilities:{financeAnalysis:true},api:(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})},changed:async()=>{}});
  const html=render(tree);
  assert.match(html,/Not started/);
  const button=nodes(tree).find(n=>text(n)==='Create Approval case');assert.ok(button);
@@ -51,12 +51,12 @@ test('not-started outcome badge, and Create Approval case triggers the exact sam
  assert.deepEqual(calls[0][1],{method:'POST',body:'{}'});
 });
 test('when policy is not yet ready, the empty state replaces the action instead of showing nothing',()=>{
- const html=render(view(states({policy:{ready_for_approval:false}}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const html=render(view(states({policy:{ready_for_approval:false}}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(html,/Approval has not started yet/);
  assert.doesNotMatch(html,/Create Approval case/);
 });
 test('a non-finance viewer never sees the create action even when policy is ready',()=>{
- const html=render(view(states(),{item,user:'demo.approver',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const html=render(view(states(),{item,capabilities:{financeAnalysis:false},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(html,/Approval has not started yet/);
  assert.doesNotMatch(html,/Create Approval case/);
 });
@@ -73,7 +73,7 @@ test('case metadata, decision context, evidence and the sequential route are pre
   evidence:[{id:'e1',original_filename:'invoice.pdf',document_type:'INVOICE',version:1}],
   history:[{action:'APPROVE',channel:'WEB',required_role:'FINANCE_LEAD'}],
  };
- const html=render(view(states({data}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const html=render(view(states({data}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(html,/pd-1/);
  assert.match(html,/Human/);
  assert.match(html,/Active/);
@@ -86,14 +86,14 @@ test('case metadata, decision context, evidence and the sequential route are pre
 });
 test('an empty approval history shows the frozen empty state instead of an invented event',()=>{
  const data={case:{id:'c2',status:'PENDING',policy_decision_run_id:'pd-2',source:'HUMAN'},steps:[],readyForFinanceControl:false,evidence:[],history:[]};
- const html=render(view(states({data}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const html=render(view(states({data}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(html,/No completed actions/);
 });
 test('the current approval step exposes Approve, Reject, and Request clarification, posting identical action payloads',()=>{
  const calls:Array<[string,unknown]>=[];
  const api=(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})};
- const data={case:{id:'c3',status:'PENDING',policy_decision_run_id:'pd-3',source:'HUMAN'},steps:[{id:'step-1',sequence:1,required_role:'FINANCE_LEAD',authority_scope:'DEPARTMENT',reason:'Standard review',status:'ACTIVE'}],readyForFinanceControl:false,evidence:[],history:[]};
- const tree=view(states({data,reason:'Missing supporting documentation'}),{item,user:'demo.approver',api,changed:async()=>{}});
+ const data={case:{id:'c3',status:'PENDING',policy_decision_run_id:'pd-3',source:'HUMAN'},steps:[{id:'step-1',sequence:1,required_role:'FINANCE_LEAD',authority_scope:'DEPARTMENT',reason:'Standard review',status:'ACTIVE'}],readyForFinanceControl:false,evidence:[],history:[],canAct:true};
+ const tree=view(states({data,reason:'Missing supporting documentation'}),{item,capabilities:{financeAnalysis:false},api,changed:async()=>{}});
  const html=render(tree);
  assert.match(html,/Current approval step/);
  assert.match(html,/FINANCE_LEAD · Human decision/);
@@ -112,35 +112,35 @@ test('the current approval step exposes Approve, Reject, and Request clarificati
 });
 test('the current approval step is hidden from non-approvers, and a non-active step shows no action form',()=>{
  const data={case:{id:'c4',status:'PENDING',policy_decision_run_id:'pd-4',source:'HUMAN'},steps:[{id:'step-2',sequence:1,required_role:'FINANCE_LEAD',authority_scope:'DEPARTMENT',reason:'Standard review',status:'WAITING'}],readyForFinanceControl:false,evidence:[],history:[]};
- const financeHtml=render(view(states({data}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const financeHtml=render(view(states({data}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.doesNotMatch(financeHtml,/Current approval step/);
  assert.match(financeHtml,/Waiting/);
 });
 test('a completed case with a REJECTED or CLARIFICATION outcome standardizes status without altering the decision',()=>{
  const rejected={case:{id:'c5',status:'REJECTED',policy_decision_run_id:'pd-5',source:'HUMAN'},steps:[],readyForFinanceControl:false,evidence:[],history:[{action:'REJECT',channel:'WEB',required_role:'FINANCE_LEAD'}]};
- const rejectedHtml=render(view(states({data:rejected}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const rejectedHtml=render(view(states({data:rejected}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(rejectedHtml,/Rejected · Web · FINANCE_LEAD/);
  const clarification={case:{id:'c6',status:'CLARIFICATION',policy_decision_run_id:'pd-6',source:'HUMAN'},steps:[],readyForFinanceControl:false,evidence:[],history:[]};
- const clarificationHtml=render(view(states({data:clarification}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const clarificationHtml=render(view(states({data:clarification}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(clarificationHtml,/Clarification requested/);
 });
 test('readiness for Finance Control shows the exact ready marker text unchanged',()=>{
  const data={case:{id:'c7',status:'APPROVED',policy_decision_run_id:'pd-7',source:'POLICY_AUTO_APPROVAL'},steps:[],readyForFinanceControl:true,evidence:[],history:[]};
- const html=render(view(states({data}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const html=render(view(states({data}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(html,/Policy auto-approval/);
  assert.match(html,/Approval complete · ready for Final Finance Control\./);
 });
 test('busy state disables the pending action and swaps to an accessible busy label via the shared Button pattern',()=>{
- const normalHtml=render(view(states(),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const normalHtml=render(view(states(),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(normalHtml,/aims-button-label">Create Approval case/);
- const busyHtml=render(view(states({busy:true}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const busyHtml=render(view(states({busy:true}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(busyHtml,/aria-busy="true"/);
  assert.match(busyHtml,/disabled=""/);
  assert.match(busyHtml,/aims-button-label">Creating…/);
  assert.match(busyHtml,/aims-button-indicator/);
 });
 test('an in-flight failure surfaces as an announced error without silently discarding it',()=>{
- const html=render(view(states({notice:'Something went wrong'}),{item,user:'demo.finance',api:()=>Promise.resolve({}),changed:async()=>{}}));
+ const html=render(view(states({notice:'Something went wrong'}),{item,capabilities:{financeAnalysis:true},api:()=>Promise.resolve({}),changed:async()=>{}}));
  assert.match(html,/role="alert"[^>]*>Something went wrong/);
 });
 test('approval composition only references frozen tokens and introduces no design literals',async()=>{

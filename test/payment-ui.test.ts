@@ -15,7 +15,8 @@ const imports=source.split('\n').find(line=>line.includes('UIProvider as UiProvi
 const polling=source.split('\n').find(line=>line.includes('import {pollDocuments'))!.replace('"./lib/document-polling"','"./app/lib/document-polling"');
 const require=createRequire(import.meta.url);
 // Snapshot-driven useState (order: slipId, bankReference, paymentDate, notice, busy, record, scanStatus,
-// then useScanPolling's own internal `state`) mirroring the prior migration test harnesses; useEffect and
+// possibleDuplicate, duplicateAcknowledged, then useScanPolling's own internal `state`) mirroring the prior
+// migration test harnesses; useEffect and
 // useCallback are inert for static markup, and useRef returns a fresh {current} box each render — this means
 // useScanPolling's `mounted` ref never flips true (its mount effect never runs), so `scans.retry()` is a
 // harmless no-op here, matching the shared hook's own guard rather than anything specific to this migration.
@@ -35,9 +36,9 @@ type Node={props?:{children?:unknown;onClick?:()=>void;onChange?:(event:{target:
 function nodes(tree:unknown):Node[]{if(Array.isArray(tree))return tree.flatMap(nodes);if(!tree||typeof tree!=='object')return [];const node=tree as Node;return [node,...nodes(node.props?.children)];}
 function text(tree:unknown):string{if(Array.isArray(tree))return tree.map(text).join(' ');if(tree==null||typeof tree==='boolean')return '';if(typeof tree==='object')return text((tree as Node).props?.children);return String(tree);}
 const states=(overrides:Record<string,unknown> = {})=>{
- const base:Record<string,unknown>={slipId:'',bankReference:'',paymentDate:'2026-09-01',notice:'',busy:false,record:null,scanStatus:'',scanPollingState:''};
+ const base:Record<string,unknown>={slipId:'',bankReference:'',paymentDate:'2026-09-01',notice:'',busy:false,record:null,scanStatus:'',possibleDuplicate:false,duplicateAcknowledged:false,scanPollingState:''};
  const merged={...base,...overrides};
- return [merged.slipId,merged.bankReference,merged.paymentDate,merged.notice,merged.busy,merged.record,merged.scanStatus,merged.scanPollingState];
+ return [merged.slipId,merged.bankReference,merged.paymentDate,merged.notice,merged.busy,merged.record,merged.scanStatus,merged.possibleDuplicate,merged.duplicateAcknowledged,merged.scanPollingState];
 };
 
 test('the payment status chip and disclaimer banner render for a not-yet-paid request',()=>{
@@ -72,6 +73,33 @@ test('Record payment is disabled until both a clean slip and a bank reference ar
  assert.equal(body.paymentDate,'2026-09-01');assert.equal(body.amount,'2500.00');assert.equal(body.currency,'MYR');
  assert.equal(body.bankReference,'BR-99');assert.equal(body.slipDocumentId,'doc-1');assert.equal(body.confirmPossibleDuplicate,false);
  assert.ok(typeof body.commandKey==='string'&&body.commandKey.length>0);
+});
+test('the possible-duplicate warning is hidden by default',()=>{
+ const html=render(view(states({slipId:'doc-1',bankReference:'BR-99'}),{item,api:()=>Promise.resolve({}),changed:async()=>{}}));
+ assert.doesNotMatch(html,/Possible duplicate payment/);
+ assert.doesNotMatch(html,/Confirm and record as PAID/);
+});
+test('a possible duplicate defaults to an unacknowledged, disabled confirmation — never a dangerous default',()=>{
+ const tree=view(states({slipId:'doc-1',bankReference:'BR-99',possibleDuplicate:true}),{item,api:()=>Promise.resolve({}),changed:async()=>{}});
+ const html=render(tree);
+ assert.match(html,/Possible duplicate payment/);
+ assert.doesNotMatch(html,/checked=""/);
+ const confirmButton=nodes(tree).find(n=>text(n)==='Confirm and record as PAID');
+ assert.ok(confirmButton);
+ assert.equal((confirmButton as unknown as {props:{disabled?:boolean}}).props.disabled,true);
+});
+test('acknowledging the possible duplicate enables the retry action, which explicitly sends confirmPossibleDuplicate:true',()=>{
+ const calls:Array<[string,unknown]>=[];
+ const api=(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})};
+ const tree=view(states({slipId:'doc-1',bankReference:'BR-99',possibleDuplicate:true,duplicateAcknowledged:true}),{item,api,changed:async()=>{}});
+ assert.match(render(tree),/checked=""/);
+ const confirmButton=nodes(tree).find(n=>text(n)==='Confirm and record as PAID');
+ assert.ok(confirmButton);
+ assert.equal((confirmButton as unknown as {props:{disabled?:boolean}}).props.disabled,false);
+ confirmButton!.props!.onClick!();
+ assert.equal(calls[0][0],'/payment-requests/req-1/payment');
+ const body=JSON.parse((calls[0][1] as {body:string}).body);
+ assert.equal(body.confirmPossibleDuplicate,true);
 });
 test('scan result preserves the clean/rejected badge and the polling status message unchanged',()=>{
  const cleanHtml=render(view(states({scanStatus:'CLEAN'}),{item,api:()=>Promise.resolve({}),changed:async()=>{}}));

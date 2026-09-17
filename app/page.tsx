@@ -125,6 +125,13 @@ const statusStage: Record<Item["status"], number> = {
   READY_FOR_PAYMENT: 8, PAID: 9, REJECTED: 6, CANCELLED:1,
 };
 
+function deriveCurrentStage(status:Item["status"],validationAwaitingReview:boolean):number{
+  // A VALIDATING request whose current validation run has not reached COMPLETED still needs the
+  // Stage 2 human-review controls; the stepper must not default past them to Finance Context.
+  if(status==="VALIDATING"&&validationAwaitingReview)return 2;
+  return statusStage[status];
+}
+
 function availableWorkflowStages(item:Item,capabilities:PortalSession["capabilities"]){
   const available:number[]=[];
   if(item.status!=="DRAFT")available.push(2);
@@ -193,7 +200,8 @@ export default function Home() {
     [routeQuery,setRouteQuery]=useState(""),
     [dashboardDrill, setDashboardDrill] = useState<DashboardDrill|null>(null),
     [mobileNavOpen,setMobileNavOpen]=useState(false),
-    [workflowStage,setWorkflowStage]=useState<number|null>(null);
+    [workflowStage,setWorkflowStage]=useState<number|null>(null),
+    [validationCheck,setValidationCheck]=useState<{id:string;awaiting:boolean}|null>(null);
   const authorizationRefresh=useRef(false);
   const clearProtectedState=useCallback(()=>{
     setItems([]);setSelected(null);setApprovalPagination(null);setWorkQueuePagination(null);setFinanceControlPagination(null);setDashboardDrill(null);
@@ -378,6 +386,17 @@ export default function Home() {
     document.addEventListener("keydown",onKeyDown);
     return()=>document.removeEventListener("keydown",onKeyDown);
   },[mobileNavOpen]);
+  useEffect(()=>{
+    if(workspace!=="finance"||selected?.status!=="VALIDATING")return;
+    const id=selected.id;
+    let active=true;
+    void api(`/payment-requests/${id}/validation`).then(value=>{
+      const current=(value as {current?:{status?:string}}).current;
+      if(active)setValidationCheck({id,awaiting:current?.status!=="COMPLETED"});
+    }).catch(()=>{if(active)setValidationCheck({id,awaiting:false})});
+    return()=>{active=false};
+  },[api,workspace,selected?.id,selected?.status]);
+  const validationAwaitingReview=selected?.status==="VALIDATING"&&validationCheck?.id===selected.id?validationCheck.awaiting:false;
   async function initiate() {
     try {
       const item = (await api("/payment-requests", {
@@ -437,7 +456,7 @@ export default function Home() {
   const financeTitles:Record<FinanceView,string>={"work-queue":"Work Queue",approvals:"Approval Inbox","finance-control":"Finance Control","payment-queue":"Payment Queue","payment-history":"Payment History",dashboard:"Finance Dashboard",ai:"AI Finance Intelligence"};
   const financeDescriptions:Record<FinanceView,string>={"work-queue":"General Finance review within your authorized scope.",approvals:"Requests on which you have actionable Approval authority.","finance-control":"The mandatory final controlled gate before payment readiness.","payment-queue":"Only requests you are authorized to record as externally paid.","payment-history":"Immutable historical payment records within your authorized scope.",dashboard:"Authoritative financial position and operational attention.",ai:"Read-only interpretation grounded in authorized finance evidence."};
   const pageTitle = workspace==="requester"?(requesterHome?"Requester Dashboard":requesterPaymentOnly?"Payment Status":"My Requests"):financeTitles[financeView];
-  const currentStage = selected ? statusStage[selected.status] : -1;
+  const currentStage = selected ? deriveCurrentStage(selected.status,validationAwaitingReview) : -1;
   const selectableWorkflowStages=selected?availableWorkflowStages(selected,session.capabilities):[];
   const activeWorkflowStage=workflowStage!==null&&selectableWorkflowStages.includes(workflowStage)?workflowStage:selectableWorkflowStages.includes(currentStage)?currentStage:(selectableWorkflowStages.at(-1)??currentStage);
   const profile = {initials:session.user.displayName.split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase(),name:session.user.displayName,department:session.user.department};
@@ -1793,7 +1812,7 @@ function Editor({
         "REJECTED",
         "NEEDS_CLARIFICATION",
       ].includes(item.status) && (
-        <ApprovalPanel key={`${item.id}-${policyRevision}`} item={item} api={api} changed={changed} />
+        <ApprovalPanel key={`${item.id}-${policyRevision}`} item={item} capabilities={capabilities} api={api} changed={changed} />
       )}
       {!requesterView&&activeWorkflowStage===7&&[
         "APPROVED",
@@ -2546,6 +2565,7 @@ function FinancialAnalysisPanel({
   };
   type View = {
     id: string;
+    analysis_run_id: string;
     source: string;
     status: string;
     ai_assessment?: {
@@ -2744,7 +2764,7 @@ function FinancialAnalysisPanel({
 function FinancialHumanReview({ item, api, data, reload }: {
   item: Item;
   api: Api;
-  data: {id:string;status:string;ai_assessment?:{riskLevel?:string;priority?:string}};
+  data: {id:string;analysis_run_id:string;status:string;ai_assessment?:{riskLevel?:string;priority?:string}};
   reload:()=>Promise<void>;
 }) {
   const [risk, setRisk] = useState("MEDIUM"),
@@ -2755,7 +2775,7 @@ function FinancialHumanReview({ item, api, data, reload }: {
     if (!data) return;
     try {
       await api(
-        `/payment-requests/${item.id}/financial-analysis/${data.id}/finalize`,
+        `/payment-requests/${item.id}/financial-analysis/${data.analysis_run_id}/finalize`,
         {
           method: "POST",
           body: JSON.stringify({
@@ -3128,10 +3148,12 @@ function approvalChannelLabel(channel: string) {
 }
 function ApprovalPanel({
   item,
+  capabilities,
   api,
   changed,
 }: {
   item: Item;
+  capabilities: PortalSession["capabilities"];
   api: Api;
   changed: () => Promise<void>;
 }) {
@@ -3245,7 +3267,7 @@ function ApprovalPanel({
           {notice && <UiAlert tone="danger">{notice}</UiAlert>}
           {loading && <UiSpinner label="Loading approval…" />}
           {!loading && !data?.case && (
-            policyReadyForApproval(policy,data?.case) ? (
+            capabilities.financeAnalysis && policyReadyForApproval(policy,data?.case) ? (
               <UiButton variant="primary" disabled={busy} busy={busy} busyLabel="Creating…" onClick={() => void create()}>
                 Create Approval case
               </UiButton>
@@ -3727,7 +3749,9 @@ function PaymentPanel({
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
     [record, setRecord] = useState<Record<string, unknown> | null>(null),
-    [scanStatus, setScanStatus] = useState("");
+    [scanStatus, setScanStatus] = useState(""),
+    [possibleDuplicate, setPossibleDuplicate] = useState(false),
+    [duplicateAcknowledged, setDuplicateAcknowledged] = useState(false);
   useEffect(() => {
     if (item.status === "PAID")
       void api(
@@ -3757,14 +3781,16 @@ function PaymentPanel({
       scans.retry();
     }catch(error){setNotice(msg(error))}finally{setBusy(false)}
   }
-  async function pay() {
+  async function pay(confirmPossibleDuplicate = false) {
     if (
+      !confirmPossibleDuplicate &&
       !confirm(
         "Confirm that Finance executed this payment externally and record it as PAID?",
       )
     )
       return;
     setBusy(true);
+    setPossibleDuplicate(false);
     try {
       await api(`/payment-requests/${item.id}/payment`, {
         method: "POST",
@@ -3775,13 +3801,16 @@ function PaymentPanel({
           currency: item.currency,
           bankReference,
           slipDocumentId: slipId,
-          confirmPossibleDuplicate: false,
+          confirmPossibleDuplicate,
         }),
       });
+      setDuplicateAcknowledged(false);
       setNotice("External payment recorded atomically as PAID.");
       await changed();
     } catch (error) {
-      setNotice(msg(error));
+      if (msg(error) === "POSSIBLE_DUPLICATE_PAYMENT_REQUIRES_CONFIRMATION")
+        setPossibleDuplicate(true);
+      else setNotice(msg(error));
     } finally {
       setBusy(false);
     }
@@ -3888,10 +3917,36 @@ function PaymentPanel({
                 variant="primary"
                 disabled={busy || !slipId || !bankReference.trim()}
                 busy={busy}
-                onClick={pay}
+                onClick={() => pay()}
               >
                 Record payment
               </UiButton>
+              {possibleDuplicate && (
+                <UiAlert tone="warning" title="Possible duplicate payment">
+                  <UiTypography as="p" variant="body">
+                    A payment already exists for this payee with the same
+                    amount and currency. Confirm this is not a duplicate
+                    before recording it as PAID.
+                  </UiTypography>
+                  <label className="p1839-duplicateConfirm">
+                    <input
+                      type="checkbox"
+                      checked={duplicateAcknowledged}
+                      onChange={(e) => setDuplicateAcknowledged(e.target.checked)}
+                    />
+                    I have verified this is not a duplicate payment
+                  </label>
+                  <UiButton
+                    type="button"
+                    variant="primary"
+                    disabled={busy || !duplicateAcknowledged}
+                    busy={busy}
+                    onClick={() => pay(true)}
+                  >
+                    Confirm and record as PAID
+                  </UiButton>
+                </UiAlert>
+              )}
             </UiCardBody>
           </UiCard>
         </>

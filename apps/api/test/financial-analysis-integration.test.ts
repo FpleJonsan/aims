@@ -57,3 +57,35 @@ test('concurrent manual submissions finalize exactly one command',async()=>{
   assert.equal((await db.pool.query("SELECT 1 FROM audit_events WHERE entity_id=$1 AND action='MANUAL_FINANCIAL_ANALYSIS_COMPLETED'",[r.id])).rowCount,1);
  } finally {await db.onModuleDestroy()}
 });
+
+test('GET exposes the assessment row\'s own id under the ambiguous "id" column, while analysis_run_id is the id the finalize contract actually requires',async()=>{
+ // The GET query selects `r.*,a.*` (financial_analysis_runs joined with financial_risk_assessments); both
+ // tables have their own "id" column, and node-postgres resolves duplicate column names to the last one
+ // selected — the assessment's id, not the run's. The frontend previously read `data.id` for the finalize
+ // URL's :analysisId param, which the controller/service require to be the *run* id, so it always 409'd.
+ // This proves the correct field (analysis_run_id) round-trips through finalize, and the assessment id does not.
+ const db=new Postgres(),requests=new PaymentRequestService(db),service=new FinancialAnalysisService(db,requests,null);
+ try {
+  const r=await eligible(db,requests);
+  const request=await db.pool.query('SELECT row_version FROM payment_requests WHERE id=$1',[r.id]);
+  const context=await db.pool.query('SELECT id,finance_context_version FROM finance_context_snapshots WHERE payment_request_id=$1 AND is_current',[r.id]);
+  const runId=randomUUID(),assessmentId=randomUUID();
+  await db.pool.query(
+   `INSERT INTO financial_analysis_runs(id,payment_request_id,request_revision,finance_context_snapshot_id,finance_context_version,analysis_version,source,status,created_by)
+    VALUES($1,$2,$3,$4,$5,1,'AI_ASSISTED','AWAITING_HUMAN_REVIEW',$6)`,
+   [runId,r.id,request.rows[0].row_version,context.rows[0].id,context.rows[0].finance_context_version,finance.id],
+  );
+  await db.pool.query(
+   `INSERT INTO financial_risk_assessments(id,analysis_run_id,ai_assessment) VALUES($1,$2,$3)`,
+   [assessmentId,runId,JSON.stringify({riskLevel:manual.riskLevel,priority:manual.priority})],
+  );
+  const view=await service.get(r.id,finance,false) as {id:string;analysis_run_id:string};
+  assert.equal(view.id,assessmentId);
+  assert.equal(view.analysis_run_id,runId);
+  assert.notEqual(view.id,view.analysis_run_id);
+  await assert.rejects(()=>service.finalize(r.id,view.id,manual,finance,'c1-wrong-id'),/Analysis is not awaiting review/);
+  const finalized=await service.finalize(r.id,view.analysis_run_id,manual,finance,'c1-correct-id');
+  assert.equal(finalized.readyForPolicyEvaluation,true);
+  assert.equal((await db.pool.query('SELECT status FROM financial_analysis_runs WHERE id=$1',[runId])).rows[0].status,'FINALIZED');
+ } finally {await db.onModuleDestroy()}
+});

@@ -71,7 +71,11 @@ test('Complete manually posts the exact same fixed assessment payload with the s
 });
 test('Human Review consumes the shared analysis and refreshes through its owner without loading it independently',async()=>{
  const calls:Array<[string,unknown]>=[];let reloads=0;
- const data={id:'run-shared',status:'AWAITING_HUMAN_REVIEW',ai_assessment:{riskLevel:'MEDIUM',priority:'NORMAL'}};
+ // id (the financial_risk_assessments row's own id) and analysis_run_id (the financial_analysis_runs
+ // row's id, which the finalize endpoint's :analysisId expects) are deliberately distinct here: the GET
+ // /financial-analysis response's ambiguous `id` column resolves to the assessment's id, not the run's,
+ // so finalize must address the run by analysis_run_id or it 409s against the wrong record.
+ const data={id:'assessment-own-id',analysis_run_id:'run-shared',status:'AWAITING_HUMAN_REVIEW',ai_assessment:{riskLevel:'MEDIUM',priority:'NORMAL'}};
  const tree=humanView([],{item,data,api:(path:string,init:unknown)=>{calls.push([path,init]);return Promise.resolve({})},reload:async()=>{reloads+=1}});
  assert.match(render(tree),/HUMAN REVIEW · ACCOUNTABLE FINAL ASSESSMENT/);
  assert.equal(calls.length,0);

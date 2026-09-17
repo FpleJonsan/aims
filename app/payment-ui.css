@@ -7,3 +7,4 @@
 .p1839-scan { display:flex; flex-wrap:wrap; align-items:center; gap:var(--aims-space-8); }
 .p1839-upload { display:flex; flex-wrap:wrap; align-items:end; gap:var(--aims-space-12); }
 .p1839-recording { display:flex; flex-wrap:wrap; align-items:end; gap:var(--aims-space-12); }
+.p1839-duplicateConfirm { display:flex; align-items:center; gap:var(--aims-space-8); }

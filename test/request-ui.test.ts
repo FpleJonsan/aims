@@ -8,7 +8,7 @@ import {build} from 'esbuild';
 import ts from 'typescript';
 import postcss from 'postcss';
 const source=await readFile('app/page.tsx','utf8'),ast=ts.createSourceFile('page.tsx',source,99,true,ts.ScriptKind.TSX);
-const names=['RequesterRequestExperience','RequesterDocuments','RequesterSubmittedDetail','RequesterDetailOverview','formatMoney','formatDate'];
+const names=['RequesterRequestExperience','RequesterDocuments','RequesterSubmittedDetail','RequesterDetailOverview','formatMoney','formatDate','ClaimItemsEditor','emptyClaimDraft','claimToDraft'];
 const declarations=ast.statements.filter(n=>ts.isFunctionDeclaration(n)&&names.includes(n.name?.text??'')).map(n=>n.getText(ast));
 const constants=ast.statements.filter(n=>ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>['stages','statusStage'].includes(d.name.getText(ast)))).map(n=>n.getText(ast));
 const imports=source.split('\n').find(line=>line.includes('UIProvider as UiProvider'))!.replace('"./components/ui"','"./app/components/ui/components"');
@@ -23,7 +23,10 @@ function nodes(tree:unknown):Node[]{if(Array.isArray(tree))return tree.flatMap(n
 function text(tree:unknown):string{if(Array.isArray(tree))return tree.map(text).join(' ');if(tree==null||typeof tree==='boolean')return '';if(typeof tree==='object')return text((tree as Node).props?.children);return String(tree);}
 test('draft uses official labelled fields, required semantics, helper and error associations',()=>{
  const html=render(ui.RequesterRequestExperience({...props,fieldErrors:{payee:'Payee required',paymentMethod:'Choose method'}}));
- for(const id of ['payee','category','purpose','amount','currency','dueDate','paymentMethod','paymentDetails','remark'])assert.match(html,new RegExp(`for="request-${id}"`));
+ // category, amount and currency moved from top-level request fields into the per-claim
+ // ClaimItemsEditor breakdown under the multi-claim architecture (P20.5C); they are no longer
+ // rendered as top-level labelled `request-*` fields.
+ for(const id of ['payee','purpose','dueDate','paymentMethod','paymentDetails','remark'])assert.match(html,new RegExp(`for="request-${id}"`));
  assert.match(html,/aria-describedby="request-payee-error"/);assert.match(html,/id="request-payee-error" role="alert"/);
  assert.match(html,/aria-describedby="request-paymentMethod-error"/);assert.match(html,/aria-describedby="request-purpose-helper"/);
  assert.match(html,/<input[^>]*disabled=""[^>]*value="Your assigned department"/);

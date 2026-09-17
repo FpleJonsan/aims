@@ -135,7 +135,7 @@ test('Resolve and recheck posts the identical resolution payload once a note is 
 test('readiness for payment shows the exact ready marker text unchanged',()=>{
  const data={run:{...run,status:'PASSED'},checks:[],confirmations:[],exception:null,readyForPayment:true};
  const html=render(view(states({data}),{item,api:()=>Promise.resolve({}),changed:async()=>{}}));
- assert.match(html,/Final Finance Control passed · READY FOR PAYMENT\.\s*Payment\s*\n?\s*Processing is not implemented in Day 7\./);
+ assert.match(html,/Final Finance Control passed · READY FOR PAYMENT\. Continue in the Payment Queue to record the external payment\./);
 });
 test('control history preserves every run version, humanized status and current marker unchanged',()=>{
  const history=[{id:'h1',run_version:1,status:'SUPERSEDED',is_current:false},{id:'h2',run_version:2,status:'PASSED',is_current:true}];

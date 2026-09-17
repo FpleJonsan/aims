@@ -13,6 +13,8 @@ import { ValidationService } from "../src/application/validation/validation.serv
 import type { Principal } from "../src/domain/payment-request.js";
 import { Postgres } from "../src/infrastructure/database/postgres.js";
 
+type ApprovalStep = { id: string; status: string; sequence: number; parallel_group: number | null };
+
 process.env.TELEGRAM_APPROVAL_ENABLED = "false";
 
 const requester: Principal = { id: "10000000-0000-4000-8000-000000000001", departmentId: "00000000-0000-4000-8000-000000000001", roles: ["REQUESTER"] };
@@ -130,20 +132,20 @@ test("Approval Matrix routes a published parallel-approval rule and pins the mat
     const service = new ApprovalService(db, requests, matrix, delegations);
     const created = await service.create(r.id, finance, "matrix-create");
     assert.ok(created.case.approval_matrix_version_id, "case should pin the matrix version that routed it");
-    const activeSteps = created.steps.filter((s: any) => s.status === "ACTIVE");
+    const activeSteps = created.steps.filter((s: ApprovalStep) => s.status === "ACTIVE");
     assert.equal(activeSteps.length, 2, "both parallel steps should activate together");
-    assert.ok(activeSteps.every((s: any) => s.sequence === 1 && s.parallel_group === 1));
+    assert.ok(activeSteps.every((s: ApprovalStep) => s.sequence === 1 && s.parallel_group === 1));
 
     // First parallel approver acts: group threshold (2) not yet met, case stays pending.
     const first = await service.act(r.id, activeSteps[0].id, { commandKey: randomUUID(), action: "APPROVE" }, approver, "matrix-act-1");
     assert.equal(first.approval!.case.status, "PENDING");
-    const afterFirst = first.approval!.steps.find((s: any) => s.id === activeSteps[1].id);
+    const afterFirst = first.approval!.steps.find((s: ApprovalStep) => s.id === activeSteps[1].id);
     assert.equal(afterFirst.status, "ACTIVE", "the sibling parallel step remains active");
 
     // Second parallel approver acts: group threshold met, advances to the DIRECTOR step.
     const second = await service.act(r.id, activeSteps[1].id, { commandKey: randomUUID(), action: "APPROVE" }, secondApprover, "matrix-act-2");
     assert.equal(second.approval!.case.status, "PENDING");
-    const directorStep = second.approval!.steps.find((s: any) => s.sequence === 2);
+    const directorStep = second.approval!.steps.find((s: ApprovalStep) => s.sequence === 2);
     assert.equal(directorStep.status, "ACTIVE");
 
     const final = await service.act(r.id, directorStep.id, { commandKey: randomUUID(), action: "APPROVE" }, finance, "matrix-act-3");
@@ -196,7 +198,7 @@ test("an active Approval Delegation lets the delegate act, and audit records bot
     const { r, requests } = await eligibleRequest(db);
     const service = new ApprovalService(db, requests, matrix, delegations);
     const created = await service.create(r.id, finance, "delegation-create");
-    const step = created.steps.find((s: any) => s.status === "ACTIVE");
+    const step = created.steps.find((s: ApprovalStep) => s.status === "ACTIVE");
 
     const result = await service.act(r.id, step.id, { commandKey: randomUUID(), action: "APPROVE" }, insufficient, "delegation-act");
     assert.equal(result.approval!.case.status, "APPROVED");

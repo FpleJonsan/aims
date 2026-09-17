@@ -65,10 +65,13 @@ test('category request refresh is debounced once while non-text filters remain d
 });
 test('new library usage is confined to approved Dashboard, Request, Validation, Policy, Approval, Finance Context, Financial Analysis, Finance Control, Payment, and History surfaces',()=>{
  let rest=source.replace(dashboard.getText(ast),'');
- for(const name of ['RequesterRequestExperience','RequesterDocuments','RequesterSubmittedDetail','RequesterDetailOverview','ValidationPanel','PolicyDecisionPanel','ApprovalPanel','FinanceContextPanel','FinancialAnalysisPanel','FinanceControlPanel','PaymentPanel','PaymentHistory']){const fn=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name)!;rest=rest.replace(fn.getText(ast),'');}
+ for(const name of ['RequesterRequestExperience','RequesterDocuments','RequesterSubmittedDetail','RequesterDetailOverview','ClaimItemsEditor','ValidationPanel','PolicyDecisionPanel','ApprovalPanel','FinanceContextPanel','FinancialAnalysisPanel','FinanceControlPanel','PaymentPanel','PaymentHistory','ReportingRequestDrill']){const fn=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name)!;rest=rest.replace(fn.getText(ast),'');}
  for(const name of ['validationSourceBadge','validationRunStatusChip','validationOutcomeBadge','validationCheckStatusBadge','validationSeverityBadge','policyResultBadge','policyFreshnessBadge','policyFlagBadge','policyExceptionStatusBadge','approvalStatusChip','approvalStepBadge','approvalCommitmentBadge','approvalRiskBadge','approvalPriorityBadge','approvalSourceLabel','approvalActionLabel','approvalChannelLabel','financeContextStatusChip','financeExceptionBadge','currencyLabel','financialAnalysisStatusChip','agentStatusChip','riskLevelBadge','priorityBadge','financeControlStatusLabel','financeControlStatusChip','financeControlCheckResultBadge','financeControlDuplicateBadge','paymentStatusChip','paymentScanStatusChip','historyStatusChip','historyControlStatusBadge','historyCommitmentBadge']){const fn=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text===name)!;rest=rest.replace(fn.getText(ast),'');}
  rest=rest.replace(/if\(requesterView\)return <UiProvider[\s\S]*?<\/UiProvider>;/,'');
  rest=rest.replace(/workspace === "requester" && selected \? <UiProvider[\s\S]*?<\/UiProvider>/,'');
+ // Work Queue and Finance Control list pagination render the shared UiPagination control directly in
+ // Home rather than inside a named panel; both are self-closing so no matching close tag is stripped.
+ rest=rest.replace(/<UiPagination[\s\S]*?\/>/g,'');
  const start=rest.indexOf('{workspace === "finance" && showDashboard && session.capabilities.reporting ? <UiProvider');
  const end=rest.indexOf('</UiProvider>',start)+13;
  assert.ok(start>=0);assert.doesNotMatch(rest.slice(0,start)+rest.slice(end),/<Ui[A-Z]/);
