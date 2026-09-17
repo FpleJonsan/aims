@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars and fill in. Never commit terraform.tfvars itself
+# (it stays out of git — add it to .gitignore if not already covered).
+
+# OPEN ITEM — plan §7 / P13-C01. Placeholder used for the cost estimate only.
+aws_region = "ap-southeast-1"
+
+# OPEN ITEM — plan §7. Must be a domain/subdomain you control.
+staging_domain = "staging.aims.example.com"
+
+# Leave null and manage DNS/ACM validation manually if the domain is not in
+# Route 53.
+route53_zone_id = null
+
+# Fill in once CI/CD produces real images. Until then `terraform apply` will
+# create task definitions that fail to start — expected, since the S3 and
+# ClamAV adapter code (Step 3) does not exist yet either.
+# api_image    = "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/aims-staging/api:sha-xxxxxxx"
+# worker_image = "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/aims-staging/worker:sha-xxxxxxx"
+# web_image    = "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/aims-staging/web:sha-xxxxxxx"

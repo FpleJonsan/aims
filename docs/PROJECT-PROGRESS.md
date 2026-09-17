@@ -18,6 +18,7 @@ in this document.
 | Latest migration | `071_p20_7a_enterprise_ui_contracts` |
 | Current branch | `main` |
 | Last verified commit | `0a03c2c` |
+| Staging S0 status | PLAN ONLY — environment plan and Terraform templates drafted (`docs/production/staging-s0-environment-plan.md`, `infra/staging/`); no AWS resource created, no migration run, no identity/storage/scanner adapter implemented; Staging is NOT deployed; Overall Production ready remains NO |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -2212,3 +2213,77 @@ overall RC readiness is decided by the follow-up P20.9 re-sign-off.
 Next: Perform the independent read-only P20.9A documentation review, then
 proceed to P20.9 Final Release Re-Sign-Off. Do not start a new development
 phase.
+
+### 2026-09-18 — Staging S0 environment plan (Step 1 of the ad hoc S0 effort)
+
+Status: PLAN / TEMPLATE ONLY — NO INFRASTRUCTURE CREATED, NO DEPLOYMENT
+
+Starting Commit: `6a9a269`
+
+Ending Commit: NOT COMMITTED (working tree change only; commit is the user's decision)
+
+Schema: 71 → 71 (no migration change)
+
+Summary:
+- The repository does not define an official Staging S0 phase (see PG-030).
+  This entry records the first artifact of an ad hoc user-directed effort to
+  reach a deployable, isolated Staging environment, scoped narrowly to
+  environment planning — not implementation, deployment, or migration.
+- Added `docs/production/staging-s0-environment-plan.md`: topology (AWS,
+  ECS Fargate for all five services — web/api/worker/self-hosted
+  Keycloak/self-hosted ClamAV), ECS-vs-EC2 rationale, network isolation
+  (dedicated VPC, private subnets, least-privilege security groups, no public
+  IP outside the ALB), credential injection design (Secrets Manager + IAM
+  task roles, no static AWS keys), a concrete resource list, and a cost
+  estimate (~$255/month at 24/7, `ap-southeast-1` assumed as a placeholder
+  region pending the open P13-C01 data-residency decision).
+- The plan was written against the actual current code contracts rather than
+  invented ones: `CorporateIdentityProvider`
+  (`apps/api/src/application/auth/corporate-identity.provider.ts`),
+  `DocumentStorage` (`apps/api/src/infrastructure/storage/document-storage.ts`),
+  and `DocumentMalwareScanner`
+  (`apps/api/src/application/documents/document-quarantine-service.ts`), plus
+  their environment-gated construction in
+  `apps/api/src/infrastructure/configuration/provider-boundary.ts` and the
+  unconditional Staging-authentication rejection in
+  `apps/api/src/infrastructure/configuration/production-config.ts`. No
+  `OIDC_*`/`S3_*`/`CLAMAV_*` environment variables existed before this entry;
+  the plan proposes names for them (Step 3 code work will actually wire them
+  in).
+- Added `infra/staging/` — a Terraform template set (VPC/subnets/NAT/S3
+  gateway endpoint, security groups, two RDS PostgreSQL instances
+  (`aims-staging`, `keycloak-staging`, kept separate for blast-radius
+  isolation), S3 bucket with versioning/SSE-KMS/block-public-access, ECR
+  repositories, ECS cluster/services/task definitions for all five services,
+  EFS for ClamAV's virus-definition persistence, ALB with host-based routing
+  and ACM certificate, IAM task/execution roles, empty Secrets Manager secret
+  shells, CloudWatch log groups). No secret value, AWS account, region,
+  domain, or budget was set or created; `variables.tf` leaves `aws_region`
+  and `staging_domain` with no default specifically to force explicit review
+  before any `terraform apply`.
+
+Explicitly NOT changed: application code, test code, SQL migrations,
+database state, business/workflow/financial/AI/authorization logic, or any
+frozen business rule. No AWS account was accessed; no resource, secret, or
+DNS record was created; no adapter class (identity/storage/scanner) was
+implemented; `production-config.ts`'s unconditional Staging-authentication
+rejection was left unchanged (correctly, since no real adapter exists yet).
+
+Verification:
+- Terraform files hand-checked for balanced braces/parens (no `terraform`
+  binary available in this environment to run `fmt`/`validate`); real
+  validation still needs to happen wherever this is actually planned/applied.
+- No test suite, build, or migration was run because no application or
+  database code changed.
+
+Frozen: This is a plan artifact, not an implementation. It does not move
+Staging or Production readiness forward by itself and does not change
+Overall Production ready (remains NO).
+
+Commit Readiness: Documentation and template changes are commit-ready
+pending user review; they authorize nothing by themselves.
+
+Next: User review of the plan and templates (see plan §9 "Approval gate").
+Only after review/approval should Step 2 (actually creating the isolated
+AWS environment) or Step 3 (implementing the Keycloak/S3/ClamAV adapter
+classes) begin, each as its own separately reviewed change.
