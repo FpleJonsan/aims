@@ -43,10 +43,10 @@ resource "aws_db_instance" "aims" {
   parameter_group_name   = aws_db_parameter_group.force_ssl.name
   publicly_accessible    = false
 
-  multi_az                = false # staging cost tradeoff — Production should use true
-  backup_retention_period  = var.rds_backup_retention_days
-  deletion_protection      = true
-  skip_final_snapshot      = false
+  multi_az                  = false # staging cost tradeoff — Production should use true
+  backup_retention_period   = var.rds_backup_retention_days
+  deletion_protection       = true
+  skip_final_snapshot       = false
   final_snapshot_identifier = "aims-staging-final-snapshot"
 
   tags = { Name = "aims-staging-postgres" }
@@ -62,16 +62,16 @@ resource "aws_db_instance" "keycloak" {
   storage_type      = "gp3"
   storage_encrypted = true
 
-  db_name                      = "keycloak"
-  username                     = "keycloak_admin"
-  manage_master_user_password  = true
+  db_name                     = "keycloak"
+  username                    = "keycloak_admin"
+  manage_master_user_password = true
 
   db_subnet_group_name   = aws_db_subnet_group.staging.name
   vpc_security_group_ids = [aws_security_group.rds_keycloak.id]
-  parameter_group_name    = aws_db_parameter_group.force_ssl.name
-  publicly_accessible     = false
+  parameter_group_name   = aws_db_parameter_group.force_ssl.name
+  publicly_accessible    = false
 
-  multi_az                 = false
+  multi_az                  = false
   backup_retention_period   = var.rds_backup_retention_days
   deletion_protection       = true
   skip_final_snapshot       = false

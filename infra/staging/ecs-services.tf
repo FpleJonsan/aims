@@ -13,18 +13,18 @@
 
 locals {
   common_env = {
-    AIMS_ENVIRONMENT        = "staging"
-    NODE_ENV                = "production"
-    AIMS_EXPECTED_DATABASE  = var.aims_expected_database
+    AIMS_ENVIRONMENT           = "staging"
+    NODE_ENV                   = "production"
+    AIMS_EXPECTED_DATABASE     = var.aims_expected_database
     AIMS_SESSION_COOKIE_SECURE = "true"
-    STORAGE_DRIVER          = "object"
-    MALWARE_SCANNER_DRIVER  = "provider"
-    S3_BUCKET               = aws_s3_bucket.documents.bucket
-    S3_REGION               = var.aws_region
-    CLAMAV_HOST             = "clamav.aims-staging.internal"
-    CLAMAV_PORT             = "3310"
-    OIDC_ISSUER_URL         = "https://auth.${var.staging_domain}/realms/aims-staging"
-    OIDC_CLIENT_ID          = "aims-app"
+    STORAGE_DRIVER             = "object"
+    MALWARE_SCANNER_DRIVER     = "provider"
+    S3_BUCKET                  = aws_s3_bucket.documents.bucket
+    S3_REGION                  = var.aws_region
+    CLAMAV_HOST                = "clamav.aims-staging.internal"
+    CLAMAV_PORT                = "3310"
+    OIDC_ISSUER_URL            = "https://auth.${var.staging_domain}/realms/aims-staging"
+    OIDC_CLIENT_ID             = "aims-app"
   }
 }
 
@@ -36,15 +36,15 @@ resource "aws_ecs_task_definition" "api" {
   network_mode             = "awsvpc"
   cpu                      = var.fargate_sizing.api.cpu
   memory                   = var.fargate_sizing.api.memory
-  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  execution_role_arn       = aws_iam_role.execution["api"].arn
   task_role_arn            = aws_iam_role.api_task.arn
 
   container_definitions = jsonencode([{
-    name      = "api"
-    image     = var.api_image
-    essential = true
+    name         = "api"
+    image        = var.api_image
+    essential    = true
     portMappings = [{ name = "api-3001", containerPort = 3001, protocol = "tcp" }]
-    environment = [for k, v in local.common_env : { name = k, value = v }]
+    environment  = [for k, v in local.common_env : { name = k, value = v }]
     secrets = [
       { name = "DATABASE_URL", valueFrom = aws_secretsmanager_secret.staging["DATABASE_URL"].arn },
       { name = "FINANCE_DATABASE_URL", valueFrom = aws_secretsmanager_secret.staging["FINANCE_DATABASE_URL"].arn },
@@ -76,8 +76,8 @@ resource "aws_ecs_service" "api" {
 
   load_balancer {
     target_group_arn = aws_lb_target_group.api.arn
-    container_name    = "api"
-    container_port    = 3001
+    container_name   = "api"
+    container_port   = 3001
   }
 
   service_connect_configuration {
@@ -94,7 +94,7 @@ resource "aws_ecs_task_definition" "worker" {
   network_mode             = "awsvpc"
   cpu                      = var.fargate_sizing.worker.cpu
   memory                   = var.fargate_sizing.worker.memory
-  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  execution_role_arn       = aws_iam_role.execution["worker"].arn
   task_role_arn            = aws_iam_role.worker_task.arn
 
   container_definitions = jsonencode([{
@@ -156,13 +156,13 @@ resource "aws_ecs_task_definition" "web" {
   network_mode             = "awsvpc"
   cpu                      = var.fargate_sizing.web.cpu
   memory                   = var.fargate_sizing.web.memory
-  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  execution_role_arn       = aws_iam_role.execution["web"].arn
   task_role_arn            = aws_iam_role.web_task.arn
 
   container_definitions = jsonencode([{
-    name      = "web"
-    image     = var.web_image
-    essential = true
+    name         = "web"
+    image        = var.web_image
+    essential    = true
     portMappings = [{ containerPort = 3000, protocol = "tcp" }]
     environment = [
       { name = "NODE_ENV", value = "production" },
@@ -194,8 +194,8 @@ resource "aws_ecs_service" "web" {
 
   load_balancer {
     target_group_arn = aws_lb_target_group.web.arn
-    container_name    = "web"
-    container_port    = 3000
+    container_name   = "web"
+    container_port   = 3000
   }
 }
 
@@ -207,21 +207,36 @@ resource "aws_ecs_task_definition" "keycloak" {
   network_mode             = "awsvpc"
   cpu                      = var.fargate_sizing.keycloak.cpu
   memory                   = var.fargate_sizing.keycloak.memory
-  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  execution_role_arn       = aws_iam_role.execution["keycloak"].arn
   task_role_arn            = aws_iam_role.keycloak_task.arn
 
   container_definitions = jsonencode([{
     name      = "keycloak"
     image     = var.keycloak_image
     essential = true
-    command   = ["start", "--optimized"]
-    portMappings = [{ name = "keycloak-8080", containerPort = 8080, protocol = "tcp" }]
+    # NOT "start --optimized": that flag assumes a prior `kc.sh build` step
+    # baked into a custom image (build-time DB vendor, health/metrics
+    # features, etc.). The stock upstream image has not been built that way,
+    # so `--optimized` would fail fast on every start. Plain `start` runs an
+    # implicit build first; switch to a custom Dockerfile + `--optimized`
+    # later if cold-start time becomes a problem (found in review).
+    command = ["start"]
+    portMappings = [
+      { name = "keycloak-8080", containerPort = 8080, protocol = "tcp" },
+      { name = "keycloak-mgmt-9000", containerPort = 9000, protocol = "tcp" },
+    ]
     environment = [
       { name = "KC_DB", value = "postgres" },
       { name = "KC_HOSTNAME", value = "auth.${var.staging_domain}" },
       { name = "KC_PROXY_HEADERS", value = "xforwarded" },
       { name = "KC_HTTP_ENABLED", value = "true" }, # TLS terminates at the ALB; internal hop is private-network HTTP
       { name = "KC_BOOTSTRAP_ADMIN_USERNAME", value = "aims-staging-admin" },
+      # Keycloak 24+ moved /health and /metrics to a separate management
+      # listener (default port 9000); both are OFF by default. Without
+      # KC_HEALTH_ENABLED the ALB health check below would 404 forever and
+      # the service would never register healthy (found in review).
+      { name = "KC_HEALTH_ENABLED", value = "true" },
+      { name = "KC_METRICS_ENABLED", value = "true" },
     ]
     secrets = [
       { name = "KC_DB_URL", valueFrom = aws_secretsmanager_secret.staging["KEYCLOAK_DB_URL"].arn },
@@ -252,8 +267,8 @@ resource "aws_ecs_service" "keycloak" {
 
   load_balancer {
     target_group_arn = aws_lb_target_group.keycloak.arn
-    container_name    = "keycloak"
-    container_port    = 8080
+    container_name   = "keycloak"
+    container_port   = 8080
   }
 
   service_connect_configuration {
@@ -274,7 +289,7 @@ resource "aws_ecs_task_definition" "clamav" {
   network_mode             = "awsvpc"
   cpu                      = var.fargate_sizing.clamav.cpu
   memory                   = var.fargate_sizing.clamav.memory
-  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  execution_role_arn       = aws_iam_role.execution["clamav"].arn
   task_role_arn            = aws_iam_role.clamav_task.arn
 
   volume {
@@ -290,13 +305,17 @@ resource "aws_ecs_task_definition" "clamav" {
   }
 
   container_definitions = jsonencode([{
-    name      = "clamav"
-    image     = var.clamav_image
-    essential = true
+    name         = "clamav"
+    image        = var.clamav_image
+    essential    = true
     portMappings = [{ name = "clamav-3310", containerPort = 3310, protocol = "tcp" }]
     environment = [
       { name = "CLAMAV_NO_FRESHCLAMD", value = "false" },
       { name = "CLAMAV_NO_CLAMD", value = "false" },
+      # Milter integration is unused here (worker talks to clamd directly via
+      # INSTREAM); leaving it on wastes memory and opens an unused listener.
+      # Found in review — the first draft omitted this.
+      { name = "CLAMAV_NO_MILTERD", value = "true" },
     ]
     mountPoints = [{
       sourceVolume  = "clamav-db"
@@ -304,11 +323,19 @@ resource "aws_ecs_task_definition" "clamav" {
       readOnly      = false
     }]
     healthCheck = {
-      command     = ["CMD-SHELL", "clamdcheck.sh || exit 1"]
-      interval    = 30
-      timeout     = 10
-      retries     = 3
-      startPeriod = 120 # first virus-DB sync can take a while
+      # Verify `clamdcheck.sh` exists at this path in the pinned clamav_image
+      # tag before first deploy — the shipped health-check script's name/path
+      # has changed across upstream image revisions (found in review; not verifiable without pulling the actual image).
+      command  = ["CMD-SHELL", "clamdcheck.sh || exit 1"]
+      interval = 30
+      timeout  = 10
+      retries  = 3
+      # Raised from 120s: a cold EFS volume (first-ever start) needs a full
+      # freshclam sync (can be several minutes depending on definition size
+      # and NAT throughput), not just a warm restart. Found in review — 120s
+      # risked the task being killed as unhealthy before the first sync ever
+      # finished.
+      startPeriod = 300
     }
     logConfiguration = {
       logDriver = "awslogs"

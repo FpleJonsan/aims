@@ -52,6 +52,12 @@ resource "aws_s3_bucket_lifecycle_configuration" "documents" {
   rule {
     id     = "abort-incomplete-multipart"
     status = "Enabled"
+    # Empty filter = applies to every object. The provider now requires an
+    # explicit filter/prefix even for a rule that only sets
+    # abort_incomplete_multipart_upload (found via real `terraform validate`
+    # in review — omitting it is a deprecation warning today and a hard
+    # error in a future provider version).
+    filter {}
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }

@@ -18,7 +18,7 @@ in this document.
 | Latest migration | `071_p20_7a_enterprise_ui_contracts` |
 | Current branch | `main` |
 | Last verified commit | `0a03c2c` |
-| Staging S0 status | PLAN ONLY — environment plan and Terraform templates drafted (`docs/production/staging-s0-environment-plan.md`, `infra/staging/`); no AWS resource created, no migration run, no identity/storage/scanner adapter implemented; Staging is NOT deployed; Overall Production ready remains NO |
+| Staging S0 status | PLAN + REVIEWED AND FIXED (templates only) — environment plan, Terraform templates, a review that found and fixed several real template defects, and adapter implementation plans drafted (`docs/production/staging-s0-environment-plan.md`, `docs/production/staging-s0-review-findings.md`, `infra/staging/`); `terraform validate` passes cleanly (static configuration check only — no AWS credentials were used, so a full deployment plan is still unverified); no AWS resource created, no migration run, no identity/storage/scanner adapter implemented; Staging is NOT deployed; Overall Production ready remains NO |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -2287,3 +2287,107 @@ Next: User review of the plan and templates (see plan §9 "Approval gate").
 Only after review/approval should Step 2 (actually creating the isolated
 AWS environment) or Step 3 (implementing the Keycloak/S3/ClamAV adapter
 classes) begin, each as its own separately reviewed change.
+
+### 2026-09-18 — Staging S0 Terraform review and fixes, and adapter plan
+
+Status: REVIEW AND FIXES APPLIED TO TEMPLATES ONLY — NO AWS RESOURCE, NO MIGRATION, NO ADAPTER CODE, NOTHING DEPLOYED OR APPLIED
+
+Starting Commit: `14b9f5f`
+
+Ending Commit: NOT COMMITTED (working tree change only; commit is the user's decision)
+
+Schema: 71 → 71 (no migration change)
+
+Summary:
+- The prior entry's Terraform templates could not be validated at the time
+  (no `terraform` binary available). This entry downloads the official
+  HashiCorp `terraform` v1.9.8 binary to a scratch directory (used
+  read-only, never given real AWS credentials) and actually runs
+  `fmt`/`validate`/`plan` against a copy of `infra/staging/`.
+- Found and fixed a genuine blocking defect: `security-groups.tf`'s
+  `alb`/`web`/`api`/`keycloak` groups referenced each other bidirectionally
+  via inline `ingress`/`egress` blocks, which Terraform's own dependency
+  graph rejects with `Error: Cycle` — reproduced independently in isolation
+  to confirm it was real, not theoretical. Fixed by converting every
+  security-group rule to a standalone `aws_vpc_security_group_ingress_rule`/
+  `..._egress_rule` resource. Also found and fixed: Keycloak's
+  `start --optimized` command (would fail against the unbuilt stock image),
+  a missing `KC_HEALTH_ENABLED`/management-port-9000 wiring that would have
+  left the ALB health check permanently failing, a missing EFS
+  `ClientMount`/`ClientWrite` IAM grant on the ClamAV task role that would
+  have failed the container's volume mount, an over-broad shared
+  task-execution-role Secrets Manager policy (split into 5 per-service
+  roles), missing DNS egress for ClamAV's `freshclam`, an S3 lifecycle-rule
+  provider deprecation warning, and several lower-severity tuning items
+  (milter disabled, longer ClamAV health-check start period). Full list
+  with severities in `docs/production/staging-s0-review-findings.md` §1.
+- Re-ran `terraform validate` against the corrected templates: clean, zero
+  errors/warnings — this is a **static** configuration check (syntax,
+  references, no dependency cycle) that never contacts AWS, not proof a
+  real deployment succeeds. Ran `terraform plan` with placeholder variables
+  and dummy (non-functional) credentials: the dependency graph resolves
+  completely and the run reaches and fails only at the AWS authentication
+  step, rather than an earlier reference/type error — but because no real
+  credentials were used, Terraform never reached real AWS state or a
+  genuine resource-by-resource plan, so **the complete deployment plan
+  remains unverified end-to-end**; that requires real credentials against a
+  real (even if disposable) account, out of scope here.
+- Reviewed IAM/Secrets Manager/S3/database/security-group configuration for
+  least privilege post-fix (staging-s0-review-findings.md §2), Keycloak/
+  ClamAV persistence/update/sizing/failure-handling
+  (§3), and refreshed the cost estimate in
+  `staging-s0-environment-plan.md` §6 against confirmed current US East
+  Fargate/NAT/ALB on-demand rates (fetched this session) with an explicitly
+  labeled regional-premium estimate for `ap-southeast-1` (still an
+  unconfirmed placeholder region, not a data-residency decision — a
+  timezone default is not evidence of legally-required residency). The
+  resulting ~$252/month figure is a **rough estimate under an assumed
+  regional multiplier, not a quote**; budget sign-off needs an actual
+  `ap-southeast-1` price (AWS Pricing Calculator or account-specific quote)
+  first. Also corrected the RDS stop/start cost note after checking AWS's
+  own documentation: stopping an RDS instance pauses compute billing but
+  **storage/backup billing continues**, and AWS **automatically restarts a
+  stopped instance after 7 consecutive days** — so "stop it to save money"
+  is a recurring weekly action (or needs its own scheduled automation), not
+  a one-time toggle. Added a new stop/start cost-applicability table
+  (which resources actually stop billing when stopped vs. which keep
+  billing regardless).
+- Added `docs/production/staging-s0-review-findings.md`: the review above,
+  plus consolidated deployment prerequisites (remote Terraform state
+  backend — currently local-state only; no CI/CD to build the container
+  images the task definitions reference; RDS `rds_superuser`-vs-P6
+  compatibility to verify; ACM/DNS sequencing when the domain is not in
+  Route 53; ClamAV image health-check-script and uid/gid verification), and
+  implementation + acceptance-test plans for the three still-unimplemented
+  adapters (Keycloak identity, S3 storage, ClamAV scanner) — file-level
+  plans only, no code written.
+
+Explicitly NOT changed: application code, test code, SQL migrations,
+database state, business/workflow/financial/AI/authorization logic, or any
+frozen business rule. No AWS account was accessed or credential used (the
+dummy credentials in the `plan` dry-run were literal placeholder strings,
+rejected by AWS as expected); no resource, secret, or DNS record was
+created; no adapter class was implemented.
+
+Verification:
+- `terraform fmt -check -recursive`: clean after applying formatting.
+- `terraform validate`: clean, zero errors/warnings, against the corrected
+  templates.
+- `terraform plan` (placeholder vars, dummy credentials): reaches and fails
+  only at AWS STS authentication, as expected with no real credentials.
+- The security-group cycle (the most severe finding) was independently
+  reproduced in isolation before being declared a real defect, not asserted
+  from static reading alone.
+
+Frozen: This is a review/planning artifact. It does not move Staging or
+Production readiness forward by itself and does not change Overall
+Production ready (remains NO).
+
+Commit Readiness: Documentation and template changes are commit-ready
+pending user review; they authorize nothing by themselves.
+
+Next: User decides which of the three adapters (if any) to implement first,
+per `staging-s0-review-findings.md` §7. Each adapter implementation is its
+own separately reviewed change; Step 2 (creating the actual isolated AWS
+environment) still needs the open items in the main plan's §7 (AWS account,
+region, domain, budget, remote Terraform state backend) resolved first.

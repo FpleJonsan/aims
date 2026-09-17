@@ -8,20 +8,20 @@
 
 locals {
   staging_secret_names = [
-    "DATABASE_URL",               # existing name in secret-boundary.ts — api runtime pool
-    "FINANCE_DATABASE_URL",       # existing name — Finance executor pool
-    "PAYMENT_DATABASE_URL",       # existing name — Payment executor pool
+    "DATABASE_URL",                 # existing name in secret-boundary.ts — api runtime pool
+    "FINANCE_DATABASE_URL",         # existing name — Finance executor pool
+    "PAYMENT_DATABASE_URL",         # existing name — Payment executor pool
     "DOCUMENT_WORKER_DATABASE_URL", # existing name — document worker pool
-    "OIDC_CLIENT_SECRET",         # proposed — Keycloak aims-app client secret
-    "KEYCLOAK_DB_URL",            # proposed — keycloak-staging RDS connection
-    "KEYCLOAK_ADMIN_PASSWORD",    # proposed — bootstrap only, rotate after first login
+    "OIDC_CLIENT_SECRET",           # proposed — Keycloak aims-app client secret
+    "KEYCLOAK_DB_URL",              # proposed — keycloak-staging RDS connection
+    "KEYCLOAK_ADMIN_PASSWORD",      # proposed — bootstrap only, rotate after first login
   ]
 }
 
 resource "aws_secretsmanager_secret" "staging" {
   for_each                = toset(local.staging_secret_names)
   name                    = "aims-staging/${each.value}"
-  description              = "AIMS Staging — ${each.value}. Value set out-of-band, never by Terraform."
+  description             = "AIMS Staging — ${each.value}. Value set out-of-band, never by Terraform."
   recovery_window_in_days = 7
 
   tags = { Name = "aims-staging-${lower(each.value)}" }

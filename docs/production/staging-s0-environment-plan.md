@@ -181,8 +181,19 @@ moving to EC2.
   - `api-sg`: inbound from `alb-sg` and `web-sg`; outbound to `rds-aims-sg`, `keycloak-sg`, `clamav-sg`, S3 endpoint, Secrets Manager.
   - `worker-sg`: inbound none; outbound to `rds-aims-sg`, `clamav-sg`, S3 endpoint, Secrets Manager.
   - `keycloak-sg`: inbound from `alb-sg` and `api-sg`; outbound to `rds-keycloak-sg`.
-  - `clamav-sg`: inbound from `api-sg`/`worker-sg` on the clamd port only; outbound to NAT (virus-definition mirrors) only.
-  - `rds-aims-sg` / `rds-keycloak-sg`: inbound 5432 from their respective app security groups only.
+  - `clamav-sg`: inbound from `api-sg`/`worker-sg` on the clamd port only; outbound to NAT on 443 (virus-definition mirrors) and 53 tcp/udp (DNS resolution for the mirror hostnames).
+  - `rds-aims-sg` / `rds-keycloak-sg`: inbound 5432 from their respective app security groups only; no egress rule (neither instance uses a feature that needs one — see the read-only review for why this is a deliberate choice, not an oversight).
+
+  Implementation note (from the read-only Terraform review,
+  `docs/production/staging-s0-review-findings.md` §1): these groups
+  reference each other bidirectionally (e.g. `alb-sg` ↔ `web-sg`), which
+  cannot be expressed as inline `ingress`/`egress` blocks on
+  `aws_security_group` — Terraform's own dependency graph rejects that with
+  a literal `Error: Cycle`, confirmed by actually running
+  `terraform validate` against the first draft. `infra/staging/security-groups.tf`
+  now declares each group as a bare shell plus one
+  `aws_vpc_security_group_ingress_rule` / `..._egress_rule` resource per
+  rule, which resolves the cycle while keeping the same effective access.
 - **RDS**: `publicly_accessible = false` on both instances; parameter group
   forces `rds.force_ssl = 1`; application connection strings use
   `sslmode=verify-full` against the AWS RDS CA bundle, matching
@@ -254,52 +265,88 @@ transport (not the system of record).
 
 **Region used for costing: `ap-southeast-1` (Singapore)** — chosen only as a
 placeholder because `.env.example`'s `BUSINESS_TIMEZONE=Asia/Kuala_Lumpur`
-suggests the business is Malaysia-based, so this is the nearest AWS region;
-it is **not** an approved data-residency decision (that is P13-C01, an open
-Company/Legal input — see §7). All figures below are planning-grade
-estimates from public on-demand list pricing, not a quote; validate with the
-AWS Pricing Calculator once region and sizing are confirmed.
+suggests the business is Malaysia-based, so this is the nearest AWS region.
+This is a timezone, **not** a data-residency decision — it is not evidence
+about where data is legally allowed to live, and does not substitute for
+P13-C01 (Legal/Security/Finance-data-owner sign-off, still open — see §7).
 
-Assumptions: on-demand pricing (no Reserved/Savings Plans yet — staging
-usage is presumed intermittent), single-AZ RDS (no Multi-AZ), 1 NAT Gateway,
-low traffic (<50 GB/month egress, <10 GB/month NAT-processed), tasks running
-24/7 (see the scale-to-zero note below for how to cut this materially).
+**Pricing sources**: AWS does not publish region-specific rate tables as
+static, machine-readable text on its pricing pages (they render
+interactively), so exact `ap-southeast-1` figures could not be pulled
+automatically this session. What follows instead cites the **confirmed
+current US East (N. Virginia) on-demand list rate** for each line (fetched
+this session from `aws.amazon.com/fargate/pricing`,
+`aws.amazon.com/vpc/pricing`, and `aws.amazon.com/elasticloadbalancing/pricing`)
+and applies a **+15% Singapore-region estimate** — within the commonly-cited
+10–30% Asia-Pacific premium range for these services, but not itself an
+AWS-published `ap-southeast-1` figure. **Every `ap-southeast-1` number below,
+and the ~$252/month total, is therefore a rough estimate under an assumed
+regional multiplier — not a quote, and not a substitute for a real
+`ap-southeast-1` price. Budget approval must not be based on this table
+alone: obtain the actual `ap-southeast-1` on-demand price (AWS Pricing
+Calculator, or an account-specific quote) before sign-off.**
 
-| Resource | Configuration | Est. monthly cost (USD) |
+Assumptions: on-demand pricing (no Reserved/Savings Plans — staging usage is
+presumed intermittent), single-AZ RDS (no Multi-AZ), 1 NAT Gateway, low
+traffic (<50 GB/month egress, <10 GB/month NAT-processed), tasks running
+24/7 (see the stop/start table below for what that actually buys you).
+
+| Resource | Configuration | US East confirmed rate | Est. `ap-southeast-1` (+15%) |
+| --- | --- | --- | --- |
+| ECS Fargate — `api` | 0.5 vCPU / 1 GB, 1 task, 24/7 | $0.04048/vCPU-hr + $0.004445/GB-hr → $18.02/mo | ~$21 |
+| ECS Fargate — `worker` | 0.5 vCPU / 1 GB, 1 task, 24/7 | same as above | ~$21 |
+| ECS Fargate — `web` | 0.25 vCPU / 0.5 GB, 1 task, 24/7 | → $9.01/mo | ~$10 |
+| ECS Fargate — `keycloak` | 1 vCPU / 2 GB, 1 task, 24/7 | → $36.04/mo | ~$41 |
+| ECS Fargate — `clamav` | 1 vCPU / 2 GB, 1 task, 24/7 | → $36.04/mo | ~$41 |
+| RDS PostgreSQL — `aims-staging` | db.t4g.micro, single-AZ, 20 GB gp3, 7-day backups | $0.016/hr instance ($11.68/mo) + ~$2.30 storage + ~$1 backup | ~$17 |
+| RDS PostgreSQL — `keycloak-staging` | db.t4g.micro, single-AZ, 20 GB gp3 | same as above | ~$17 |
+| Application Load Balancer | 1 ALB, ~2 LCU average | $0.0225/hr + $0.008/LCU-hr → $28.11/mo | ~$32 |
+| NAT Gateway | 1, low data volume | $0.045/hr + $0.045/GB → $33.30/mo | ~$38 |
+| S3 | ~20–40 GB incl. versioning, SSE-KMS | not independently re-confirmed this session; general published rate ~$0.023/GB-mo | ~$3 |
+| EFS | ClamAV virus-DB volume, <5 GB | general published Standard rate ~$0.30/GB-mo | ~$2 |
+| Secrets Manager | 9 secrets (7 app-level + 2 RDS-auto-created master passwords) | $0.40/secret/mo (stable, not region-multiplied here) | ~$4 |
+| CloudWatch Logs | 5 log groups, ~5 GB/month ingestion, no alarms configured yet | general published rate ~$0.50/GB ingestion | ~$3 |
+| Route 53 hosted zone | 1 (if DNS delegated to AWS) | $0.50/mo flat, global pricing | ~$1 |
+| ECR | 3 repositories, small images | negligible | ~$1 |
+| Misc data transfer | | | ~$2 |
+| **Total (24/7)** | | | **~$252/month** |
+
+Rows marked "not independently re-confirmed this session" use figures that
+match what this session already had before searching (i.e. unchanged from
+the original draft), not numbers freshly pulled from an AWS pricing page —
+called out explicitly so you know which lines to double-check hardest before
+relying on the total.
+
+### Stop/start cost applicability — what actually stops accruing cost
+
+| Resource | Cost while stopped/idle | Why |
 | --- | --- | --- |
-| ECS Fargate — `api` | 0.5 vCPU / 1 GB, 1 task | ~$21 |
-| ECS Fargate — `worker` | 0.5 vCPU / 1 GB, 1 task | ~$21 |
-| ECS Fargate — `web` | 0.25 vCPU / 0.5 GB, 1 task | ~$10 |
-| ECS Fargate — `keycloak` | 1 vCPU / 2 GB, 1 task | ~$41 |
-| ECS Fargate — `clamav` | 1 vCPU / 2 GB, 1 task | ~$41 |
-| RDS PostgreSQL — `aims-staging` | db.t4g.micro, single-AZ, 20 GB gp3, 7-day automated backups | ~$17 |
-| RDS PostgreSQL — `keycloak-staging` | db.t4g.micro, single-AZ, 20 GB gp3 | ~$17 |
-| Application Load Balancer | 1 ALB, ~2 LCU average | ~$28 |
-| NAT Gateway | 1, low data volume | ~$44 |
-| S3 | ~20–40 GB incl. versioning, SSE-KMS | ~$3 |
-| EFS | ClamAV virus-DB volume, <5 GB | ~$2 |
-| Secrets Manager | ~9 secrets | ~$4 |
-| CloudWatch Logs | 5 log groups, ~5 GB/month ingestion, few alarms | ~$5 |
-| Route 53 hosted zone | 1 (if DNS delegated to AWS) | ~$1 |
-| ECR | 3–4 repositories, small images | ~$1 |
-| Misc data transfer | | ~$2 |
-| **Total (24/7)** | | **~$255/month** |
+| ECS Fargate tasks (all 5 services) | **$0** when the service's `desired_count` is set to 0 | Fargate bills running task vCPU/GB-hours only; the largest single lever (~$135/mo of the ~$252 total) |
+| RDS **compute** (both instances) | **$0**, but only temporarily | Confirmed against AWS's own RDS stop/start documentation (`docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_StopInstance.html`): stopping a DB instance halts instance-hour billing, but AWS **automatically restarts it after 7 consecutive days** if nobody manually starts it first — so this is a repeating "stop again every week" chore, not a set-and-forget savings, unless a scheduled automation (e.g. Lambda/EventBridge) re-stops it. |
+| RDS **storage + backups** (both instances) | **Continues even while stopped** | Per the same AWS documentation: provisioned storage and backup/snapshot storage (within the retention window) are billed regardless of whether the instance is running or stopped — stopping an instance reduces, but does not eliminate, its cost. No new automated backups are taken while stopped. |
+| Application Load Balancer | **Continues** (hourly + LCU) | No "stop" state exists; only deletion removes the charge, which also drops the DNS/ACM setup and needs re-validation on recreation |
+| NAT Gateway | **Continues** (hourly) | Same — no stop/start, only delete/recreate |
+| EFS | **Continues** (storage, small) | Independent of ECS task state |
+| S3 | **Continues** (storage) | Independent |
+| Secrets Manager | **Continues** (flat per-secret fee) | Independent of usage |
+| CloudWatch Logs | Ingestion drops to ~0 if nothing is running; existing log storage cost continues (small) | |
+| ECR / Route 53 | **Continues** (both small, flat) | Independent |
+
+**Practical read**: stopping ECS services + RDS overnight/weekends realistically saves the Fargate line (~$135/mo) plus most of the RDS compute line (~$26/mo of the ~$34 RDS total — storage/backup cost persists regardless), roughly half the total — but the RDS side needs a weekly re-stop (or scheduled automation) because of the 7-day auto-restart, not a single toggle. ALB + NAT Gateway (~$70/mo combined) keep billing regardless of any stop/start action, since neither has a "stop" state — only deleting them removes the charge, which is a bigger operational step (ACM re-validation, DNS re-pointing) and only worth it if Staging truly sits idle for extended periods rather than nights/weekends.
 
 **Cost-reduction options, in order of impact** (not applied by default; ask
 before adopting):
-1. Stop all ECS services outside agreed test windows (e.g. business hours
-   only, ~50% of hours) — cuts the ~$134/month Fargate line roughly in half;
-   RDS can also be stopped for up to 7 days at a time (auto-restarts after),
-   which helps for a staging environment not tested daily.
+1. Stop all ECS services outside agreed test windows and stop both RDS
+   instances alongside them (see table above) — the only levers with no
+   architectural downside.
 2. Collapse `keycloak-staging` onto the `aims-staging` RDS instance as a
    second database (saves ~$17/month) at the cost of shared blast radius
    between identity and financial data infrastructure — **not recommended**
    given the explicit isolation decision in §0, but noted as a lever if
    budget is the binding constraint.
-3. Drop to a single public+private subnet (no true Multi-AZ) if ALB
-   redundancy is not required for staging — marginal savings, not
-   recommended (ALB Multi-AZ is effectively free; the constrained resource is
-   the single NAT Gateway, already the cheapest option).
+3. Tear down the whole environment (`terraform destroy`) between extended
+   idle periods to also stop ALB/NAT billing — only worth the ACM/DNS churn
+   if Staging is idle for weeks at a time, not nightly.
 
 ## 7. Open items — need your input before any resource is created
 

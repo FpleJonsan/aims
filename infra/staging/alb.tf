@@ -12,7 +12,7 @@ resource "aws_lb" "staging" {
 }
 
 resource "aws_acm_certificate" "staging" {
-  domain_name = "*.${var.staging_domain}"
+  domain_name               = "*.${var.staging_domain}"
   subject_alternative_names = [var.staging_domain]
   validation_method         = "DNS"
 
@@ -111,6 +111,11 @@ resource "aws_lb_target_group" "keycloak" {
   vpc_id      = aws_vpc.staging.id
   target_type = "ip"
   health_check {
+    # Keycloak 24+ serves /health/ready on the separate management listener
+    # (port 9000 here, enabled via KC_HEALTH_ENABLED in ecs-services.tf), not
+    # on the main traffic port — found in review; the first draft
+    # health-checked port 8080, which would never return the expected path.
+    port                = "9000"
     path                = "/health/ready"
     healthy_threshold   = 2
     unhealthy_threshold = 3

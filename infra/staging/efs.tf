@@ -32,6 +32,13 @@ resource "aws_efs_mount_target" "clamav_db" {
   security_groups = [aws_security_group.efs.id]
 }
 
+# uid/gid 100/101 are an assumption (a common convention for a "clamav"
+# system account), NOT verified against the actual clamav_image's runtime
+# user — found in review. If the chosen image runs clamd as a
+# different uid/gid (or as root), this access point's POSIX enforcement will
+# cause permission-denied errors on mount. Verify with
+# `docker run --rm <clamav_image> id clamav` (or equivalent) before first
+# deploy and correct these values if they differ.
 resource "aws_efs_access_point" "clamav_db" {
   file_system_id = aws_efs_file_system.clamav_db.id
 
