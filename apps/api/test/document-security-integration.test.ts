@@ -105,3 +105,35 @@ test('historical evidence stays downloadable, immutable and excluded from active
     await assert.rejects(documents.downloadHistorical(draft.id,untrusted.id,requester,'history-untrusted-denied'),/historical document not found/);
   }finally{await worker.close();await db.onModuleDestroy();await rm(root,{recursive:true,force:true})}
 });
+
+test('duplicate active document upload is rejected with a safe domain error, not the raw PostgreSQL constraint',async()=>{
+  const {ConflictException}=await import('@nestjs/common');
+  const root=await mkdtemp(path.join(os.tmpdir(),'aims-duplicate-document-'));
+  const db=new Postgres(),requests=new PaymentRequestService(db);
+  const storage=new LocalDocumentStorage({rootPath:root,maxUploadBytes:10_485_760,allowedContentTypes:new Set(['application/pdf']),demoMode:true});
+  const documents=new PaymentDocumentService(db,requests,storage);
+  try{
+    const request=await requests.initiate(requester,'duplicate-document-init');
+    const first=await documents.upload(request.id,file('invoice.pdf','identical content'),'INVOICE',requester,'duplicate-document-first') as {id:string;sha256:string};
+    assert.ok(first.id);
+
+    await assert.rejects(
+      ()=>documents.upload(request.id,file('invoice-again.pdf','identical content'),'INVOICE',requester,'duplicate-document-second'),
+      (error:unknown)=>{
+        assert.ok(error instanceof ConflictException,`expected ConflictException, got ${String(error)}`);
+        const message=(error as InstanceType<typeof ConflictException>).message;
+        assert.equal(message,'The same document is already attached');
+        assert.doesNotMatch(message,/payment_documents_active_hash_idx/i);
+        assert.doesNotMatch(message,/duplicate key value violates/i);
+        assert.doesNotMatch(message,/constraint/i);
+        assert.doesNotMatch(message,/SQLSTATE|23505/i);
+        return true;
+      },
+    );
+
+    const active=await db.pool.query('SELECT id,sha256 FROM payment_documents WHERE payment_request_id=$1 AND removed_at IS NULL',[request.id]);
+    assert.equal(active.rowCount,1);assert.equal(active.rows[0].id,first.id);assert.equal(active.rows[0].sha256,first.sha256);
+    const all=await db.pool.query('SELECT count(*)::int count FROM payment_documents WHERE payment_request_id=$1',[request.id]);
+    assert.equal(all.rows[0].count,1);
+  }finally{await db.onModuleDestroy();await rm(root,{recursive:true,force:true})}
+});
