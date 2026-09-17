@@ -18,7 +18,7 @@ in this document.
 | Latest migration | `071_p20_7a_enterprise_ui_contracts` |
 | Current branch | `main` |
 | Last verified commit | `0a03c2c` |
-| Staging S0 status | PLAN + REVIEWED AND FIXED (templates only) — environment plan, Terraform templates, a review that found and fixed several real template defects, and adapter implementation plans drafted (`docs/production/staging-s0-environment-plan.md`, `docs/production/staging-s0-review-findings.md`, `infra/staging/`); `terraform validate` passes cleanly (static configuration check only — no AWS credentials were used, so a full deployment plan is still unverified); no AWS resource created, no migration run, no identity/storage/scanner adapter implemented; Staging is NOT deployed; Overall Production ready remains NO |
+| Staging S0 status | PLAN + REVIEWED AND FIXED (templates only) — environment plan, Terraform templates, a review that found and fixed several real template defects, and adapter implementation plans drafted (`docs/production/staging-s0-environment-plan.md`, `docs/production/staging-s0-review-findings.md`, `infra/staging/`); `terraform validate` passes cleanly (static configuration check only — no AWS credentials were used, so a full deployment plan is still unverified). Adapters (Storage → Scanner → Identity): **Storage (S3DocumentStorage) implemented and unit-tested, pending user review**; Scanner (ClamAV) and Identity (Keycloak) NOT implemented. No AWS resource created, no migration run, not connected to real AWS, Staging is NOT deployed; Overall Production ready remains NO |
 | P6 database architecture | PASS |
 | P6 disposable role proof | PASS |
 | P6 local role hardening | PASS |
@@ -2391,3 +2391,147 @@ per `staging-s0-review-findings.md` §7. Each adapter implementation is its
 own separately reviewed change; Step 2 (creating the actual isolated AWS
 environment) still needs the open items in the main plan's §7 (AWS account,
 region, domain, budget, remote Terraform state backend) resolved first.
+
+### 2026-09-18 — Storage adapter implemented: S3DocumentStorage (Step 3, first of three: Storage → Scanner → Identity)
+
+Status: IMPLEMENTED AND UNIT-TESTED — NOT CONNECTED TO REAL AWS, NO MIGRATION RUN, NOT DEPLOYED, PENDING USER REVIEW (not an independent sign-off/freeze)
+
+Starting Commit: `2411f8e`
+
+Ending Commit: NOT COMMITTED (working tree change only; commit is the user's decision)
+
+Schema: 71 → 71 (no migration change)
+
+Summary:
+- Added `apps/api/src/infrastructure/storage/s3-document-storage.ts`:
+  `S3DocumentStorage implements DocumentStorage`
+  (`apps/api/src/infrastructure/storage/document-storage.ts`), backed by
+  `@aws-sdk/client-s3` (added as a new dependency; no new vulnerabilities —
+  confirmed via `npm audit`, pre-existing findings are unrelated `multer`/
+  `@nestjs/*`/`qs` advisories). Design choices, each preserving an existing
+  contract from `docs/production/p13-3-1-storage-object-version-binding.md`:
+  - `backendId` is the fixed constant `S3_BACKEND_ID = "aws-s3"` (mirrors
+    `LocalDocumentStorage`'s `"local-development"`), persisted per-document
+    by the existing API upload path exactly as it already does for local.
+  - `objectVersion` is the real S3 `VersionId` returned on write (not a
+    synthetic value) — the adapter fails closed with a clear error if S3
+    ever returns no `VersionId` (i.e. the bucket is not actually versioned),
+    on every write path: `storeQuarantined`, `promoteQuarantined`, and
+    `listPage`'s per-key enumeration.
+  - `sha256` is computed client-side while streaming (same bounded-size,
+    magic-byte, and container-ending validation as local — see next bullet)
+    and independently re-verified via S3's native `ChecksumSHA256` feature
+    on every subsequent `read`/`metadata`/promotion-proof call — a later
+    check never merely trusts the value recorded at upload time.
+  - `promoteQuarantined` re-reads and re-verifies the quarantined source
+    before promoting (matching local), then — because S3 has no
+    filesystem-style `EEXIST` on write (copying to an existing key just
+    creates a new version) — explicitly checks the destination first:
+    absent → `CopyObjectCommand`; present with matching identity → idempotent
+    success with no new version created; present with mismatched identity →
+    `"Existing promoted document identity mismatch"`, matching local's
+    conflict behavior exactly. After every real copy, an independent
+    `HeadObject` re-derives and compares identity before returning — the
+    write response alone is never trusted.
+  - `listPage` uses S3 `ListObjectsV2` with `StartAfter`/`IsTruncated` so the
+    cursor contract stays an identical plain "last key returned" string, the
+    same as the local adapter's, at the cost of one `HeadObject` per
+    returned key to obtain its `VersionId` (`ListObjectsV2` does not return
+    version identity) — accepted since this method serves P12 audit/
+    recovery enumeration, not the upload/scan hot path.
+- Extracted `apps/api/src/infrastructure/storage/document-content-validation.ts`
+  from `local-document-storage.ts` (magic-byte signatures, container-ending
+  checks, `MAX_UPLOAD_BYTES`/`ALLOWED_UPLOAD_TYPES` parsing) so the S3
+  adapter reuses the exact same security-sensitive validation instead of a
+  second, potentially drifting copy. `LocalDocumentStorage` was refactored
+  to import from the shared module; its own 21 existing tests were re-run
+  and still pass unchanged, confirming no behavior change from the
+  extraction.
+- Wired the adapter into
+  `apps/api/src/infrastructure/configuration/provider-boundary.ts`:
+  `createDocumentStorage`'s `driver === "object"` branch now constructs
+  `S3DocumentStorage` (previously threw
+  `APPROVED_OBJECT_STORAGE_PROVIDER_NOT_IMPLEMENTED`) — this single factory
+  is shared by all three entry points the P13 deployment audit named
+  (`app.module.ts`, `worker-main.ts`, `recovery-check-main.ts`), so all three
+  now construct a real adapter with no per-entry-point change needed.
+  `providerReadiness("storage", …)` now reports `"object"` as implemented
+  rather than `"approved provider not implemented"` (the scanner category's
+  readiness is unchanged — ClamAV is still not implemented).
+  `production-config.ts`'s existing requirement that protected environments
+  set `STORAGE_DRIVER=object` was not changed (it already required this;
+  it previously just had no real adapter to construct).
+- Added `apps/api/src/infrastructure/storage/s3-document-storage.ts`'s
+  `loadS3StorageConfig`: requires `STORAGE_DRIVER=object`, `S3_BUCKET`,
+  `S3_REGION`, plus the same `MAX_UPLOAD_BYTES`/`ALLOWED_UPLOAD_TYPES`
+  bounds as local. No AWS credential is read from configuration anywhere —
+  the constructor accepts an `S3Client` (real or test-injected) that
+  resolves credentials the normal AWS SDK way (an IAM task role in ECS per
+  `docs/production/staging-s0-environment-plan.md` §5, never a static
+  access key). Documented the two new variables in `.env.example`.
+- Added `apps/api/test/s3-storage.test.ts`: 24 unit tests against
+  `aws-sdk-client-mock` (added as a new dev dependency) covering the full
+  contract plus failure/adversarial cases — config validation; store
+  success and every existing content-safety rejection reused from local
+  (unsupported type, empty document, oversized document, signature
+  mismatch, invalid container ending); missing-`VersionId` fail-closed on
+  write; read/readQuarantined version-mismatch and hash-tamper rejection;
+  backend-mismatch and out-of-zone rejection *without contacting S3* (a
+  spy-verified assertion, not just an error-message check); metadata
+  version/checksum/size mismatches; `exists` true/false/rethrows-on-
+  unexpected-error (fails closed rather than reporting false); promotion
+  happy path, idempotent-match, conflicting-destination, source-size
+  mismatch (rejected before any destination I/O), and — the most
+  security-relevant case — a simulated inconsistent post-copy read that
+  still fails the promotion despite the copy itself having "succeeded";
+  abort-signal honored before I/O; paginated listing (truncated/complete/
+  bounds-rejected/missing-VersionId); and two explicit network/service
+  failure-propagation tests proving errors are never silently swallowed.
+  Registered the new file in `apps/api/package.json`'s `test` and
+  `test:storage` scripts.
+
+Explicitly NOT changed: SQL migrations, database state, the Scanner
+(ClamAV) or Identity (Keycloak) adapters (still unimplemented — Scanner is
+next per the agreed Storage → Scanner → Identity order, and Identity gets
+its own login/session/authority-mapping design review before any code, per
+explicit instruction), any frozen business/workflow/financial/AI/
+authorization rule, `production-config.ts`'s validation rules themselves,
+or anything in `infra/staging/`. No AWS account was accessed and no real S3
+bucket was ever contacted — every test runs entirely against
+`aws-sdk-client-mock`.
+
+Verification:
+- `npm run typecheck` (root — frontend + `@aims/api`): clean, 0 errors.
+- `npm run lint` (root): 0 new findings; the one pre-existing error/warning
+  pair in `docs/competition-deck/generate-deck.js` is unrelated and
+  untouched by this change.
+- `npm run test:storage --workspace @aims/api`: 45/45 pass (21 existing
+  local-storage tests unchanged + 24 new S3 tests).
+- `npm test --workspace @aims/api` (full aggregate, 337 tests): passed
+  337/337 on the run used for sign-off. An earlier run showed 1 failure in
+  `observability.test.js` ("AI, Payment, and Telegram representative
+  failures keep raw canaries out of telemetry") — verified this is a
+  **pre-existing, unrelated flake**, not a regression from this change: (a)
+  it matches the "遥测敏感数据 canary 断言失败，根因待确认" failure already
+  reported before this session's work began; (b) the same test passed 3/3
+  when re-run in isolation with this change present; (c) stashing every
+  change from this change and re-running the same test in isolation on the
+  bare base commit also passed — the failure is not reproducible on demand
+  in either tree, consistent with pre-existing flakiness (root cause still
+  unconfirmed) rather than something this change introduced.
+- `npm run build --workspace @aims/api`: clean.
+
+Frozen: NOT frozen — this is an implementation ready for the user's review,
+not an independent-review sign-off/closure in the P6–P20 sense. No claim of
+Staging readiness follows from this entry.
+
+Commit Readiness: Code and test changes are commit-ready pending user
+review; per instruction this is committed as its own change with its own
+verification results, separate from Scanner and Identity.
+
+Next: User reviews this Storage adapter. Upon approval, proceed to the
+Scanner (ClamAV) adapter next, per the agreed Storage → Scanner → Identity
+order — each its own independently reviewed commit. Identity (Keycloak)
+requires a separate login/session/authority-mapping design review before
+any implementation begins. Still not connected to real AWS, no database
+migration, not deployed; Overall Production ready remains NO.

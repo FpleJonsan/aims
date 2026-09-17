@@ -2,6 +2,7 @@ import type { DocumentMalwareScanner } from "../../application/documents/documen
 import { DeterministicLocalMalwareScanner } from "../security/deterministic-local-malware-scanner.js";
 import type { DocumentStorage } from "../storage/document-storage.js";
 import { LocalDocumentStorage, loadLocalStorageConfig } from "../storage/local-document-storage.js";
+import { S3DocumentStorage, loadS3StorageConfig } from "../storage/s3-document-storage.js";
 import { assertUnprotectedAdapter, classifyAimsEnvironment } from "./aims-environment.js";
 
 export type ProviderReadiness = { status: "ready" | "not_ready"; detail: string };
@@ -27,10 +28,10 @@ export function createDocumentStorage(
     assertUnprotectedAdapter("STORAGE_PROVIDER", environment);
     return new LocalDocumentStorage(loadLocalStorageConfig(environment, applicationRoot), environment);
   }
-  const classification = classifyAimsEnvironment(environment);
-  if (driver === "object" && classification.protected) {
-    throw new Error("APPROVED_OBJECT_STORAGE_PROVIDER_NOT_IMPLEMENTED");
+  if (driver === "object") {
+    return new S3DocumentStorage(loadS3StorageConfig(environment));
   }
+  const classification = classifyAimsEnvironment(environment);
   throw new Error(
     classification.protected
       ? "PROTECTED_ENVIRONMENT_APPROVED_STORAGE_PROVIDER_REQUIRED"
@@ -66,8 +67,12 @@ export function providerReadiness(
     const driver = category === "storage" ? environment.STORAGE_DRIVER : environment.MALWARE_SCANNER_DRIVER;
     const local = category === "storage" ? driver === "local" : driver === "deterministic-local";
     const selected = category === "storage" ? driver === "object" : driver === "provider";
+    // storage's "object" driver now has a real adapter (S3DocumentStorage); scanner's
+    // "provider" driver does not yet (ClamAV adapter is separate, not-yet-implemented work).
+    const implemented = category === "storage";
     if (local && !classification.protected) return { status: "ready", detail: `${category} development adapter` };
     if (local) return { status: "not_ready", detail: `${category} unsafe adapter rejected` };
+    if (selected && implemented) return { status: "ready", detail: `${category} object adapter configured` };
     if (selected && classification.protected) return { status: "not_ready", detail: `${category} approved provider not implemented` };
     return { status: "not_ready", detail: `${category} provider not configured` };
   } catch {
